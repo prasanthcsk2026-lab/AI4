@@ -13,7 +13,7 @@ function pendingIsZero(p) {
   return (!p.dpos || p.dpos.length() < 5e-4) && (!p.drot || Math.abs(p.drot.w) > 0.99999) && Math.abs(p.dswivel || 0) < 0.05;
 }
 function keyPending() {
-  const p = pending; if (!p) return;
+  const p = redirectMirrored(pending); if (!p) return;
   pending = null;
   if (pendingIsZero(p)) { updateGizPanel(); return; }
   pushUndo();

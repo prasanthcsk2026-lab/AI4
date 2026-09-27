@@ -161,6 +161,7 @@ function normalizeAuto(a) {
 function loadStore() { try { return JSON.parse(localStorage.getItem(STORE) || 'null') || { clips: {} }; } catch { return { clips: {} }; } }
 let store = loadStore(), saveTimer = 0;
 function save() {
+  syncMirrors();
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -339,9 +340,19 @@ function selectClip(id) {
   moveEndCache = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
-function removeBone(name) { pushUndo(); delete A.bones[name]; A.order = A.order.filter((n) => n !== name); rebuildRows(); save(); updateSelChip(); }
-function removeGroup(gid) { pushUndo(); delete A.groups[gid]; A.groupOrder = A.groupOrder.filter((n) => n !== gid); rebuildRows(); save(); updateSelChip(); }
-function removeEff(id) { pushUndo(); delete A.ik[id]; A.ikOrder = A.ikOrder.filter((n) => n !== id); rebuildRows(); save(); updateSelChip(); }
+// removing a linked source removes its twin too; removing a twin just ends the link
+function removeLinked(type, map, orderKey, key) {
+  pushUndo();
+  const it = map[key], to = partnerOf(type, key);
+  const gone = [key]; if (it && it.mirror && to && map[to] && map[to].mirrorOf === key) gone.push(to);
+  if (it && it.mirrorOf && map[it.mirrorOf]) delete map[it.mirrorOf].mirror;
+  for (const k of gone) delete map[k];
+  A[orderKey] = A[orderKey].filter((n) => !gone.includes(n));
+  rebuildRows(); save(); updateSelChip();
+}
+function removeBone(name) { removeLinked('bone', A.bones, 'order', name); }
+function removeGroup(gid) { removeLinked('group', A.groups, 'groupOrder', gid); }
+function removeEff(id) { removeLinked('eff', A.ik, 'ikOrder', id); }
 
 function selectBone(name) { S.selected = name; S.selEff = null; S.selGroup = null; afterSelect(); }
 function selectEff(id) { S.selEff = id; S.selected = null; S.selGroup = null; afterSelect(); }
@@ -356,6 +367,11 @@ const BONE_TRACKS = [
   ['timing', 'Timing offset (% of cycle)'],
 ];
 function openAddDialog(target, existingShow) {
+  {   // a linked twin is edited through its source
+    const map = target.type === 'eff' ? A.ik : target.type === 'group' ? A.groups : A.bones, key = target.type === 'bone' ? target.name : target.id;
+    const it = map[key];
+    if (it && it.mirrorOf) { target = target.type === 'bone' ? { type: 'bone', name: it.mirrorOf } : { type: target.type, id: it.mirrorOf }; existingShow = map[it.mirrorOf].show; }
+  }
   const dlg = $('addDlg'); dlg.hidden = false;
   const isEff = target.type === 'eff', isGrp = target.type === 'group', def = isEff ? EFF_BY_ID[target.id] : null;
   $('addDlgName').textContent = isEff ? def.label : isGrp ? groupLabel(target.id) : target.name;
@@ -373,29 +389,43 @@ function openAddDialog(target, existingShow) {
     cb.checked = existingShow ? !!existingShow[key] : defaults.includes(key);
     row.append(cb, document.createTextNode(label)); box.append(row); boxes[key] = cb;
   }
+  // linked mirror: the other side follows every edit
+  const type = isGrp ? 'group' : isEff ? 'eff' : 'bone', key = isGrp || isEff ? target.id : target.name;
+  const twin = partnerLabel(type, key);
+  let mcb = null;
+  if (twin) {
+    const map = isGrp ? A.groups : isEff ? A.ik : A.bones, to = partnerOf(type, key), own = map[to] && !map[to].mirrorOf;
+    const row = document.createElement('label'); row.className = 'checkrow mirrorrow';
+    mcb = document.createElement('input'); mcb.type = 'checkbox'; mcb.checked = !!(map[key] && map[key].mirror);
+    row.append(mcb, document.createTextNode(`Mirror → ${twin} (linked: every edit here applies to both sides${own ? '; replaces its own tracks' : ''})`));
+    box.append(row);
+  }
   const ok = $('addDlgOk'), cancel = $('addDlgCancel');
   ok.textContent = existingShow ? 'Apply' : 'Add';
   ok.onclick = () => {
     const show = {}; for (const k in boxes) show[k] = boxes[k].checked;
     if (!Object.values(show).some(Boolean)) show[defaults[0]] = true;
     dlg.hidden = true;
-    if (isGrp) commitAddGroup(target.id, show); else if (isEff) commitAddEff(target.id, show); else commitAddBone(target.name, show);
+    const mirror = !!(mcb && mcb.checked);
+    if (isGrp) commitAddGroup(target.id, show, mirror); else if (isEff) commitAddEff(target.id, show, mirror); else commitAddBone(target.name, show, mirror);
   };
   cancel.onclick = () => { dlg.hidden = true; };
   dlg.onkeydown = (e) => { if (e.key === 'Escape') dlg.hidden = true; if (e.key === 'Enter') ok.click(); };
   ok.focus();
 }
-function commitAddBone(name, show) {
+function commitAddBone(name, show, mirror) {
   pushUndo();
   if (!A.bones[name]) { A.bones[name] = newBoneAuto(S.dur); A.order.push(name); }
   A.bones[name].show = show;
+  setMirrorLink('bone', name, mirror);
   selectBone(name); save();
   const r = document.querySelector(`[data-bone="${CSS.escape(name)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
 }
 const GROUP_TRACKS = [['weight', 'Group weight (× every bone in the group)'], ['timing', 'Group timing offset (% of cycle, + every bone)']];
-function commitAddGroup(gid, show) {
+function commitAddGroup(gid, show, mirror) {
   pushUndo();
   ensureGroup(gid).show = show;
+  setMirrorLink('group', gid, mirror);
   selectGroup(gid); save();
   const r = document.querySelector(`[data-group="${CSS.escape(gid)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
 }
@@ -403,9 +433,10 @@ function ensureGroup(gid) {
   if (!A.groups[gid]) { A.groups[gid] = newGroupAuto(S.dur); A.groupOrder.push(gid); }
   return A.groups[gid];
 }
-function commitAddEff(id, show) {
+function commitAddEff(id, show, mirror) {
   pushUndo();
   ensureEff(id).show = show;
+  setMirrorLink('eff', id, mirror);
   selectEff(id); save();
   const r = document.querySelector(`[data-eff="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
 }

@@ -104,6 +104,11 @@
   .row.eff .h { background: #13191a; }
   .row.eff.selected .h { box-shadow: inset 3px 0 0 #5fd3a8; }
   .tag { opacity: .75; pointer-events: none; }
+  .mirtag { font: 700 12px var(--mono); color: #e58ad6; flex: none; }
+  .row.twin { background: #181418; }
+  .row.twin .h { background: #181418; }
+  .row.twin .name { color: var(--muted); }
+  .mirrorrow { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--line); color: #e58ad6; }
   .grptag { font: 700 10px var(--display); letter-spacing: .1em; color: #0b1422; background: #7fb7ff; border-radius: 3px; padding: 1px 4px; }
   .row.grp { background: #131820; }
   .row.grp .h { background: #131820; }

@@ -38,16 +38,16 @@ function exportObj() {
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
       return {
-        bone: n, axes: Object.fromEntries(AXES.map((a) => [a, axisInfo[n] && axisInfo[n][a] ? axisInfo[n][a].long : ''])), show: ba.show, with_children: !!ba.withChildren,
+        bone: n, mirror: !!ba.mirror, mirror_of: ba.mirrorOf, axes: Object.fromEntries(AXES.map((a) => [a, axisInfo[n] && axisInfo[n][a] ? axisInfo[n][a].long : ''])), show: ba.show, with_children: !!ba.withChildren,
         whole_weight_pct: P(ba.whole, 100), weight_pct: { x: P(ba.w.x, 100), y: P(ba.w.y, 100), z: P(ba.w.z, 100) },
         adjust_deg: { x: P(ba.a.x), y: P(ba.a.y), z: P(ba.a.z) }, timing_pct: P(ba.timing, 100),
       };
     }),
-    groups: A.groupOrder.filter((gid) => A.groups[gid]).map((gid) => ({ group: gid, label: groupLabel(gid), bones: [...groupMembers(gid)], show: A.groups[gid].show, weight_pct: P(A.groups[gid].weight, 100), timing_pct: P(A.groups[gid].timing, 100) })),
+    groups: A.groupOrder.filter((gid) => A.groups[gid]).map((gid) => ({ group: gid, mirror: !!A.groups[gid].mirror, mirror_of: A.groups[gid].mirrorOf, label: groupLabel(gid), bones: [...groupMembers(gid)], show: A.groups[gid].show, weight_pct: P(A.groups[gid].weight, 100), timing_pct: P(A.groups[gid].timing, 100) })),
     ik: A.ikOrder.filter((id) => A.ik[id]).map((id) => {
       const e = A.ik[id], tracks = {};
       for (const k of EFF_BY_ID[id].tracks) tracks[k] = P(e.tr[k], TRK[k].fmt === pct ? 100 : 1);
-      return { effector: id, label: EFF_BY_ID[id].label, show: e.show, tracks };
+      return { effector: id, mirror: !!e.mirror, mirror_of: e.mirrorOf, label: EFF_BY_ID[id].label, show: e.show, tracks };
     }),
     view: { heights: A.heights, zoom: A.zoom },
   };
@@ -71,12 +71,14 @@ function importObj(o) {
     ba.timing = P(b.timing_pct, 100) || ba.timing;
     if (b.hips_offset_cm) ba.hipsPos = { x: P(b.hips_offset_cm.x) || flat(0, d), y: P(b.hips_offset_cm.y) || flat(0, d), z: P(b.hips_offset_cm.z) || flat(0, d) };   // format 2
     ba.show = b.show || { whole: true }; ba.withChildren = !!b.with_children;
+    if (b.mirror) ba.mirror = true; if (b.mirror_of) ba.mirrorOf = b.mirror_of;
     n.bones[b.bone] = ba; n.order.push(b.bone);
   }
   for (const g of o.groups || []) {
     if (!g.group || !(GROUP_DEFS.some((d) => d.id === g.group) || (g.group.startsWith('sub:') && boneIdx.has(g.group.slice(4))))) continue;
     const ga = newGroupAuto(d);
     ga.weight = P(g.weight_pct, 100) || ga.weight; ga.timing = P(g.timing_pct, 100) || ga.timing; if (g.show) ga.show = g.show;
+    if (g.mirror) ga.mirror = true; if (g.mirror_of) ga.mirrorOf = g.mirror_of;
     n.groups[g.group] = ga; n.groupOrder.push(g.group);
   }
   for (const f of o.ik || []) {
@@ -84,6 +86,7 @@ function importObj(o) {
     const e = newEffAuto(f.effector, d);
     for (const k of EFF_BY_ID[f.effector].tracks) e.tr[k] = P(f.tracks && f.tracks[k], TRK[k].fmt === pct ? 100 : 1) || e.tr[k];
     if (f.show) e.show = f.show;
+    if (f.mirror) e.mirror = true; if (f.mirror_of) e.mirrorOf = f.mirror_of;
     n.ik[f.effector] = e; n.ikOrder.push(f.effector);
   }
   if (o.view) { n.heights = o.view.heights || {}; n.zoom = o.view.zoom || {}; }
@@ -208,5 +211,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, selectGroup, GROUP_DEFS };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

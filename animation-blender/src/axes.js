@@ -91,19 +91,9 @@ function mirrorPair(name) {
   const target = mirrorName(name);
   if (!target || !boneIdx.has(target)) return;
   const src = A.bones[name]; if (!src) return;
-  pushUndo();
-  const dst = ensureBone(target);
-  const labS = axisInfo[name] || {}, labD = axisInfo[target] || {};
-  dst.whole = clonePts(src.whole); dst.withChildren = src.withChildren; dst.timing = clonePts(src.timing);
-  const show = { whole: src.show.whole, timing: src.show.timing };
-  for (const sa of AXES) {
-    const m = labS[sa] ? mirrorAxis(labS[sa], labD) : null;
-    const [da, sign] = m || [sa, 1];
-    dst.w[da] = clonePts(src.w[sa]);
-    dst.a[da] = clonePts(src.a[sa], sign);
-    show['w' + da] = src.show['w' + sa]; show['a' + da] = src.show['a' + sa];
-  }
-  dst.show = show;
+  pushUndo();   // a one-time copy (the linked mirror keeps copying after every edit)
+  if (!A.bones[target]) A.order.push(target);
+  A.bones[target] = mirrorBoneCopy(name, target);
   rebuildRows(); save(); if (window.__slRebuildTree) window.__slRebuildTree();
 }
 

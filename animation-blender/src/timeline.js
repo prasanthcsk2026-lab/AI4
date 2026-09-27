@@ -61,10 +61,11 @@ function rebuildRows() {
   // groups (weights multiply into every bone they hold)
   for (const gid of A.groupOrder) {
     const g = A.groups[gid]; if (!g) continue;
+    if (g.mirrorOf) { twinRow('group', gid, groupLabel(gid)); continue; }
     const hr = mkRow('bone grp' + (S.selGroup === gid ? ' selected' : ''));
     Object.assign(hr, { kind: 'group', group: gid });
     hr.el.dataset.group = gid;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!g.collapsed}" title="Show / hide tracks">${g.collapsed ? '▸' : '▾'}</button><span class="grptag">GRP</span><span class="name" title="Select (highlights its bones) · right-click for options"></span><button type="button" class="mini" data-act="del" title="Remove this group from the timeline">×</button>`;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!g.collapsed}" title="Show / hide tracks">${g.collapsed ? '▸' : '▾'}</button><span class="grptag">GRP</span><span class="name" title="Select (highlights its bones) · right-click for options"></span>${g.mirror ? '<span class="mirtag" title="Linked mirror">⇄</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this group from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = groupLabel(gid);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeGroup(gid);
@@ -80,10 +81,12 @@ function rebuildRows() {
   // FK bones
   for (const name of A.order) {
     const ba = A.bones[name]; if (!ba) continue;
+    if (ba.mirrorOf) { twinRow('bone', name, name); continue; }
     const hr = mkRow('bone' + (S.selected === name ? ' selected' : ''));
     Object.assign(hr, { kind: 'bone', bone: name });
     hr.el.dataset.bone = name;
-    const chain = ba.withChildren ? ' <span class="mini tag" title="Multiplies into every descendant bone">⛓ children</span>' : '';
+    const mtag = ba.mirror ? ` <span class="mirtag" title="Linked mirror → ${mirrorName(name)}">⇄</span>` : '';
+    const chain = mtag + (ba.withChildren ? ' <span class="mini tag" title="Multiplies into every descendant bone">⛓ children</span>' : '');
     hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!ba.collapsed}" title="Show / hide tracks">${ba.collapsed ? '▸' : '▾'}</button><span class="name" title="Select in the viewport · right-click for options"></span>${chain}<button type="button" class="mini" data-act="del" title="Remove this bone from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = name;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { ba.collapsed = !ba.collapsed; rebuildRows(); save(); };
@@ -103,10 +106,11 @@ function rebuildRows() {
   // IK effectors
   for (const id of A.ikOrder) {
     const e = A.ik[id], d = EFF_BY_ID[id]; if (!e || !d) continue;
+    if (e.mirrorOf) { twinRow('eff', id, d.label); continue; }
     const hr = mkRow('bone eff' + (S.selEff === id ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">IK</span><span class="name" title="Select in the viewport · right-click for options"></span><button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">IK</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Linked mirror">⇄</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
@@ -305,6 +309,7 @@ function onLaneHover(e, r) {
   tip(e, `${t.toFixed(2)} s · ${r.fmt(evalPts(r.get(), t))}`);
 }
 function edited(r, live = false) {
+  if (live) syncMirrors();
   drawLane(r);
   if (r.key === 'speed') rebuildSpeedLUT();
   refreshSummary(r);
@@ -372,7 +377,8 @@ function openBoneMenu(e, name) {
     { label: 'Reset bone', action: () => { pushUndo(); const show = ba.show; A.bones[name] = newBoneAuto(S.dur); A.bones[name].show = show; rebuildRows(); save(); } },
     { label: 'Copy bone', action: () => { clipboard = { type: 'bone', data: JSON.parse(JSON.stringify(ba)) }; } },
     { label: 'Paste bone', disabled: !(clipboard && clipboard.type === 'bone'), action: () => { pushUndo(); const show = ba.show; A.bones[name] = JSON.parse(JSON.stringify(clipboard.data)); A.bones[name].show = show; rebuildRows(); save(); } },
-    { label: mirror ? ('Mirror → ' + mirror) : 'Mirror (no L/R pair)', disabled: !mirror, action: () => mirrorPair(name) },
+    { label: mirror ? ('Copy mirrored → ' + mirror) : 'Mirror (no L/R pair)', disabled: !mirror, action: () => mirrorPair(name) },
+    linkItem('bone', name),
     { label: 'Group: this bone + everything below', disabled: !rig.bones[boneIdx.get(name)].children.some((c) => c.isBone), action: () => (A.groups['sub:' + name] ? selectGroup('sub:' + name) : openAddDialog({ type: 'group', id: 'sub:' + name })) },
     { sep: true },
     { label: 'Remove bone', action: () => removeBone(name) },
@@ -381,15 +387,32 @@ function openBoneMenu(e, name) {
 function mirrorEffId(id) { return id[0] === 'L' ? 'R' + id.slice(1) : id[0] === 'R' ? 'L' + id.slice(1) : null; }
 function mirrorEff(id) {
   const to = mirrorEffId(id), src = A.ik[id]; if (!to || !src) return;
-  pushUndo();
-  const dst = ensureEff(to);
-  for (const k of EFF_BY_ID[id].tracks) {
-    // across the body's mid-plane: sideways moves and turns / rolls change sign
-    const flip = k === 'px' || k === 'ry' || k === 'rz' || k === 'swivel' ? -1 : 1;
-    dst.tr[k] = clonePts(src.tr[k], flip);
-  }
-  dst.show = { ...src.show };
+  pushUndo();   // a one-time copy (the linked mirror keeps copying after every edit)
+  if (!A.ik[to]) A.ikOrder.push(to);
+  A.ik[to] = mirrorEffCopy(id, to);
   rebuildRows(); save();
+}
+function linkItem(type, key) {
+  const map = type === 'bone' ? A.bones : type === 'group' ? A.groups : A.ik, it = map[key], twin = partnerLabel(type, key);
+  return { label: twin ? 'Linked mirror → ' + twin : 'Linked mirror (no L/R pair)', checked: !!(it && it.mirror), disabled: !twin, action: () => { pushUndo(); setMirrorLink(type, key, !it.mirror); rebuildRows(); save(); } };
+}
+// a linked twin: a read-only header row (edit the source; right-click to unlink)
+function twinRow(type, key, label) {
+  const map = type === 'bone' ? A.bones : type === 'group' ? A.groups : A.ik, it = map[key], src = it.mirrorOf;
+  const hr = mkRow('bone twin' + ((type === 'bone' && S.selected === key) || (type === 'eff' && S.selEff === key) || (type === 'group' && S.selGroup === key) ? ' selected' : ''));
+  Object.assign(hr, { kind: 'twin', type, key });
+  hr.el.dataset[type === 'eff' ? 'eff' : type] = key;
+  const srcLabel = type === 'eff' ? EFF_BY_ID[src].label : type === 'group' ? groupLabel(src) : src;
+  hr.h.innerHTML = `<span class="mirtag" title="Linked mirror">⇄</span><span class="name" title="Select · right-click to unlink"></span><button type="button" class="mini" data-act="del" title="Stop mirroring and remove this side">×</button>`;
+  hr.h.querySelector('.name').textContent = label;
+  hr.h.querySelector('.name').onclick = () => (type === 'bone' ? selectBone(key) : type === 'group' ? selectGroup(key) : selectEff(key));
+  hr.h.querySelector('[data-act="del"]').onclick = () => (type === 'bone' ? removeBone(key) : type === 'group' ? removeGroup(key) : removeEff(key));
+  hr.h.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, [
+    { label: 'Unlink (edit this side on its own)', action: () => { pushUndo(); setMirrorLink(type, src, false); rebuildRows(); save(); } },
+    { label: 'Remove this side', action: () => hr.h.querySelector('[data-act="del"]').click() },
+  ]); };
+  hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = `Mirror of ${srcLabel}: every edit there is applied here (mirrored). Gizmo changes here go back to ${srcLabel}.`;
+  tracksEl.append(hr.el); rows.push(hr);
 }
 function openGroupMenu(e, gid) {
   const g = A.groups[gid]; if (!g) return;
@@ -399,7 +422,8 @@ function openGroupMenu(e, gid) {
     { label: 'Select its bones in the viewport', action: () => selectGroup(gid) },
     { sep: true },
     { label: 'Reset group', action: () => { pushUndo(); const show = g.show; A.groups[gid] = newGroupAuto(S.dur); A.groups[gid].show = show; rebuildRows(); save(); } },
-    { label: to ? 'Mirror → ' + groupLabel(to) : 'Mirror (no L/R pair)', disabled: !to, action: () => { pushUndo(); const d = ensureGroup(to); d.weight = clonePts(g.weight); d.timing = clonePts(g.timing); d.show = { ...g.show }; rebuildRows(); save(); } },
+    { label: to ? 'Copy mirrored → ' + groupLabel(to) : 'Mirror (no L/R pair)', disabled: !to, action: () => { pushUndo(); if (!A.groups[to]) A.groupOrder.push(to); A.groups[to] = mirrorGroupCopy(gid); rebuildRows(); save(); } },
+    linkItem('group', gid),
     { sep: true },
     { label: 'Remove group', action: () => removeGroup(gid) },
   ]);
@@ -413,7 +437,8 @@ function openEffMenu(e, id) {
     { label: 'Reset effector', action: () => { pushUndo(); const show = ef.show; A.ik[id] = newEffAuto(id, S.dur); A.ik[id].show = show; rebuildRows(); save(); } },
     { label: 'Copy effector', action: () => { clipboard = { type: 'eff', kind: EFF_BY_ID[id].kind, data: JSON.parse(JSON.stringify(ef)) }; } },
     { label: 'Paste effector', disabled: !(clipboard && clipboard.type === 'eff' && clipboard.kind === EFF_BY_ID[id].kind), action: () => { pushUndo(); const show = ef.show; A.ik[id] = JSON.parse(JSON.stringify(clipboard.data)); A.ik[id].show = show; rebuildRows(); save(); } },
-    { label: to ? 'Mirror → ' + EFF_BY_ID[to].label : 'Mirror (no L/R pair)', disabled: !to, action: () => mirrorEff(id) },
+    { label: to ? 'Copy mirrored → ' + EFF_BY_ID[to].label : 'Mirror (no L/R pair)', disabled: !to, action: () => mirrorEff(id) },
+    linkItem('eff', id),
     { sep: true },
     { label: 'Remove effector', action: () => removeEff(id) },
   ]);
