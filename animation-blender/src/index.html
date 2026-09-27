@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Animation-Blender</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* @css */
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="bar">
+    <div class="brand"><b>Anim<span>/</span>Blender</b></div>
+    <div class="field"><label for="clipSel">Clip</label><select id="clipSel"></select></div>
+    <div class="field"><label for="durIn">Length s</label><input id="durIn" type="number" min="0.5" max="60" step="0.5" value="3"></div>
+    <div class="transport">
+      <button type="button" id="btnHome" title="Back to the start and the origin (Home)">⏮</button>
+      <button type="button" class="primary" id="btnPlay" title="Play / pause (Space)">Play</button>
+      <button type="button" id="btnLoop" aria-pressed="true" title="Loop the timeline">Loop</button>
+      <span class="clock" id="clock">0.00 / 3.00 s</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="io">
+      <button type="button" id="btnFootLock" title="Write foot hold (world lock) tracks from the clip's foot contacts">Auto foot-lock</button>
+      <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export</button>
+      <button type="button" id="btnImport" title="Load automation JSON">Import</button>
+      <button type="button" id="btnReset" title="Clear all automation for this clip">Reset clip</button>
+    </div>
+  </header>
+  <section class="view" id="view" aria-label="Character viewport">
+    <div class="overlay">
+      <div class="chip sel" id="selChip" hidden>
+        <div class="selhead"><span class="dot" id="selDot"></span><span><b id="selName"></b> <i id="selKind"></i></span><button type="button" class="mini" id="btnAddSel">Add to timeline</button></div>
+        <div class="axes" id="selAxes"></div>
+      </div>
+      <div class="chip hint" id="hintChip">Click a joint or an IK handle to select it · drag to orbit · wheel to zoom</div>
+      <div class="chip" id="gizPanel" hidden><span>Gizmo <b id="gizAxis">–</b></span><button type="button" class="mini" id="btnKey" title="Write the change into the tracks at the playhead">Key</button><button type="button" class="mini" id="btnGizCancel" title="Drop the change">Cancel</button></div>
+    </div>
+    <div class="viewbtns">
+      <div class="btngroup" role="group" aria-label="Gizmo">
+        <button type="button" id="btnGizRot" aria-pressed="false" title="Rotate the selected bone or IK handle (R)">Rotate</button>
+        <button type="button" id="btnGizMove" aria-pressed="false" title="Move the selected IK handle or the hips (W)">Move</button>
+        <button type="button" id="btnAutoKey" aria-pressed="true" title="Write gizmo changes into the tracks when you let go">Auto-key</button>
+      </div>
+      <div class="btngroup" role="group" aria-label="Show">
+        <button type="button" id="btnBones" aria-pressed="true" title="Show the skeleton">Bones</button>
+        <button type="button" id="btnIK" aria-pressed="true" title="Show the IK handles">IK</button>
+        <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline">Trail</button>
+        <button type="button" id="btnGhost" aria-pressed="false" title="Show the untouched clip as a ghost">Ghost</button>
+      </div>
+      <div class="btngroup" role="group" aria-label="World">
+        <button type="button" id="btnInPlace" aria-pressed="true" title="Off: the character travels with the clip's root motion">In place</button>
+        <button type="button" id="btnFollow" aria-pressed="true" title="The camera follows the character">Follow</button>
+        <button type="button" id="btnFrame" title="Put the camera back on the character (F)">Frame</button>
+      </div>
+    </div>
+    <div id="status"></div>
+    <div id="loading">Loading character and clips…</div>
+  </section>
+  <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
+  <section class="tl" aria-label="Automation timeline">
+    <div class="tl-head">
+      <div class="addbar"><button type="button" id="btnAddBone">Add bone…</button><button type="button" id="btnAddIK">Add IK…</button></div>
+      <canvas id="ruler" aria-label="Time ruler: click or drag to move the playhead"></canvas>
+    </div>
+    <div class="tracks" id="tracks"></div>
+  </section>
+</div>
+<div id="playhead"></div>
+<div id="tip" hidden></div>
+<div class="sheet" id="sheet" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <h2 id="sheetTitle">Export</h2>
+    <textarea id="sheetText" spellcheck="false" aria-label="Automation JSON"></textarea>
+    <div class="acts"><span class="note" id="sheetNote"></span><button type="button" id="sheetB4" hidden>Save for Claude</button><button type="button" id="sheetB5" hidden>Download glTF (.zip)</button><button type="button" id="sheetB1">Copy</button><button type="button" id="sheetB2">Download</button><button type="button" class="primary" id="sheetB3">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="boneDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="boneDlgTitle">
+    <h2 id="boneDlgTitle">Add a bone</h2>
+    <input type="text" id="boneSearch" placeholder="Search the skeleton…" spellcheck="false">
+    <div id="boneTree"></div>
+    <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="addDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="addDlgTitle">
+    <h2 id="addDlgTitle">Tracks for <span id="addDlgName"></span></h2>
+    <div id="addDlgChecks"></div>
+    <div class="acts"><span class="note">Only ticked tracks show on the timeline — change this later with right-click.</span><button type="button" id="addDlgCancel">Cancel</button><button type="button" class="primary" id="addDlgOk">Add</button></div>
+  </div>
+</div>
+<div id="numEdit" hidden>
+  <label>Time s <input type="number" id="numT" step="0.01"></label>
+  <label><span id="numVL">Value</span> <input type="number" id="numV" step="0.1"></label>
+  <button type="button" class="mini primary" id="numOk">Set</button>
+</div>
+<script>window.__local=function(n){var el=document.getElementById('asset:'+n);if(el)return Promise.resolve(new Response(el.textContent,{status:200}));return fetch('../assets/'+n);};</script>
+<script type="module">
+/* @js */
+</script>
+<!-- @assets -->
+</body>
+</html>
