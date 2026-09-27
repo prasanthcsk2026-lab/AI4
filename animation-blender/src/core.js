@@ -12,7 +12,7 @@
 const $ = (id) => document.getElementById(id);
 const STORE = 'animationBlender.v1';
 const W_MAX = 2, ADJ_MAX = 90, SPEED_MAX = 2, TIMING_MAX = 0.5;
-const COL = { weight: '#f08a1c', adjust: '#56b6c2', speed: '#c6d45a', timing: '#c98bd6', pos: '#ffd166', rot: '#7fb7ff', ik: '#5fd3a8', swivel: '#e58ad6', flag: '#ff7a6b', finger: '#b9a5ff' };
+const COL = { group: '#7fb7ff', weight: '#f08a1c', adjust: '#56b6c2', speed: '#c6d45a', timing: '#c98bd6', pos: '#ffd166', rot: '#7fb7ff', ik: '#5fd3a8', swivel: '#e58ad6', flag: '#ff7a6b', finger: '#b9a5ff' };
 const AXIS_COL = { x: '#ff5f5f', y: '#7ddc6a', z: '#5f9dff' };
 const niceName = (n) => n.replace(/__LegsOnly/i, '').replace(/_/g, ' ').replace(/^Gen /, '');
 
@@ -118,14 +118,14 @@ let Hi, Hc, HcG;
 const fk = { v: null };
 const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
-  selected: null, selEff: null,                        // a bone name, or an IK effector id
+  selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
   inPlace: true, follow: true, autoKey: true, travelBase: V3(),
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur) { return { dur, speed: flat(1, dur), bones: {}, order: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur) { return { dur, speed: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -136,6 +136,8 @@ function newBoneAuto(dur) {
 // fill fields added since a save was made; the old hips position offset becomes the hips IK effector
 function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
+  a.groups = a.groups || {}; a.groupOrder = a.groupOrder || [];
+  for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
   for (const n of a.order) {
     const ba = a.bones[n]; if (!ba) continue;
     if (!ba.show) ba.show = { whole: true };
@@ -272,12 +274,14 @@ function buildBoneTree() {
     if (!items.length) { root.innerHTML = '<div class="empty">No bones match.</div>'; return; }
     for (const it of items) root.append(it);
   }
-  $('boneSearch').oninput = () => (treeMode === 'ik' ? renderIKList($('boneSearch').value) : render($('boneSearch').value));
+  const renderMode = (q) => (treeMode === 'ik' ? renderIKList(q) : treeMode === 'group' ? renderGroupList(q) : render(q));
+  $('boneSearch').oninput = () => renderMode($('boneSearch').value);
   $('btnAddBone').onclick = () => { treeMode = 'bone'; $('boneDlgTitle').textContent = 'Add a bone'; $('boneDlgNote').textContent = 'Body → Left / Right → fingers, in hierarchy order.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; render(''); $('boneSearch').focus(); };
   $('btnAddIK').onclick = () => { treeMode = 'ik'; $('boneDlgTitle').textContent = 'Add an IK effector'; $('boneDlgNote').textContent = 'HumanIK-style effectors. Offsets are in world axes: X sideways, Y up, Z forward.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; renderIKList(''); $('boneSearch').focus(); };
+  $('btnAddGroup').onclick = () => { treeMode = 'group'; $('boneDlgTitle').textContent = 'Add a group'; $('boneDlgNote').textContent = 'One weight track for many bones. Weights multiply: a bone inside two groups gets both.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; renderGroupList(''); $('boneSearch').focus(); };
   $('boneDlgClose').onclick = () => { $('boneDlg').hidden = true; };
   $('boneDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('boneDlg').hidden = true; });
-  window.__slRebuildTree = () => (treeMode === 'ik' ? renderIKList($('boneSearch').value || '') : render($('boneSearch').value || ''));
+  window.__slRebuildTree = () => renderMode($('boneSearch').value || '');
 }
 let treeMode = 'bone';
 function renderIKList(q) {
@@ -298,6 +302,33 @@ function renderIKList(q) {
   if (!root.children.length) root.innerHTML = '<div class="empty">No effectors match.</div>';
 }
 
+function renderGroupList(q) {
+  const root = $('boneTree'); root.textContent = '';
+  q = q.trim().toLowerCase();
+  const row = (gid, label, note, pad) => {
+    const inTl = !!A.groups[gid];
+    const r = document.createElement('div'); r.className = 'treerow'; r.style.paddingLeft = pad + 'px';
+    const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = label; if (inTl) tn.style.color = COL.group;
+    const d = document.createElement('span'); d.className = 'mini'; d.style.cssText = 'opacity:.6;pointer-events:none'; d.textContent = inTl ? 'in timeline' : note;
+    r.append(tn, d);
+    r.onclick = () => { $('boneDlg').hidden = true; if (inTl) selectGroup(gid); else openAddDialog({ type: 'group', id: gid }); };
+    root.append(r);
+  };
+  let cat = null;
+  for (const g of GROUP_DEFS) {
+    if (q && !g.label.toLowerCase().includes(q)) continue;
+    if (g.cat !== cat) { cat = g.cat; const h = document.createElement('div'); h.className = 'treegrp'; h.textContent = cat; root.append(h); }
+    row(g.id, g.label, (g.note ? g.note + ' · ' : '') + groupMembers(g.id).size + ' bones', 16);
+  }
+  const custom = A.groupOrder.filter((gid) => gid.startsWith('sub:') && (!q || gid.toLowerCase().includes(q)));
+  const matches = q ? rig.bones.filter((b) => b.name.toLowerCase().includes(q) && b.children.some((c) => c.isBone) && !A.groups['sub:' + b.name]).slice(0, 40) : [];
+  if (custom.length || matches.length || !q) { const h = document.createElement('div'); h.className = 'treegrp'; h.textContent = 'A bone and everything below it'; root.append(h); }
+  for (const gid of custom) row(gid, groupLabel(gid), '', 16);
+  for (const b of matches) row('sub:' + b.name, b.name + ' + below', groupMembers('sub:' + b.name).size + ' bones', 16);
+  if (!q) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Type a bone name to make a group from it and everything below it (or right-click a bone in the timeline).'; root.append(e); }
+  if (!root.children.length) root.innerHTML = '<div class="empty">No groups match.</div>';
+}
+
 function selectClip(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
@@ -309,11 +340,13 @@ function selectClip(id) {
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
 function removeBone(name) { pushUndo(); delete A.bones[name]; A.order = A.order.filter((n) => n !== name); rebuildRows(); save(); updateSelChip(); }
+function removeGroup(gid) { pushUndo(); delete A.groups[gid]; A.groupOrder = A.groupOrder.filter((n) => n !== gid); rebuildRows(); save(); updateSelChip(); }
 function removeEff(id) { pushUndo(); delete A.ik[id]; A.ikOrder = A.ikOrder.filter((n) => n !== id); rebuildRows(); save(); updateSelChip(); }
 
-function selectBone(name) { S.selected = name; S.selEff = null; afterSelect(); }
-function selectEff(id) { S.selEff = id; S.selected = null; afterSelect(); }
-function clearSelection() { S.selected = null; S.selEff = null; afterSelect(); }
+function selectBone(name) { S.selected = name; S.selEff = null; S.selGroup = null; afterSelect(); }
+function selectEff(id) { S.selEff = id; S.selected = null; S.selGroup = null; afterSelect(); }
+function selectGroup(gid) { S.selGroup = gid; S.selected = null; S.selEff = null; afterSelect(); }
+function clearSelection() { S.selected = null; S.selEff = null; S.selGroup = null; afterSelect(); }
 function afterSelect() { cancelPending(); rebuildRows(); updateSelChip(); updateGizmoTarget(); trailDirty = true; }
 
 // ---------------------------------------------------------------- add-tracks dialog (bones and effectors)
@@ -324,16 +357,16 @@ const BONE_TRACKS = [
 ];
 function openAddDialog(target, existingShow) {
   const dlg = $('addDlg'); dlg.hidden = false;
-  const isEff = target.type === 'eff', def = isEff ? EFF_BY_ID[target.id] : null;
-  $('addDlgName').textContent = isEff ? def.label : target.name;
+  const isEff = target.type === 'eff', isGrp = target.type === 'group', def = isEff ? EFF_BY_ID[target.id] : null;
+  $('addDlgName').textContent = isEff ? def.label : isGrp ? groupLabel(target.id) : target.name;
   const box = $('addDlgChecks'); box.textContent = '';
   const boxes = {};
   const lab = !isEff ? (axisInfo[target.name] || {}) : null;
-  const defs = isEff ? def.tracks.map((k) => [k, trackLabel(def, k).replace(/<[^>]+>/g, '')]) : BONE_TRACKS.map(([k, l]) => {
+  const defs = isGrp ? GROUP_TRACKS : isEff ? def.tracks.map((k) => [k, trackLabel(def, k).replace(/<[^>]+>/g, '')]) : BONE_TRACKS.map(([k, l]) => {
     const ax = k.length === 2 && 'wa'.includes(k[0]) ? k[1] : null;
     return [k, ax && lab[ax] ? `${l} — ${lab[ax].long}` : l];
   });
-  const defaults = isEff ? def.defaultShow : ['whole'];
+  const defaults = isGrp ? ['weight'] : isEff ? def.defaultShow : ['whole'];
   for (const [key, label] of defs) {
     const row = document.createElement('label'); row.className = 'checkrow';
     const cb = document.createElement('input'); cb.type = 'checkbox';
@@ -346,7 +379,7 @@ function openAddDialog(target, existingShow) {
     const show = {}; for (const k in boxes) show[k] = boxes[k].checked;
     if (!Object.values(show).some(Boolean)) show[defaults[0]] = true;
     dlg.hidden = true;
-    if (isEff) commitAddEff(target.id, show); else commitAddBone(target.name, show);
+    if (isGrp) commitAddGroup(target.id, show); else if (isEff) commitAddEff(target.id, show); else commitAddBone(target.name, show);
   };
   cancel.onclick = () => { dlg.hidden = true; };
   dlg.onkeydown = (e) => { if (e.key === 'Escape') dlg.hidden = true; if (e.key === 'Enter') ok.click(); };
@@ -358,6 +391,17 @@ function commitAddBone(name, show) {
   A.bones[name].show = show;
   selectBone(name); save();
   const r = document.querySelector(`[data-bone="${CSS.escape(name)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
+}
+const GROUP_TRACKS = [['weight', 'Group weight (× every bone in the group)'], ['timing', 'Group timing offset (% of cycle, + every bone)']];
+function commitAddGroup(gid, show) {
+  pushUndo();
+  ensureGroup(gid).show = show;
+  selectGroup(gid); save();
+  const r = document.querySelector(`[data-group="${CSS.escape(gid)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
+}
+function ensureGroup(gid) {
+  if (!A.groups[gid]) { A.groups[gid] = newGroupAuto(S.dur); A.groupOrder.push(gid); }
+  return A.groups[gid];
 }
 function commitAddEff(id, show) {
   pushUndo();

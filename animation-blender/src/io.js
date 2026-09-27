@@ -14,11 +14,12 @@ $('durIn').onchange = () => {
   scale(A.speed);
   for (const n of A.order) { const ba = A.bones[n]; scale(ba.whole); scale(ba.timing); for (const a of AXES) { scale(ba.w[a]); scale(ba.a[a]); } }
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
+  for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
   S.dur = A.dur = d; S.t = Math.min(S.t, d); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 };
 $('btnReset').onclick = () => {
   const b = $('btnReset');
-  if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
+  if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
   b.dataset.armed = '1'; b.textContent = 'Click again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset clip'; }, 2500);
 };
 $('btnFootLock').onclick = () => { const msg = autoFootLock(); flash(msg); };
@@ -32,7 +33,7 @@ function exportObj() {
     tool: 'Animation Blender', format: 3, exportedAt: new Date().toISOString(),
     clip: { id: cur.id, name: cur.c.name, label: cur.name, kind: cur.kind, speed_mps: cur.c.speed ?? null, cycle_s: +cur.dur.toFixed(4), legsOnly: !!cur.c.legsOnly },
     duration_s: S.dur, in_place: S.inPlace,
-    note: 'points are [time_s, value, tension]. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Speed in % of the clip speed.',
+    note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Speed in % of the clip speed.',
     playback_speed_pct: P(A.speed, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
@@ -42,6 +43,7 @@ function exportObj() {
         adjust_deg: { x: P(ba.a.x), y: P(ba.a.y), z: P(ba.a.z) }, timing_pct: P(ba.timing, 100),
       };
     }),
+    groups: A.groupOrder.filter((gid) => A.groups[gid]).map((gid) => ({ group: gid, label: groupLabel(gid), bones: [...groupMembers(gid)], show: A.groups[gid].show, weight_pct: P(A.groups[gid].weight, 100), timing_pct: P(A.groups[gid].timing, 100) })),
     ik: A.ikOrder.filter((id) => A.ik[id]).map((id) => {
       const e = A.ik[id], tracks = {};
       for (const k of EFF_BY_ID[id].tracks) tracks[k] = P(e.tr[k], TRK[k].fmt === pct ? 100 : 1);
@@ -70,6 +72,12 @@ function importObj(o) {
     if (b.hips_offset_cm) ba.hipsPos = { x: P(b.hips_offset_cm.x) || flat(0, d), y: P(b.hips_offset_cm.y) || flat(0, d), z: P(b.hips_offset_cm.z) || flat(0, d) };   // format 2
     ba.show = b.show || { whole: true }; ba.withChildren = !!b.with_children;
     n.bones[b.bone] = ba; n.order.push(b.bone);
+  }
+  for (const g of o.groups || []) {
+    if (!g.group || !(GROUP_DEFS.some((d) => d.id === g.group) || (g.group.startsWith('sub:') && boneIdx.has(g.group.slice(4))))) continue;
+    const ga = newGroupAuto(d);
+    ga.weight = P(g.weight_pct, 100) || ga.weight; ga.timing = P(g.timing_pct, 100) || ga.timing; if (g.show) ga.show = g.show;
+    n.groups[g.group] = ga; n.groupOrder.push(g.group);
   }
   for (const f of o.ik || []) {
     if (!EFF_BY_ID[f.effector]) continue;
@@ -200,5 +208,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; } };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, selectGroup, GROUP_DEFS };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

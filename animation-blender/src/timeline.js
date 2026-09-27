@@ -58,6 +58,25 @@ let rowDrag = null;
 function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>master</i>', null);
+  // groups (weights multiply into every bone they hold)
+  for (const gid of A.groupOrder) {
+    const g = A.groups[gid]; if (!g) continue;
+    const hr = mkRow('bone grp' + (S.selGroup === gid ? ' selected' : ''));
+    Object.assign(hr, { kind: 'group', group: gid });
+    hr.el.dataset.group = gid;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!g.collapsed}" title="Show / hide tracks">${g.collapsed ? '▸' : '▾'}</button><span class="grptag">GRP</span><span class="name" title="Select (highlights its bones) · right-click for options"></span><button type="button" class="mini" data-act="del" title="Remove this group from the timeline">×</button>`;
+    hr.h.querySelector('.name').textContent = groupLabel(gid);
+    hr.h.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; rebuildRows(); save(); };
+    hr.h.querySelector('[data-act="del"]').onclick = () => removeGroup(gid);
+    hr.h.querySelector('.name').onclick = () => selectGroup(gid);
+    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); openGroupMenu(ev, gid); };
+    hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = groupSummary(gid);
+    tracksEl.append(hr.el); rows.push(hr);
+    if (g.collapsed) continue;
+    const own = { type: 'group', id: gid };
+    if (g.show.weight) addTrackRow(`g|${gid}|weight`, { ...SPEC.whole, color: COL.group }, () => g.weight, (p) => { g.weight = p; }, 'Group weight <i>× its bones</i>', own);
+    if (g.show.timing) addTrackRow(`g|${gid}|timing`, SPEC.timing, () => g.timing, (p) => { g.timing = p; }, 'Group timing <i>phase %</i>', own);
+  }
   // FK bones
   for (const name of A.order) {
     const ba = A.bones[name]; if (!ba) continue;
@@ -103,9 +122,9 @@ function rebuildRows() {
       addTrackRow(`e|${id}|${k}`, effSpec(k), () => e.tr[k], (p) => { e.tr[k] = p; }, `${axl}${T.kind ? (T.kind === 'p' ? 'Move' : 'Rotate') : T.label} <i>${info}</i>`, { type: 'eff', id, k });
     }
   }
-  if (!A.order.length && !A.ikOrder.length) {
+  if (!A.order.length && !A.ikOrder.length && !A.groupOrder.length) {
     const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = '<b>FK:</b> "Add bone…" (or click a joint) — <b>weight</b> 0–200 % of the clip, <b>adjust</b> in degrees about each axis (the axis names say what each one does), <b>timing offset</b>. ' +
+    e.innerHTML = '<b>Groups:</b> "Group…" — one weight for a whole arm, leg, spine…; groups and bones inside them multiply (arm 60 % × hand 50 % = hand at 30 %). <b>FK:</b> "Add bone…" (or click a joint) — <b>weight</b> 0–200 % of the clip, <b>adjust</b> in degrees about each axis (the axis names say what each one does), <b>timing offset</b>. ' +
       '<b>IK:</b> "Add IK…" (or click a round IK handle) — move / rotate hips, chest, head, shoulders, hands, feet; swivel elbows and knees; curl fingers; pin, hold and pull. ' +
       'In a lane: click to add a point, drag it, drag the small ring between two points to bend the curve, double-click a point to type its value, right-click a point to delete it. Drag a track\'s bottom edge to make it taller; Ctrl / Alt + wheel zooms its values. Hold Ctrl while dragging to snap. Shift-drag box-selects; Ctrl+Z / Y undo / redo.';
     tracksEl.append(e);
@@ -119,8 +138,17 @@ function boneSummary(ba) {
   for (const a of AXES) { if (!isFlat(ba.w[a], 1)) parts.push(a.toUpperCase() + ' weight'); if (!isFlat(ba.a[a], 0)) parts.push(a.toUpperCase() + ' adjust'); }
   if (!isFlat(ba.timing, 0)) parts.push('timing');
   if (ba.withChildren) parts.push('children ×');
-  return parts.length ? 'Automated: ' + parts.join(', ') : 'No automation yet (clip as it is)';
+  const gs = boneGroupsLabel(ba);
+  return (parts.length ? 'Automated: ' + parts.join(', ') : 'No automation yet (clip as it is)') + gs;
 }
+function boneGroupsLabel(ba) { const name = Object.keys(A.bones).find((n) => A.bones[n] === ba); const gs = name ? groupsOfBone(name) : []; return gs.length ? ' · × ' + gs.map(groupLabel).join(' × ') : ''; }
+function groupSummary(gid) {
+  const g = A.groups[gid], n = groupMembers(gid).size, parts = [];
+  if (!isFlat(g.weight, 1)) parts.push('weight'); if (!isFlat(g.timing, 0)) parts.push('timing');
+  const inside = A.groupOrder.filter((o) => o !== gid && [...groupMembers(o)].every((b) => groupMembers(gid).has(b))).map(groupLabel);
+  return `${n} bones · ` + (parts.length ? 'automated: ' + parts.join(', ') : 'no automation yet') + (inside.length ? ' · contains ' + inside.join(', ') : '');
+}
+function groupsOfBone(name) { return A.groupOrder.filter((gid) => groupMembers(gid).has(name)); }
 function effSummary(id) {
   const e = A.ik[id], d = EFF_BY_ID[id];
   const parts = d.tracks.filter((k) => !isFlat(e.tr[k], TRK[k].ref)).map((k) => TRK[k].kind ? `${TRK[k].kind === 'p' ? 'move' : 'rotate'} ${TRK[k].axis.toUpperCase()}` : TRK[k].label.toLowerCase());
@@ -128,8 +156,9 @@ function effSummary(id) {
 }
 function refreshSummary(r) {
   if (!r.owner) return;
-  const hr = r.owner.type === 'bone' ? rows.find((x) => x.kind === 'bone' && x.bone === r.owner.name) : rows.find((x) => x.kind === 'eff' && x.eff === r.owner.id);
-  if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = r.owner.type === 'bone' ? boneSummary(A.bones[r.owner.name]) : effSummary(r.owner.id);
+  const o = r.owner;
+  const hr = o.type === 'bone' ? rows.find((x) => x.kind === 'bone' && x.bone === o.name) : o.type === 'group' ? rows.find((x) => x.kind === 'group' && x.group === o.id) : rows.find((x) => x.kind === 'eff' && x.eff === o.id);
+  if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = o.type === 'bone' ? boneSummary(A.bones[o.name]) : o.type === 'group' ? groupSummary(o.id) : effSummary(o.id);
 }
 function lane(r) {
   const cv = document.createElement('canvas'); r.cv = cv; r.lane.append(cv);
@@ -344,6 +373,7 @@ function openBoneMenu(e, name) {
     { label: 'Copy bone', action: () => { clipboard = { type: 'bone', data: JSON.parse(JSON.stringify(ba)) }; } },
     { label: 'Paste bone', disabled: !(clipboard && clipboard.type === 'bone'), action: () => { pushUndo(); const show = ba.show; A.bones[name] = JSON.parse(JSON.stringify(clipboard.data)); A.bones[name].show = show; rebuildRows(); save(); } },
     { label: mirror ? ('Mirror → ' + mirror) : 'Mirror (no L/R pair)', disabled: !mirror, action: () => mirrorPair(name) },
+    { label: 'Group: this bone + everything below', disabled: !rig.bones[boneIdx.get(name)].children.some((c) => c.isBone), action: () => (A.groups['sub:' + name] ? selectGroup('sub:' + name) : openAddDialog({ type: 'group', id: 'sub:' + name })) },
     { sep: true },
     { label: 'Remove bone', action: () => removeBone(name) },
   ]);
@@ -360,6 +390,19 @@ function mirrorEff(id) {
   }
   dst.show = { ...src.show };
   rebuildRows(); save();
+}
+function openGroupMenu(e, gid) {
+  const g = A.groups[gid]; if (!g) return;
+  const to = mirrorGroupId(gid);
+  openMenu(e.clientX, e.clientY, [
+    { label: 'Show / hide tracks…', action: () => openAddDialog({ type: 'group', id: gid }, g.show) },
+    { label: 'Select its bones in the viewport', action: () => selectGroup(gid) },
+    { sep: true },
+    { label: 'Reset group', action: () => { pushUndo(); const show = g.show; A.groups[gid] = newGroupAuto(S.dur); A.groups[gid].show = show; rebuildRows(); save(); } },
+    { label: to ? 'Mirror → ' + groupLabel(to) : 'Mirror (no L/R pair)', disabled: !to, action: () => { pushUndo(); const d = ensureGroup(to); d.weight = clonePts(g.weight); d.timing = clonePts(g.timing); d.show = { ...g.show }; rebuildRows(); save(); } },
+    { sep: true },
+    { label: 'Remove group', action: () => removeGroup(gid) },
+  ]);
 }
 function openEffMenu(e, id) {
   const ef = A.ik[id]; if (!ef) return;

@@ -10,6 +10,13 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
 
 ## What it does
 
+- **Groups** (Group…, the bone chip's "As group", or right-click a bone): one weight track, plus an
+  optional timing track, for many bones.
+  - Predefined groups: whole body, upper / lower body, spine, head & neck, and each side's arm, hand,
+    fingers, leg, foot.
+  - Custom groups: any bone plus everything below it.
+  - Weights multiply: a bone's weight = its own × every group it is in. Left arm 60 % × Left hand 50 %
+    leaves the hand at 30 % and the forearm at 60 %. Group timings add.
 - **FK tracks per bone:**
   - weight 0–200 % of the clip's rotation away from idle (whole bone and per axis)
   - adjust in degrees about each local axis
@@ -24,8 +31,11 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   | Effector | Tracks |
   |---|---|
   | Hips | move, rotate, "feet stay planted" (the pelvis drops if needed to keep the feet reachable) |
-  | Chest | rotate, spread over the three spine bones |
-  | Head | rotate, spread over neck and head |
+  | Spine (lower back) | rotate the Spine bone |
+  | Spine1 (mid back) | rotate Spine1; move bends Spine |
+  | Chest | rotate, spread over the three spine bones; move bends Spine1 + Spine |
+  | Neck | rotate the neck; move bends the upper spine |
+  | Head | rotate, spread over neck and head; move bends neck, Spine2, Spine1 |
   | Shoulders | rotate the clavicle |
   | Hands | move, rotate, pin, hold, pull (the chest leans toward a target out of reach) |
   | Elbows, knees | swivel around the limb line |
@@ -33,6 +43,7 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   | Feet | move, rotate, hold |
   | Toes | bend |
 
+  Torso moves use CCD with at most 45° per joint, so a far target is reached as close as the spine allows.
   Every effector is an offset over the FK result, so the clip keeps moving underneath.
   IK offsets are in world axes: X sideways, Y up, Z forward.
 - **Gizmo:**

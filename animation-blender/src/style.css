@@ -104,6 +104,10 @@
   .row.eff .h { background: #13191a; }
   .row.eff.selected .h { box-shadow: inset 3px 0 0 #5fd3a8; }
   .tag { opacity: .75; pointer-events: none; }
+  .grptag { font: 700 10px var(--display); letter-spacing: .1em; color: #0b1422; background: #7fb7ff; border-radius: 3px; padding: 1px 4px; }
+  .row.grp { background: #131820; }
+  .row.grp .h { background: #131820; }
+  .row.grp.selected .h { box-shadow: inset 3px 0 0 #7fb7ff; }
   .row.bone { height: 30px; background: #141916; }
   .row.bone .h { background: #141916; }
   .row.bone .h .name { font: 700 13px var(--display); letter-spacing: .06em; color: var(--ink); }

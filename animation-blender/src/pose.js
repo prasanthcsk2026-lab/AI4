@@ -36,8 +36,13 @@ const EFF_BY_ID = {};
   const add = (e) => { EFFECTORS.push(e); EFF_BY_ID[e.id] = e; };
   const P = ['px', 'py', 'pz'], R = ['rx', 'ry', 'rz'];
   add({ id: 'hips', label: 'Hips', group: 'Body', kind: 'hips', tracks: ['blend', ...P, ...R, 'feet'], defaultShow: P, what: 'pelvis: move / rotate, feet stay' });
-  add({ id: 'chest', label: 'Chest', group: 'Body', kind: 'chest', tracks: ['blend', ...R], defaultShow: ['rx'], what: 'spread over the spine' });
-  add({ id: 'head', label: 'Head', group: 'Body', kind: 'head', tracks: ['blend', ...R], defaultShow: ['ry'], what: 'neck + head' });
+  // torso controllers: rotate turns their own bone(s) (children follow); move bends the chain below them so the
+  // controller point goes to the target (CCD, a capped angle per joint)
+  add({ id: 'spine', label: 'Spine (lower back)', group: 'Body', kind: 'torso', seg: 'spine', spread: ['spine'], chain: null, tracks: ['blend', ...R], defaultShow: ['rx'], what: 'rotate the Spine bone' });
+  add({ id: 'spine1', label: 'Spine1 (mid back)', group: 'Body', kind: 'torso', seg: 'spine1', spread: ['spine1'], chain: ['spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate Spine1 · move bends Spine' });
+  add({ id: 'chest', label: 'Chest', group: 'Body', kind: 'torso', seg: 'spine2', spread: ['spine', 'spine1', 'spine2'], chain: ['spine1', 'spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate spread over the spine · move bends it' });
+  add({ id: 'neck', label: 'Neck', group: 'Body', kind: 'torso', seg: 'neck', spread: ['neck'], chain: ['spine2', 'spine1', 'spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate the neck · move bends the upper spine' });
+  add({ id: 'head', label: 'Head', group: 'Body', kind: 'torso', seg: 'head', spread: ['neck', 'head'], chain: ['neck', 'spine2', 'spine1'], tracks: ['blend', ...P, ...R], defaultShow: ['ry'], what: 'rotate neck + head · move bends neck and chest' });
   for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
     add({ id: S + 'shoulder', label: side + ' shoulder', group: side + ' arm', kind: 'shoulder', side: S, tracks: ['blend', ...R], defaultShow: ['rz'], what: 'clavicle shrug / reach' });
     add({ id: S + 'elbow', label: side + ' elbow', group: side + ' arm', kind: 'elbow', side: S, tracks: ['swivel'], defaultShow: ['swivel'], what: 'elbow direction (pole)' });
@@ -65,8 +70,7 @@ function effBone(d) {
   const sd = d.side ? rig.side[d.side] : null;
   switch (d.kind) {
     case 'hips': return rig.b.hips;
-    case 'chest': return rig.b.spine2;
-    case 'head': return rig.b.head;
+    case 'torso': return rig.b[d.seg];
     case 'shoulder': return sd.upper;
     case 'elbow': return sd.fore;
     case 'hand': return sd.hand;
@@ -99,6 +103,52 @@ function buildEffectors() {
       f.spread = /index/i.test(n) ? 1 : /middle/i.test(n) ? 0.25 : /ring/i.test(n) ? -0.55 : /pinky|little/i.test(n) ? -1.1 : 0;
     }
   }
+}
+
+// ---------------------------------------------------------------- bone groups
+// A group scales the clip's motion of every bone in it by one weight track (and can shift their timing).
+// Groups nest freely: a bone's weight = its own weight × every group it is in (× "multiply into children"
+// parents), so "Left arm" at 60 % with "Left hand" at 50 % leaves the hand at 30 %.
+const GROUP_DEFS = [];
+(function defineGroups() {
+  const sub = (b) => { const out = []; b.traverse((o) => o.isBone && out.push(o)); return out; };
+  const add = (g) => GROUP_DEFS.push(g);
+  add({ id: 'g:body', label: 'Whole body', cat: 'Body', bones: () => sub(rig.b.hips) });
+  add({ id: 'g:upper', label: 'Upper body', cat: 'Body', bones: () => sub(rig.b.spine) });
+  add({ id: 'g:lower', label: 'Lower body', note: 'hips + legs', cat: 'Body', bones: () => [rig.b.hips, ...sub(rig.side.L.thigh), ...sub(rig.side.R.thigh)] });
+  add({ id: 'g:spine', label: 'Spine', note: 'Spine, Spine1, Spine2', cat: 'Body', bones: () => [rig.b.spine, rig.b.spine1, rig.b.spine2] });
+  add({ id: 'g:headneck', label: 'Head & neck', cat: 'Body', bones: () => sub(rig.b.neck) });
+  for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
+    add({ id: 'g:' + S + 'arm', label: side + ' arm', note: 'shoulder → fingers', cat: side + ' side', bones: () => sub(rig.side[S].clav) });
+    add({ id: 'g:' + S + 'hand', label: side + ' hand', note: 'hand + fingers', cat: side + ' side', bones: () => sub(rig.side[S].hand) });
+    add({ id: 'g:' + S + 'fingers', label: side + ' fingers', cat: side + ' side', bones: () => sub(rig.side[S].hand).filter((b) => b !== rig.side[S].hand) });
+    add({ id: 'g:' + S + 'leg', label: side + ' leg', note: 'thigh → toes', cat: side + ' side', bones: () => sub(rig.side[S].thigh) });
+    add({ id: 'g:' + S + 'foot', label: side + ' foot', note: 'foot + toes', cat: side + ' side', bones: () => sub(rig.side[S].foot) });
+  }
+})();
+const groupCache = new Map();
+function groupMembers(gid) {   // → Set of bone names ("sub:<bone>" = that bone and everything below it)
+  let m = groupCache.get(gid);
+  if (m) return m;
+  const def = GROUP_DEFS.find((g) => g.id === gid);
+  let bones = [];
+  if (def) bones = def.bones();
+  else if (gid.startsWith('sub:') && boneIdx.has(gid.slice(4))) rig.bones[boneIdx.get(gid.slice(4))].traverse((o) => o.isBone && bones.push(o));
+  m = new Set(bones.map((b) => b.name)); groupCache.set(gid, m);
+  return m;
+}
+function groupLabel(gid) { const d = GROUP_DEFS.find((g) => g.id === gid); return d ? d.label : gid.startsWith('sub:') ? gid.slice(4) + ' + below' : gid; }
+function mirrorGroupId(gid) {
+  if (/^g:[LR]/.test(gid)) return 'g:' + (gid[2] === 'L' ? 'R' : 'L') + gid.slice(3);
+  if (gid.startsWith('sub:')) { const m = mirrorName(gid.slice(4)); return m && boneIdx.has(m) ? 'sub:' + m : null; }
+  return null;
+}
+function newGroupAuto(dur) { return { collapsed: false, show: { weight: true }, weight: flat(1, dur), timing: flat(0, dur) }; }
+// weight × and timing + that the groups give one bone at time t (gw / gt: this frame's group values)
+function groupFactor(name, gw, gt) {
+  let w = 1, sh = 0;
+  for (const gid of A.groupOrder) { if (!gw.has(gid) || !groupMembers(gid).has(name)) continue; w *= gw.get(gid); sh += gt.get(gid); }
+  return [w, sh];
 }
 
 // ---------------------------------------------------------------- clip time + root travel
@@ -166,11 +216,15 @@ function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
-  // per-bone timing offset: re-sample the clip at a shifted clip-time for bones that use it
+  const gw = new Map(), gt = new Map();
+  for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
+  const gF = gw.size ? rig.bones.map((b) => groupFactor(b.name, gw, gt)) : null;
+  // per-bone timing offset (its own + its groups'): re-sample the clip at a shifted clip-time for bones that use it
   const shiftKeyOf = new Map(), shiftArr = new Map();
-  for (const name of A.order) {
-    const ba = A.bones[name]; if (!ba || !ba.timing) continue;
-    const sh = evalPts(ba.timing, t); if (Math.abs(sh) < 1e-4) continue;
+  for (let i = 0; i < B; i++) {
+    const name = rig.bones[i].name, ba = A.bones[name];
+    const sh = (ba && ba.timing ? evalPts(ba.timing, t) : 0) + (gF ? gF[i][1] : 0);
+    if (Math.abs(sh) < 1e-4) continue;
     const key = Math.round(sh * 1000); shiftKeyOf.set(name, key);
     if (!shiftArr.has(key)) { const arr = shiftPool.pop() || new Float32Array(B * 4); sampleClip(clipTime(t) + sh * (cur.dur || 1), arr, HshiftScratch); shiftArr.set(key, arr); }
   }
@@ -180,14 +234,14 @@ function composePose(t, Qout, Hout, pend) {
     const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
-    if (!ba && !pd) { Qout.set(src.subarray(o, o + 4), o); continue; }
+    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1);
+    if (!ba && !pd && Math.abs(W - 1) < 1e-6) { Qout.set(src.subarray(o, o + 4), o); continue; }
     qI.fromArray(QI, o);
     qD.copy(qI).invert().multiply(qC); if (qD.w < 0) { qD.x = -qD.x; qD.y = -qD.y; qD.z = -qD.z; qD.w = -qD.w; }
     logQ(qD, vv);
     const D = DEG;
-    let x = vv.x, y = vv.y, z = vv.z;
+    let x = vv.x * W, y = vv.y * W, z = vv.z * W;
     if (ba) {
-      const W = wholeEff(name, t);
       x = vv.x * evalPts(ba.w.x, t) * W + evalPts(ba.a.x, t) * D; y = vv.y * evalPts(ba.w.y, t) * W + evalPts(ba.a.y, t) * D; z = vv.z * evalPts(ba.w.z, t) * W + evalPts(ba.a.z, t) * D;
     }
     if (pd) { x += pd.x * D; y += pd.y * D; z += pd.z * D; }
@@ -195,7 +249,7 @@ function composePose(t, Qout, Hout, pend) {
     Qout[o] = qO.x; Qout[o + 1] = qO.y; Qout[o + 2] = qO.z; Qout[o + 3] = qO.w;
   }
   for (const arr of shiftArr.values()) shiftPool.push(arr);
-  const hb = A.bones[rig.b.hips.name], wh = hb ? evalPts(hb.whole, t) : 1;
+  const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
 }
 function applyPose(Q, H) {
@@ -261,6 +315,25 @@ function spreadOver(bones, q) {   // a world rotation shared by a chain (each li
   const part = new THREE.Quaternion().slerp(q, 1 / bones.length);
   for (const b of bones) rotateBoneWorld(b, part);
 }
+const TORSO_IDS = ['spine', 'spine1', 'chest', 'neck', 'head'];
+// move a point on the spine toward a target by turning the joints below it (nearest first), each at most maxDeg in all
+function ccdMove(bone, chain, target, iters = 8, maxDeg = 45) {
+  const used = chain.map(() => 0), q = new THREE.Quaternion();
+  for (let it = 0; it < iters; it++) {
+    chain.forEach((j, i) => {
+      const pj = worldP(j), a = worldP(bone).sub(pj), c = target.clone().sub(pj);
+      if (a.lengthSq() < 1e-8 || c.lengthSq() < 1e-8) return;
+      q.setFromUnitVectors(a.normalize(), c.normalize());
+      let ang = 2 * Math.acos(clamp(Math.abs(q.w), -1, 1));
+      const room = maxDeg * DEG - used[i];
+      if (room <= 1e-5 || ang < 1e-5) return;
+      if (ang > room) { q.slerp(IDQ.clone(), 1 - room / ang); ang = room; }
+      used[i] += ang;
+      rotateBoneWorld(j, q);
+    });
+    if (worldP(bone).distanceTo(target) < 5e-4) break;
+  }
+}
 function holdStart(pts, t) {   // start of the current "hold on" span, on a 1/120 s grid
   const step = 1 / 120; let t0 = Math.round(t / step) * step;
   while (t0 > 1e-6 && evalPts(pts, t0 - step) >= 0.5) t0 -= step;
@@ -324,8 +397,15 @@ function solveIK(t, pend) {
     if (drop > 1e-5) { rig.setHipsWorld(worldP(b.hips).add(V3(0, -drop, 0))); b.hips.updateMatrixWorld(true); }
   }
   // 3. spine, head, shoulders
-  if (on('chest')) spreadOver([b.spine, b.spine1, b.spine2], effRotQ('chest', t, pend, effVal('chest', 'blend', t)));
-  if (on('head')) spreadOver([b.neck, b.head], effRotQ('head', t, pend, effVal('head', 'blend', t)));
+  for (const id of TORSO_IDS) {
+    if (!on(id)) continue;
+    const d = EFF_BY_ID[id], w = effVal(id, 'blend', t);
+    if (d.chain && d.tracks.includes('px')) {
+      const off = effPosOff(id, t, pend, w);
+      if (off.lengthSq() > 1e-10) ccdMove(b[d.seg], d.chain.map((k) => b[k]), worldP(b[d.seg]).add(off));
+    }
+    spreadOver(d.spread.map((k) => b[k]), effRotQ(id, t, pend, w));
+  }
   for (const Sd of ['L', 'R']) { const id = Sd + 'shoulder'; if (on(id)) rotateBoneWorld(rig.side[Sd].clav, effRotQ(id, t, pend, effVal(id, 'blend', t))); }
   // 4. hand targets, then the body leans toward targets out of reach (pull)
   const armT = {};

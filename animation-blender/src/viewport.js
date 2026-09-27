@@ -174,14 +174,15 @@ const HC = { idle: new THREE.Color('#2f8f74'), on: new THREE.Color(COL.ik), sel:
 function buildHandles() {
   const geo = {
     body: new THREE.TorusGeometry(0.07, 0.009, 8, 32),
+    ring: new THREE.TorusGeometry(0.05, 0.007, 8, 28),
     end: new THREE.BoxGeometry(0.045, 0.045, 0.045),
     pole: new THREE.OctahedronGeometry(0.026),
     small: new THREE.SphereGeometry(0.018, 12, 8),
   };
   for (const d of EFFECTORS) {
-    const g = { hips: 'body', chest: 'body', head: 'body', hand: 'end', foot: 'end', elbow: 'pole', knee: 'pole' }[d.kind] || 'small';
+    const g = d.kind === 'torso' ? (d.id === 'chest' || d.id === 'head' ? 'body' : 'ring') : { hips: 'body', hand: 'end', foot: 'end', elbow: 'pole', knee: 'pole' }[d.kind] || 'small';
     const m = new THREE.Mesh(geo[g], new THREE.MeshBasicMaterial({ color: HC.idle, depthTest: false, transparent: true, opacity: 0.9 }));
-    if (g === 'body') m.rotation.x = Math.PI / 2;
+    if (g === 'body' || g === 'ring') m.rotation.x = Math.PI / 2;
     m.renderOrder = 12; m.frustumCulled = false; scene.add(m);
     handles.push({ d, m });
   }
@@ -217,7 +218,7 @@ function buildSkeleton() {
   pts.renderOrder = 11; pts.frustumCulled = false; scene.add(pts);
   skel = { joints, pairs, lines: mk('#9aa7a0', 0.8), ghost: mk('#f08a1c', 0.6), pts, gQ: new Float32Array(B * 4), gH: V3() };
 }
-const cSel = new THREE.Color('#ff4fa3'), cIn = new THREE.Color('#f08a1c'), cBase = new THREE.Color('#dfe6e1');
+const cSel = new THREE.Color('#ff4fa3'), cIn = new THREE.Color('#f08a1c'), cBase = new THREE.Color('#dfe6e1'), cGrp = new THREE.Color(COL.group);
 function updateSkeleton(t) {
   const { joints, pairs, lines, ghost, pts } = skel;
   lines.visible = pts.visible = S.bones; ghost.visible = S.ghost;
@@ -225,7 +226,8 @@ function updateSkeleton(t) {
     const lp = lines.geometry.attributes.position.array; pairs.forEach(([a, b], i) => { worldP(a, vv); lp.set([vv.x, vv.y, vv.z], i * 6); worldP(b, vv); lp.set([vv.x, vv.y, vv.z], i * 6 + 3); });
     lines.geometry.attributes.position.needsUpdate = true;
     const pp = pts.geometry.attributes.position.array, pc = pts.geometry.attributes.color.array;
-    joints.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = b.name === S.selected ? cSel : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
+    const gm = S.selGroup ? groupMembers(S.selGroup) : null;
+    joints.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = b.name === S.selected ? cSel : gm && gm.has(b.name) ? cGrp : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
     pts.geometry.attributes.position.needsUpdate = true; pts.geometry.attributes.color.needsUpdate = true;
   }
   if (S.ghost) {   // the untouched clip, as a skeleton, travelling with him
@@ -250,14 +252,32 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (!best) clearSelection(); else if (best.eff) selectEff(best.eff); else selectBone(best.bone);
 });
 function updateSelChip() {
-  const on = !!(S.selected || S.selEff); $('selChip').hidden = !on; $('hintChip').hidden = on;
+  const on = !!(S.selected || S.selEff || S.selGroup); $('selChip').hidden = !on; $('hintChip').hidden = on;
+  $('btnGroupSel').hidden = true;
   if (!on) return;
+  if (S.selGroup) {
+    const gid = S.selGroup, members = [...groupMembers(gid)], inTl = !!A.groups[gid];
+    $('selDot').style.background = COL.group;
+    $('selName').textContent = groupLabel(gid); $('selKind').textContent = `group · ${members.length} bones`;
+    const others = A.groupOrder.filter((o) => o !== gid && members.some((b) => groupMembers(o).has(b))).map(groupLabel);
+    $('selAxes').innerHTML = '<div class="axrow"><span></span></div>';
+    $('selAxes').firstChild.lastChild.textContent = 'Its weight multiplies into every highlighted bone' + (others.length ? `, together with: ${others.join(', ')}.` : '.') + ' Bones: ' + members.slice(0, 12).join(', ') + (members.length > 12 ? ` … (+${members.length - 12})` : '');
+    $('btnAddSel').textContent = inTl ? 'Edit tracks' : 'Add to timeline';
+    $('btnAddSel').onclick = () => openAddDialog({ type: 'group', id: gid }, inTl && A.groups[gid].show);
+    return;
+  }
   if (S.selected) {
     $('selDot').style.background = '#ff4fa3';
     $('selName').textContent = S.selected; $('selKind').textContent = 'bone · FK';
     $('selAxes').innerHTML = axesLegendHTML(axisInfo[S.selected]);
     $('btnAddSel').textContent = A.bones[S.selected] ? 'Edit tracks' : 'Add to timeline';
     $('btnAddSel').onclick = () => openAddDialog({ type: 'bone', name: S.selected }, A.bones[S.selected] && A.bones[S.selected].show);
+    const name = S.selected, gs = groupsOfBone(name);
+    if (gs.length) { const d = document.createElement('div'); d.className = 'axrow'; d.innerHTML = '<span></span>'; d.firstChild.textContent = 'In groups: ' + gs.map((g) => `${groupLabel(g)} (${Math.round(evalPts(A.groups[g].weight, S.t) * 100)} %)`).join(' × '); $('selAxes').append(d); }
+    if (rig.bones[boneIdx.get(name)].children.some((c) => c.isBone)) {
+      $('btnGroupSel').hidden = false;
+      $('btnGroupSel').onclick = () => (A.groups['sub:' + name] ? selectGroup('sub:' + name) : openAddDialog({ type: 'group', id: 'sub:' + name }));
+    }
   } else {
     const d = EFF_BY_ID[S.selEff];
     $('selDot').style.background = COL.ik;

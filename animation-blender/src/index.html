@@ -40,7 +40,7 @@
   <section class="view" id="view" aria-label="Character viewport">
     <div class="overlay">
       <div class="chip sel" id="selChip" hidden>
-        <div class="selhead"><span class="dot" id="selDot"></span><span><b id="selName"></b> <i id="selKind"></i></span><button type="button" class="mini" id="btnAddSel">Add to timeline</button></div>
+        <div class="selhead"><span class="dot" id="selDot"></span><span><b id="selName"></b> <i id="selKind"></i></span><button type="button" class="mini" id="btnAddSel">Add to timeline</button><button type="button" class="mini" id="btnGroupSel" hidden title="Make a group from this bone and everything below it">As group</button></div>
         <div class="axes" id="selAxes"></div>
       </div>
       <div class="chip hint" id="hintChip">Click a joint or an IK handle to select it · drag to orbit · wheel to zoom</div>
@@ -70,7 +70,7 @@
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
   <section class="tl" aria-label="Automation timeline">
     <div class="tl-head">
-      <div class="addbar"><button type="button" id="btnAddBone">Add bone…</button><button type="button" id="btnAddIK">Add IK…</button></div>
+      <div class="addbar"><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button></div>
       <canvas id="ruler" aria-label="Time ruler: click or drag to move the playhead"></canvas>
     </div>
     <div class="tracks" id="tracks"></div>
