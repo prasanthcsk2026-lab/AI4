@@ -11,6 +11,13 @@ function partnerOf(type, key) {
   if (type === 'eff') { const m = mirrorEffId(key); return m && EFF_BY_ID[m] ? m : null; }
   return mirrorGroupId(key);
 }
+// "LeftArm" → "Arm", "Left hand" → "Hand": how a both-sides item is named
+function sideless(s) { const r = String(s).replace(/\b(Left|Right)\s*/, '').replace(/(Left|Right)/, ''); return r.charAt(0).toUpperCase() + r.slice(1); }
+function linkOf(type, key) {   // → the source key if this item is one side of a linked pair, else null
+  const map = type === 'bone' ? A.bones : type === 'group' ? A.groups : A.ik, it = map && map[key];
+  if (!it) { const to = partnerOf(type, key), p = to && map[to]; return p && p.mirror ? to : null; }
+  return it.mirror ? key : it.mirrorOf || null;
+}
 function partnerLabel(type, key) {
   const to = partnerOf(type, key); if (!to) return null;
   return type === 'eff' ? EFF_BY_ID[to].label : type === 'group' ? groupLabel(to) : to;

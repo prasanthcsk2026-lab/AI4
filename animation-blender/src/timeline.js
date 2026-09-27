@@ -14,6 +14,7 @@ const HEIGHT_PRESETS = [['Small', 30], ['Normal', LANE_H], ['Tall', 90], ['Extra
 // track specs: how to read, write, show and snap one curve
 const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
+  move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   a: { range: [-ADJ_MAX, ADJ_MAX], ref: 0, color: COL.adjust, scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 },
@@ -57,16 +58,17 @@ let rowDrag = null;
 
 function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
-  addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>master</i>', null);
+  addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
+  addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
   // groups (weights multiply into every bone they hold)
   for (const gid of A.groupOrder) {
     const g = A.groups[gid]; if (!g) continue;
-    if (g.mirrorOf) { twinRow('group', gid, groupLabel(gid)); continue; }
-    const hr = mkRow('bone grp' + (S.selGroup === gid ? ' selected' : ''));
+    if (g.mirrorOf) continue;   // the linked twin lives in its source's row
+    const hr = mkRow('bone grp' + (isSelRow('group', gid) ? ' selected' : ''));
     Object.assign(hr, { kind: 'group', group: gid });
     hr.el.dataset.group = gid;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!g.collapsed}" title="Show / hide tracks">${g.collapsed ? '▸' : '▾'}</button><span class="grptag">GRP</span><span class="name" title="Select (highlights its bones) · right-click for options"></span>${g.mirror ? '<span class="mirtag" title="Linked mirror">⇄</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this group from the timeline">×</button>`;
-    hr.h.querySelector('.name').textContent = groupLabel(gid);
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!g.collapsed}" title="Show / hide tracks">${g.collapsed ? '▸' : '▾'}</button><span class="grptag">GRP</span><span class="name" title="Select (highlights its bones) · right-click for options"></span>${g.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this group from the timeline">×</button>`;
+    hr.h.querySelector('.name').textContent = g.mirror ? sideless(groupLabel(gid)) : groupLabel(gid);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeGroup(gid);
     hr.h.querySelector('.name').onclick = () => selectGroup(gid);
@@ -81,14 +83,14 @@ function rebuildRows() {
   // FK bones
   for (const name of A.order) {
     const ba = A.bones[name]; if (!ba) continue;
-    if (ba.mirrorOf) { twinRow('bone', name, name); continue; }
-    const hr = mkRow('bone' + (S.selected === name ? ' selected' : ''));
+    if (ba.mirrorOf) continue;
+    const hr = mkRow('bone' + (isSelRow('bone', name) ? ' selected' : ''));
     Object.assign(hr, { kind: 'bone', bone: name });
     hr.el.dataset.bone = name;
-    const mtag = ba.mirror ? ` <span class="mirtag" title="Linked mirror → ${mirrorName(name)}">⇄</span>` : '';
+    const mtag = ba.mirror ? ' <span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : '';
     const chain = mtag + (ba.withChildren ? ' <span class="mini tag" title="Multiplies into every descendant bone">⛓ children</span>' : '');
     hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!ba.collapsed}" title="Show / hide tracks">${ba.collapsed ? '▸' : '▾'}</button><span class="name" title="Select in the viewport · right-click for options"></span>${chain}<button type="button" class="mini" data-act="del" title="Remove this bone from the timeline">×</button>`;
-    hr.h.querySelector('.name').textContent = name;
+    hr.h.querySelector('.name').textContent = ba.mirror ? sideless(name) : name;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { ba.collapsed = !ba.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeBone(name);
     hr.h.querySelector('.name').onclick = () => selectBone(name);
@@ -106,12 +108,12 @@ function rebuildRows() {
   // IK effectors
   for (const id of A.ikOrder) {
     const e = A.ik[id], d = EFF_BY_ID[id]; if (!e || !d) continue;
-    if (e.mirrorOf) { twinRow('eff', id, d.label); continue; }
-    const hr = mkRow('bone eff' + (S.selEff === id ? ' selected' : ''));
+    if (e.mirrorOf) continue;
+    const hr = mkRow('bone eff' + (isSelRow('eff', id) ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">IK</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Linked mirror">⇄</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
-    hr.h.querySelector('.name').textContent = d.label;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">IK</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
+    hr.h.querySelector('.name').textContent = e.mirror ? sideless(d.label) : d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
     hr.h.querySelector('.name').onclick = () => selectEff(id);
@@ -215,8 +217,10 @@ function drawLane(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), pts = r.get();
   x.clearRect(0, 0, w, h);
   x.fillStyle = rows.indexOf(r) % 2 ? '#1b201d' : '#1f2522'; x.fillRect(0, 0, w, h);
-  // time grid: 0.1 s faint, 0.5 s, 1 s
-  for (let t = 0; t <= S.dur + 1e-6; t += 0.1) { const gx = Math.round(xOf(r, t)) + 0.5; const s = Math.round(t * 10); x.fillStyle = s % 10 === 0 ? '#34403a' : s % 5 === 0 ? '#2b3430' : '#232a26'; if (w / S.dur * 0.1 > 4 * dpr || s % 5 === 0) x.fillRect(gx, 0, 1, h); }
+  // time grid in the chosen unit (seconds, frames, clip cycles or foot steps)
+  const G = timeGrid();
+  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.09)' : 'rgba(255,138,74,.08)'; const a = xOf(r, sp.t0), b = xOf(r, sp.t1); x.fillRect(a, 0, Math.max(1, b - a), h); x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.55)' : 'rgba(255,138,74,.55)'; x.fillRect(a, sp.S === 'L' ? h - 3 * dpr : h - 6 * dpr, Math.max(1, b - a), 2 * dpr); }
+  for (const g of visibleGrid(G, w, dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#34403a' : g.level === 1 ? '#2b3430' : '#232a26'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
   // value grid with labels once the track is tall enough
   const [lo, hi] = viewOf(r), cssH = h / dpr;
   if (cssH >= 56) {
@@ -277,7 +281,7 @@ function onDrag(e) {
   }
   const [px, py] = evXY(r, e), p = pts[drag.i];
   let t = tOf(r, px), v = vOf(r, py);
-  if (e.ctrlKey || e.metaKey) { t = Math.round(t * 20) / 20; v = Math.round(v / r.snap) * r.snap; }
+  if (e.ctrlKey || e.metaKey) { t = snapTime(t, r.cv.width, dprOf(r)); v = Math.round(v / r.snap) * r.snap; }
   if (r.flag) v = v >= 0.5 ? 1 : 0;
   const lo = drag.i > 0 ? pts[drag.i - 1].t : 0, hi = drag.i < pts.length - 1 ? pts[drag.i + 1].t : S.dur;
   p.t = clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
@@ -311,7 +315,7 @@ function onLaneHover(e, r) {
 function edited(r, live = false) {
   if (live) syncMirrors();
   drawLane(r);
-  if (r.key === 'speed') rebuildSpeedLUT();
+  if (r.key === 'speed' || r.key === 'move') rebuildSpeedLUT();
   refreshSummary(r);
   editVersion++; trailDirty = true;
   if (!live) save();
@@ -392,27 +396,13 @@ function mirrorEff(id) {
   A.ik[to] = mirrorEffCopy(id, to);
   rebuildRows(); save();
 }
+function isSelRow(type, key) {   // a both-sides row lights up for either side
+  const sel = type === 'bone' ? S.selected : type === 'group' ? S.selGroup : S.selEff;
+  return !!sel && (sel === key || linkOf(type, sel) === key);
+}
 function linkItem(type, key) {
   const map = type === 'bone' ? A.bones : type === 'group' ? A.groups : A.ik, it = map[key], twin = partnerLabel(type, key);
-  return { label: twin ? 'Linked mirror → ' + twin : 'Linked mirror (no L/R pair)', checked: !!(it && it.mirror), disabled: !twin, action: () => { pushUndo(); setMirrorLink(type, key, !it.mirror); rebuildRows(); save(); } };
-}
-// a linked twin: a read-only header row (edit the source; right-click to unlink)
-function twinRow(type, key, label) {
-  const map = type === 'bone' ? A.bones : type === 'group' ? A.groups : A.ik, it = map[key], src = it.mirrorOf;
-  const hr = mkRow('bone twin' + ((type === 'bone' && S.selected === key) || (type === 'eff' && S.selEff === key) || (type === 'group' && S.selGroup === key) ? ' selected' : ''));
-  Object.assign(hr, { kind: 'twin', type, key });
-  hr.el.dataset[type === 'eff' ? 'eff' : type] = key;
-  const srcLabel = type === 'eff' ? EFF_BY_ID[src].label : type === 'group' ? groupLabel(src) : src;
-  hr.h.innerHTML = `<span class="mirtag" title="Linked mirror">⇄</span><span class="name" title="Select · right-click to unlink"></span><button type="button" class="mini" data-act="del" title="Stop mirroring and remove this side">×</button>`;
-  hr.h.querySelector('.name').textContent = label;
-  hr.h.querySelector('.name').onclick = () => (type === 'bone' ? selectBone(key) : type === 'group' ? selectGroup(key) : selectEff(key));
-  hr.h.querySelector('[data-act="del"]').onclick = () => (type === 'bone' ? removeBone(key) : type === 'group' ? removeGroup(key) : removeEff(key));
-  hr.h.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, [
-    { label: 'Unlink (edit this side on its own)', action: () => { pushUndo(); setMirrorLink(type, src, false); rebuildRows(); save(); } },
-    { label: 'Remove this side', action: () => hr.h.querySelector('[data-act="del"]').click() },
-  ]); };
-  hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = `Mirror of ${srcLabel}: every edit there is applied here (mirrored). Gizmo changes here go back to ${srcLabel}.`;
-  tracksEl.append(hr.el); rows.push(hr);
+  return { label: twin ? 'Both sides (linked mirror with ' + twin + ')' : 'Both sides (no L/R pair)', checked: !!(it && it.mirror), disabled: !twin, action: () => { pushUndo(); setMirrorLink(type, key, !it.mirror); rebuildRows(); save(); } };
 }
 function openGroupMenu(e, gid) {
   const g = A.groups[gid]; if (!g) return;
@@ -548,17 +538,77 @@ function drawRuler() {
   const x = ruler.getContext('2d'), W = ruler.width, H = ruler.height;
   x.fillStyle = '#181d1a'; x.fillRect(0, 0, W, H);
   x.font = `500 ${11 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'top';
-  const step = S.dur > 20 ? 5 : S.dur > 8 ? 1 : 0.5;
-  for (let t = 0; t <= S.dur + 1e-6; t += 0.1) {
-    const px = Math.round((t / S.dur) * (W - 1)) + 0.5, major = Math.abs(t / step - Math.round(t / step)) < 1e-6;
-    if (!major && W / S.dur * 0.1 < 4 * dpr) continue;
-    x.fillStyle = major ? '#7d8882' : '#3a443f'; x.fillRect(px, major ? H * 0.45 : H * 0.7, 1, H);
-    if (major && t < S.dur - 1e-6) { x.fillStyle = '#b4bdb7'; x.fillText(t.toFixed(step < 1 ? 1 : 0) + 's', px + 4 * dpr, 5 * dpr); }
+  const G = timeGrid(), vis = visibleGrid(G, W, dpr);
+  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = (sp.t0 / S.dur) * (W - 1), b = (sp.t1 / S.dur) * (W - 1); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
+  let lastLabel = -1e9;
+  for (const g of vis) {
+    const px = Math.round((g.t / S.dur) * (W - 1)) + 0.5;
+    x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : g.level === 2 ? '#7d8882' : g.level === 1 ? '#56615b' : '#3a443f';
+    x.fillRect(px, g.level === 2 ? H * 0.45 : g.level === 1 ? H * 0.6 : H * 0.72, 1, H);
+    if (g.label && g.t < S.dur - 1e-6 && px - lastLabel > x.measureText(g.label).width + 10 * dpr) { x.fillStyle = g.S ? x.fillStyle : '#b4bdb7'; x.fillText(g.label, px + 4 * dpr, 5 * dpr); lastLabel = px; }
   }
   // clip cycle marks (where one loop / move of the clip ends, at the current speeds)
   if (cur && S.speedLUT) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = S.speedLUT; for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round((i / (lut.length - 1)) * (W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
   drawFootMarks(x, W, H, dpr);
 }
+// ---------------------------------------------------------------- time units
+// grid lines { t, level 0-2, label, S? } for the chosen unit; foot steps also give the contact spans
+let gridCache = null;
+const FPS = 30;
+function timeGrid() {
+  const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}`;
+  if (gridCache && gridCache.key === key) return gridCache;
+  const lines = [], spans = [];
+  if (cur && S.speedLUT) {   // contact spans (used by the step unit and its colours)
+    const step = 1 / 240;
+    for (const Sd of ['L', 'R']) {
+      if (footContact(Sd, 0) == null) continue;
+      let on = null;
+      for (let t = 0; t <= S.dur + 1e-9; t += step) {
+        const c = footContact(Sd, Math.min(t, S.dur));
+        if (c && on == null) on = t;
+        if (!c && on != null) { spans.push({ S: Sd, t0: on, t1: t }); on = null; }
+      }
+      if (on != null) spans.push({ S: Sd, t0: on, t1: S.dur });
+    }
+    spans.sort((a, b) => a.t0 - b.t0);
+  }
+  if (S.unit === 'frame') {
+    for (let f = 0; f <= Math.round(S.dur * FPS); f++) lines.push({ t: f / FPS, level: f % FPS === 0 ? 2 : f % 5 === 0 ? 1 : 0, label: f % 5 === 0 ? f + 'f' : '' });
+  } else if (S.unit === 'cycle' && cur && S.speedLUT) {
+    const total = S.speedLUT[S.speedLUT.length - 1];
+    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? 'bar ' + (q / 8 + 1) : q % 2 === 0 ? '.' + (q % 8) / 2 : '' });
+  } else if (S.unit === 'step' && spans.length) {
+    const n = { L: 0, R: 0 };
+    lines.push({ t: 0, level: 2, label: '' });
+    for (const sp of spans) { n[sp.S]++; if (sp.t0 > 1e-6) lines.push({ t: sp.t0, level: 2, label: sp.S + n[sp.S], S: sp.S }); else Object.assign(lines[0], { label: sp.S + n[sp.S], S: sp.S }); if (sp.t1 < S.dur - 1e-6) lines.push({ t: sp.t1, level: 0, label: '' }); }
+  } else {
+    const major = S.dur > 20 ? 5 : S.dur > 8 ? 1 : 0.5;
+    for (let i = 0; i <= Math.round(S.dur * 10); i++) { const t = i / 10, mj = Math.abs(t / major - Math.round(t / major)) < 1e-6; lines.push({ t, level: i % 10 === 0 ? 2 : i % 5 === 0 ? 1 : 0, label: mj ? t.toFixed(major < 1 ? 1 : 0) + 's' : '' }); }
+  }
+  lines.sort((a, b) => a.t - b.t);
+  gridCache = { key, lines, spans };
+  return gridCache;
+}
+function visibleGrid(G, w, dpr) {   // drop the finer levels when they would crowd (< 4 px apart)
+  const per = w / Math.max(1e-6, S.dur);
+  const gap = (lv) => { const ts = G.lines.filter((g) => g.level >= lv).map((g) => g.t); let m = Infinity; for (let i = 1; i < ts.length; i++) m = Math.min(m, ts[i] - ts[i - 1] || Infinity); return m * per; };
+  const minLv = [0, 1, 2].find((lv) => gap(lv) >= 4 * dpr) ?? 2;
+  return G.lines.filter((g) => g.level >= minLv);
+}
+function snapTime(t, w, dpr) {   // nearest visible grid line of the chosen unit
+  const vis = visibleGrid(timeGrid(), w, dpr); let best = t, bd = Infinity;
+  for (const g of vis) { const d = Math.abs(g.t - t); if (d < bd) { bd = d; best = g.t; } }
+  return clamp(best, 0, S.dur);
+}
+function unitReadout(t) {
+  if (S.unit === 'frame') return `f ${Math.round(t * FPS)}`;
+  if (S.unit === 'cycle' && cur) return `bar ${(clipTime(t) / cur.dur + 1).toFixed(2)}`;
+  if (S.unit === 'step') { const G = timeGrid(), on = G.spans.filter((sp) => t >= sp.t0 && t <= sp.t1).map((sp) => sp.S); const n = G.lines.filter((g) => g.S && g.t <= t + 1e-6).length; return `step ${n}${on.length ? ' · ' + on.join('+') + ' down' : ' · airborne'}`; }
+  return '';
+}
+$('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); save(); };
+
 function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp((e.clientX - b.left) / b.width, 0, 1) * S.dur; }
 ruler.addEventListener('pointerdown', (e) => { rulerDrag = true; ruler.setPointerCapture(e.pointerId); scrub(e); });
 function placePlayhead() {

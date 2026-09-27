@@ -258,7 +258,8 @@ function updateSelChip() {
   if (S.selGroup) {
     const gid = S.selGroup, members = [...groupMembers(gid)], inTl = !!A.groups[gid];
     $('selDot').style.background = COL.group;
-    $('selName').textContent = groupLabel(gid); $('selKind').textContent = `group · ${members.length} bones`;
+    const lk = linkOf('group', gid);
+    $('selName').textContent = lk ? sideless(groupLabel(gid)) : groupLabel(gid); $('selKind').textContent = `group · ${members.length} bones` + (lk ? ' · both sides' : '');
     const others = A.groupOrder.filter((o) => o !== gid && members.some((b) => groupMembers(o).has(b))).map(groupLabel);
     $('selAxes').innerHTML = '<div class="axrow"><span></span></div>';
     $('selAxes').firstChild.lastChild.textContent = 'Its weight multiplies into every highlighted bone' + (others.length ? `, together with: ${others.join(', ')}.` : '.') + ' Bones: ' + members.slice(0, 12).join(', ') + (members.length > 12 ? ` … (+${members.length - 12})` : '');
@@ -268,7 +269,8 @@ function updateSelChip() {
   }
   if (S.selected) {
     $('selDot').style.background = '#ff4fa3';
-    $('selName').textContent = S.selected; $('selKind').textContent = 'bone · FK';
+    const lk = linkOf('bone', S.selected);
+    $('selName').textContent = lk ? sideless(S.selected) : S.selected; $('selKind').textContent = lk ? 'bone · FK · both sides' : 'bone · FK';
     $('selAxes').innerHTML = axesLegendHTML(axisInfo[S.selected]);
     $('btnAddSel').textContent = A.bones[S.selected] ? 'Edit tracks' : 'Add to timeline';
     $('btnAddSel').onclick = () => openAddDialog({ type: 'bone', name: S.selected }, A.bones[S.selected] && A.bones[S.selected].show);
@@ -281,7 +283,8 @@ function updateSelChip() {
   } else {
     const d = EFF_BY_ID[S.selEff];
     $('selDot').style.background = COL.ik;
-    $('selName').textContent = d.label; $('selKind').textContent = 'IK · ' + d.what;
+    const lk = linkOf('eff', d.id);
+    $('selName').textContent = lk ? sideless(d.label) : d.label; $('selKind').textContent = (lk ? 'IK · both sides · ' : 'IK · ') + d.what;
     let html = '';
     if (d.tracks.includes('px')) html += '<div class="axhead">Move</div>' + axesLegendHTML(worldAxisInfo('p'));
     if (d.tracks.includes('rx')) html += '<div class="axhead">Rotate</div>' + axesLegendHTML(worldAxisInfo('r'));

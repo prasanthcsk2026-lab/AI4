@@ -17,11 +17,18 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - Custom groups: any bone plus everything below it.
   - Weights multiply: a bone's weight = its own × every group it is in. Left arm 60 % × Left hand 50 %
     leaves the hand at 30 % and the forearm at 60 %. Group timings add.
-- **Linked mirror:** tick "Mirror → Right …" when adding (or editing) a bone, group or IK effector.
-  - Its other-side twin is rewritten after every edit. Bone axes are matched by what each axis does,
-    with the sign that keeps the motion symmetric. IK sideways moves, turns, rolls and swivels flip sign.
-  - The twin shows as a read-only ⇄ row. A gizmo change made on the twin is mirrored back onto the source.
-  - Right-click to unlink: the twin keeps its copy and becomes editable. Removing the source removes the twin.
+- **Mirror (both sides):** the add / edit dialog of any bone, group or IK effector has a Mirror option.
+  It is on by default and remembers your last choice.
+  - When on, the item is one row named without a side ("Arm", "Leg", "Hand"), tagged ⇄ L+R.
+  - Every edit is applied to the left and right. Bone axes are matched by what each axis does; IK
+    sideways moves, turns, rolls and swivels flip sign.
+  - A gizmo change made on the other side's joint is mirrored back.
+  - Turn "Both sides" off (right-click) to split them into two editable rows.
+- **Moving speed** (master track): scales the ground the character covers without changing the cadence.
+  Playback speed changes the cadence. Both can be automated; travel integrates moving speed over time.
+- **Grid units** (Grid in the header): Seconds, Frames (30 fps), Cycles (bars of the clip loop), or Foot
+  steps. Foot steps shows the left / right contact (lock) spans in their own colours and labels L1, R1, L2…
+  The ruler, lane grid, Ctrl-snap and clock all use the chosen unit.
 - **FK tracks per bone:**
   - weight 0–200 % of the clip's rotation away from idle (whole bone and per axis)
   - adjust in degrees about each local axis
@@ -82,7 +89,7 @@ src/engine.js    rig, anatomical IK solver, motion library, virtual FK, get-up l
 src/core.js      scene + infinite ground, data model, store, undo, boot, bone / IK pickers
 src/axes.js      measured bone-axis meanings, mirror, selection tripod
 src/pose.js      root travel, FK composition, IK effectors + full-body solve, foot-lock
-src/mirror.js    linked left/right mirror (sync after edits, gizmo redirect)
+src/mirror.js    both-sides mirror (sync after edits, side-less names, gizmo redirect)
 src/timeline.js  track rows (height, zoom, exact values), editing, menus, keys, ruler
 src/viewport.js  gizmo + keying, IK handles, skeleton, picking, trail, camera follow, toggles
 src/io.js        transport, JSON / glTF export + import, frame loop

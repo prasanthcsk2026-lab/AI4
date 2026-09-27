@@ -11,7 +11,7 @@ $('durIn').onchange = () => {
   pushUndo();
   const k = d / S.dur;   // points keep their place relative to the length
   const scale = (pts) => pts.forEach((p) => (p.t *= k));
-  scale(A.speed);
+  scale(A.speed); scale(A.move);
   for (const n of A.order) { const ba = A.bones[n]; scale(ba.whole); scale(ba.timing); for (const a of AXES) { scale(ba.w[a]); scale(ba.a[a]); } }
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
   for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
@@ -33,8 +33,9 @@ function exportObj() {
     tool: 'Animation Blender', format: 3, exportedAt: new Date().toISOString(),
     clip: { id: cur.id, name: cur.c.name, label: cur.name, kind: cur.kind, speed_mps: cur.c.speed ?? null, cycle_s: +cur.dur.toFixed(4), legsOnly: !!cur.c.legsOnly },
     duration_s: S.dur, in_place: S.inPlace,
-    note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Speed in % of the clip speed.',
+    note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
+    moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
       return {
@@ -62,7 +63,7 @@ function importObj(o) {
   const clipId = o.clip && (o.clip.id || ('loop:' + o.clip.name));
   if (clipId && clipId !== cur.id && clips.find((x) => x.id === clipId)) selectClip(clipId);
   const d = +o.duration_s || S.dur, P = (a, div = 1) => (Array.isArray(a) && a.length ? a.map(([t, v, k]) => ({ t: +t, v: +v / div, k: +k || 0 })) : null);
-  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed;
+  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move;
   for (const b of o.bones || []) {
     if (!boneIdx.has(b.bone)) continue;
     const ba = newBoneAuto(d);
@@ -192,10 +193,11 @@ function frame(now) {
     placeWorld(focus);
     renderer.render(scene, camera);
     placePlayhead();
-    $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
+    const ur = unitReadout(S.t);
+    $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s${ur ? ' · ' + ur : ''}`;
     const ct = clipTime(S.t), el = $('status');
     const travel = S.inPlace ? 'in place' : `travel ${hipsGround().length().toFixed(1)} m`;
-    el.textContent = el.dataset.flash || `clip time ${ct.toFixed(2)} s · ${cur.kind === 'loop' ? 'cycle ' + cur.dur.toFixed(3) + ' s · phase ' + mod1(ct / cur.dur).toFixed(2) : 'move ' + cur.dur.toFixed(2) + ' s'} · speed ${Math.round(evalPts(A.speed, S.t) * 100)}% · ${travel}`;
+    el.textContent = el.dataset.flash || `clip time ${ct.toFixed(2)} s · ${cur.kind === 'loop' ? 'cycle ' + cur.dur.toFixed(3) + ' s · phase ' + mod1(ct / cur.dur).toFixed(2) : 'move ' + cur.dur.toFixed(2) + ' s'} · speed ${Math.round(evalPts(A.speed, S.t) * 100)}% · moving ${Math.round(evalPts(A.move, S.t) * 100)}% · ${travel}`;
     for (const r of rows) if (r.valEl) r.valEl.textContent = r.fmt(evalPts(r.get(), S.t));
     frameErrCount = 0;
   } catch (err) {

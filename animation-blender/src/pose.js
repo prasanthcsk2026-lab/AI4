@@ -155,7 +155,8 @@ function groupFactor(name, gw, gt) {
 function rebuildSpeedLUT() {   // clip time at each timeline time = ∫ speed
   const n = Math.max(2, Math.ceil(S.dur * 240) + 1), lut = new Float32Array(n), dt = S.dur / (n - 1);
   for (let i = 1; i < n; i++) { const t0 = (i - 1) * dt, t1 = i * dt; lut[i] = lut[i - 1] + 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * dt; }
-  S.speedLUT = lut; drawRuler(); editVersion++;
+  S.speedLUT = lut; editVersion++;
+  rebuildTravelLUT(); gridCache = null; drawRuler();
 }
 function clipTime(t) { const lut = S.speedLUT, f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
 let moveEndCache = null;
@@ -166,7 +167,27 @@ function moveDisp(c, ct, out) {   // a one-shot move's root displacement at clip
   const qY = qAxis(AY, -((c.start && c.start.hipsYaw) || 0), _mvQ);
   return out.set(h.x - c.hp[0], 0, h.z - c.hp[2]).applyQuaternion(qY);
 }
-function trueTravel(t, out = V3()) {   // root travel of the clip at timeline time t (ignores "in place")
+// root travel at timeline time t (ignores "in place"): the clip's own travel, each bit of it scaled by the
+// moving-speed track at that moment (so 150 % covers half as much ground again at the same cadence)
+let travelLUT = null;
+function rebuildTravelLUT() {
+  const n = Math.max(2, Math.ceil(S.dur * 240) + 1), dt = S.dur / (n - 1), x = new Float32Array(n), z = new Float32Array(n);
+  const prev = V3(), now = V3();
+  rawTravel(0, prev);
+  for (let i = 1; i < n; i++) {
+    rawTravel(i * dt, now);
+    const m = evalPts(A.move, (i - 0.5) * dt);
+    x[i] = x[i - 1] + (now.x - prev.x) * m; z[i] = z[i - 1] + (now.z - prev.z) * m;
+    prev.copy(now);
+  }
+  travelLUT = { n, x, z };
+}
+function trueTravel(t, out = V3()) {
+  if (!travelLUT) return rawTravel(t, out);
+  const { n, x, z } = travelLUT, f = clamp(t / S.dur, 0, 1) * (n - 1), i = Math.min(Math.floor(f), n - 2), u = f - i;
+  return out.set(lerp(x[i], x[i + 1], u), 0, lerp(z[i], z[i + 1], u));
+}
+function rawTravel(t, out = V3()) {   // the clip's own root travel at timeline time t
   out.set(0, 0, 0);
   if (!cur) return out;
   const ct = clipTime(t), c = cur.c;

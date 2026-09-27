@@ -12,7 +12,7 @@
 const $ = (id) => document.getElementById(id);
 const STORE = 'animationBlender.v1';
 const W_MAX = 2, ADJ_MAX = 90, SPEED_MAX = 2, TIMING_MAX = 0.5;
-const COL = { group: '#7fb7ff', weight: '#f08a1c', adjust: '#56b6c2', speed: '#c6d45a', timing: '#c98bd6', pos: '#ffd166', rot: '#7fb7ff', ik: '#5fd3a8', swivel: '#e58ad6', flag: '#ff7a6b', finger: '#b9a5ff' };
+const COL = { move: '#9fe0ff', group: '#7fb7ff', weight: '#f08a1c', adjust: '#56b6c2', speed: '#c6d45a', timing: '#c98bd6', pos: '#ffd166', rot: '#7fb7ff', ik: '#5fd3a8', swivel: '#e58ad6', flag: '#ff7a6b', finger: '#b9a5ff' };
 const AXIS_COL = { x: '#ff5f5f', y: '#7ddc6a', z: '#5f9dff' };
 const niceName = (n) => n.replace(/__LegsOnly/i, '').replace(/_/g, ' ').replace(/^Gen /, '');
 
@@ -120,12 +120,12 @@ const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
   selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
-  inPlace: true, follow: true, autoKey: true, travelBase: V3(),
+  inPlace: true, follow: true, autoKey: true, travelBase: V3(), unit: 'sec', mirrorPref: true,
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur) { return { dur, speed: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur) { return { dur, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -136,7 +136,7 @@ function newBoneAuto(dur) {
 // fill fields added since a save was made; the old hips position offset becomes the hips IK effector
 function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
-  a.groups = a.groups || {}; a.groupOrder = a.groupOrder || [];
+  a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
   for (const n of a.order) {
     const ba = a.bones[n]; if (!ba) continue;
@@ -165,7 +165,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -227,7 +227,9 @@ async function boot() {
     if (!c.n || !c.q) continue;
     clips.push({ id: 'move:' + c.name, name: c.name, label: `${c.name} · ${c.src || ''} · ${((c.n - 1) / gl.fps).toFixed(2)} s`, kind: 'move', c, dur: (c.n - 1) / gl.fps, group: 'One-shot moves' });
   }
-  if (store.ui) for (const k of ['inPlace', 'follow', 'autoKey', 'showIK']) if (typeof store.ui[k] === 'boolean') S[k] = store.ui[k];
+  if (store.ui) for (const k of ['inPlace', 'follow', 'autoKey', 'showIK', 'mirrorPref']) if (typeof store.ui[k] === 'boolean') S[k] = store.ui[k];
+  if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
+  $('unitSel').value = S.unit;
   syncToggles();
   buildClipSelect(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
@@ -396,8 +398,9 @@ function openAddDialog(target, existingShow) {
   if (twin) {
     const map = isGrp ? A.groups : isEff ? A.ik : A.bones, to = partnerOf(type, key), own = map[to] && !map[to].mirrorOf;
     const row = document.createElement('label'); row.className = 'checkrow mirrorrow';
-    mcb = document.createElement('input'); mcb.type = 'checkbox'; mcb.checked = !!(map[key] && map[key].mirror);
-    row.append(mcb, document.createTextNode(`Mirror → ${twin} (linked: every edit here applies to both sides${own ? '; replaces its own tracks' : ''})`));
+    mcb = document.createElement('input'); mcb.type = 'checkbox'; mcb.checked = map[key] ? !!map[key].mirror : S.mirrorPref;
+    const plain = sideless(isGrp ? groupLabel(key) : isEff ? def.label : key);
+    row.append(mcb, document.createTextNode(`Mirror — both sides as one "${plain}" (edits apply to left and right${own ? '; replaces ' + twin + "'s own tracks" : ''})`));
     box.append(row);
   }
   const ok = $('addDlgOk'), cancel = $('addDlgCancel');
@@ -407,6 +410,7 @@ function openAddDialog(target, existingShow) {
     if (!Object.values(show).some(Boolean)) show[defaults[0]] = true;
     dlg.hidden = true;
     const mirror = !!(mcb && mcb.checked);
+    if (mcb) S.mirrorPref = mirror;
     if (isGrp) commitAddGroup(target.id, show, mirror); else if (isEff) commitAddEff(target.id, show, mirror); else commitAddBone(target.name, show, mirror);
   };
   cancel.onclick = () => { dlg.hidden = true; };
