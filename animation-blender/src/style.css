@@ -72,7 +72,11 @@
   #numEdit button.primary { background: var(--accent); border-color: var(--accent); color: #1a1208; font-weight: 700; }
   .chip.hint { color: var(--muted); }
   .viewbtns { position: absolute; right: 16px; top: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-  .btngroup { display: flex; gap: 4px; }
+  .btngroup { display: flex; gap: 4px; align-items: center; }
+  .falloff { display: flex; align-items: center; gap: 2px; font: 500 12px var(--mono); color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; }
+  .falloff input { width: 50px; border: 0; background: transparent; padding: 4px 2px; }
+  #btnMagnet[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  #btnMagnet { margin-left: 6px; }
   .btngroup button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   .viewbtns button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   #status { position: absolute; left: 16px; bottom: 10px; font: 500 12px var(--mono); color: var(--muted); }
@@ -86,7 +90,8 @@
   .addbar select { flex: 1; min-width: 0; }
   #ruler { display: block; width: 100%; height: 34px; cursor: ew-resize; }
   .tracks { overflow-y: auto; overflow-x: hidden; position: relative; }
-  .row { display: grid; grid-template-columns: var(--hdr) 1fr; height: 38px; border-bottom: 1px solid var(--grid); position: relative; }
+  .row { display: grid; grid-template-columns: var(--hdr) 1fr; height: 38px; border-bottom: 2px solid #3a4540; position: relative; }
+  .row.bone { border-top: 1px solid #56625b; }   /* each bone / group / IK block starts with a brighter line */
   .row .h { display: flex; align-items: center; gap: 6px; padding: 0 8px; border-right: 1px solid var(--line); background: var(--panel); min-width: 0; }
   .row .h .name { font: 500 12px var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
   .row .h .name i { font-style: normal; color: var(--muted); }
@@ -131,12 +136,27 @@
   .sheet .acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
   .sheet .note { color: var(--muted); font-size: 12px; margin-right: auto; }
   /* bone hierarchy dialog */
-  #boneDlg .box, #addDlg .box { max-width: 380px; max-height: 76%; }
+  #boneDlg .box, #addDlg .box { width: min(420px, 100%); height: min(640px, calc(100vh - 32px)); max-height: none; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  #addDlg .box { height: auto; max-height: calc(100vh - 32px); grid-template-rows: auto minmax(0, 1fr) auto; }
+  #addDlgChecks { min-height: 0; }
   #boneSearch { box-sizing: border-box; width: 100%; }
-  #boneTree { overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #0b0e0c; }
+  #boneTree { overflow: auto; min-height: 0; border: 1px solid var(--line); border-radius: 6px; background: #0b0e0c; padding: 2px 4px 6px; }
   .treerow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer; border-radius: 4px; }
   .treerow:hover { background: #232a26; }
-  .treerow .tn { flex: 1; font: 500 12px var(--ui); color: var(--ink-2); }
+  .treerow .tn { flex: 1; min-width: 0; font: 500 13px var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .treerow .tn.on { color: var(--accent); }
+  .treerow .intl { font: 500 11px var(--ui); color: var(--muted); flex: none; }
+  .fingerrow { padding-left: 8px; }
+  .treerow .note2 { flex: 0 1 auto; max-width: 58%; font: 500 11px var(--ui); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .treerow .tn { flex: 1 1 auto; }
+  .igsec { display: grid; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .igline { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 500 13px var(--ui); color: var(--ink-2); }
+  .igline input[type=number] { width: 64px; }
+  .igline input[type=text], .igline select { flex: 1; max-width: 220px; }
+  .fingerrow .tn { flex: 0 0 64px; }
+  .chips { display: flex; gap: 4px; }
+  .chip-seg { min-width: 30px; padding: 2px 8px; font: 500 12px var(--mono); border-radius: 5px; }
+  .chip-seg.on { border-color: var(--accent); color: var(--accent); }
   #addDlgChecks { display: flex; flex-direction: column; gap: 4px; overflow: auto; }
   .checkrow { display: flex; align-items: center; gap: 8px; font: 500 13px var(--ui); padding: 3px 2px; cursor: pointer; }
   .checkrow input { accent-color: var(--accent); }
@@ -163,6 +183,7 @@
     .axrow { font-size: 11px; }
     .viewbtns { top: auto; bottom: 8px; left: 8px; right: 8px; flex-direction: row; overflow-x: auto; scrollbar-width: none; }
     .btngroup { flex: none; }
+    .falloff input { width: 44px; }
     .btngroup button { padding: 4px 8px; font-size: 12px; }
     #status { display: none; }
     .addbar button { padding: 4px 6px; font-size: 12px; }

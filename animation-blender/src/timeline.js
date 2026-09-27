@@ -112,7 +112,7 @@ function rebuildRows() {
     const hr = mkRow('bone eff' + (isSelRow('eff', id) ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">IK</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">${d.kind === 'igroup' ? 'IK GRP' : 'IK'}</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = e.mirror ? sideless(d.label) : d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
@@ -264,7 +264,7 @@ function onLaneDown(e, r) {
   if (i == null) { const ri = hitRing(r, e); if (ri != null) { pushUndo(); drag = { r, ring: ri, y0: e.clientY, k0: pts[ri].k }; return; } }
   if (i == null) {   // new point at the clicked time and value
     pushUndo();
-    const [px, py] = evXY(r, e), t = tOf(r, px);
+    const [px, py] = evXY(r, e), t = S.magnet ? snapTime(tOf(r, px), r.cv.width, dprOf(r)) : tOf(r, px);
     const p = { t, v: vOf(r, py), k: 0 }; let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length;
     pts.splice(at, 0, p); i = at; edited(r);
   } else { pushUndo(); }
@@ -281,7 +281,8 @@ function onDrag(e) {
   }
   const [px, py] = evXY(r, e), p = pts[drag.i];
   let t = tOf(r, px), v = vOf(r, py);
-  if (e.ctrlKey || e.metaKey) { t = snapTime(t, r.cv.width, dprOf(r)); v = Math.round(v / r.snap) * r.snap; }
+  if (S.magnet || e.ctrlKey || e.metaKey) t = snapTime(t, r.cv.width, dprOf(r));   // magnet: stick to the unit's lines
+  if (e.ctrlKey || e.metaKey) v = Math.round(v / r.snap) * r.snap;
   if (r.flag) v = v >= 0.5 ? 1 : 0;
   const lo = drag.i > 0 ? pts[drag.i - 1].t : 0, hi = drag.i < pts.length - 1 ? pts[drag.i + 1].t : S.dur;
   p.t = clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
@@ -346,7 +347,7 @@ function applyNumEdit() {
   let v = clamp(raw / r.scale, r.range[0], r.range[1]); if (r.flag) v = v >= 0.5 ? 1 : 0;
   pushUndo();
   if (i != null && pts[i]) { const p = pts.splice(i, 1)[0]; p.v = v; p.t = t; let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length; pts.splice(at, 0, p); }
-  else keyAt(pts, t, v);
+  else keyAtFlat(pts, t, v);
   closeNumEdit(); edited(r);
 }
 $('numOk').onclick = applyNumEdit;
@@ -388,7 +389,7 @@ function openBoneMenu(e, name) {
     { label: 'Remove bone', action: () => removeBone(name) },
   ]);
 }
-function mirrorEffId(id) { return id[0] === 'L' ? 'R' + id.slice(1) : id[0] === 'R' ? 'L' + id.slice(1) : null; }
+function mirrorEffId(id) { if (/^ig:[LR]/.test(id)) return 'ig:' + (id[3] === 'L' ? 'R' : 'L') + id.slice(4); if (id.startsWith('ig:')) return null; return id[0] === 'L' ? 'R' + id.slice(1) : id[0] === 'R' ? 'L' + id.slice(1) : null; }
 function mirrorEff(id) {
   const to = mirrorEffId(id), src = A.ik[id]; if (!to || !src) return;
   pushUndo();   // a one-time copy (the linked mirror keeps copying after every edit)
@@ -607,7 +608,8 @@ function unitReadout(t) {
   if (S.unit === 'step') { const G = timeGrid(), on = G.spans.filter((sp) => t >= sp.t0 && t <= sp.t1).map((sp) => sp.S); const n = G.lines.filter((g) => g.S && g.t <= t + 1e-6).length; return `step ${n}${on.length ? ' · ' + on.join('+') + ' down' : ' · airborne'}`; }
   return '';
 }
-$('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); save(); };
+$('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); trailDirty = true; save(); };
+$('btnMagnet').onclick = () => { S.magnet = !S.magnet; $('btnMagnet').setAttribute('aria-pressed', S.magnet); trailDirty = true; save(); };
 
 function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp((e.clientX - b.left) / b.width, 0, 1) * S.dur; }
 ruler.addEventListener('pointerdown', (e) => { rulerDrag = true; ruler.setPointerCapture(e.pointerId); scrub(e); });

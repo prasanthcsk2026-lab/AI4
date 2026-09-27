@@ -10,6 +10,8 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
 
 ## What it does
 
+- **Bone picker:** parts (body, each arm, each hand's fingers as segment chips, each leg). Finger joints
+  can also be clicked in the viewport (small dots).
 - **Groups** (Group…, the bone chip's "As group", or right-click a bone): one weight track, plus an
   optional timing track, for many bones.
   - Predefined groups: whole body, upper / lower body, spine, head & neck, and each side's arm, hand,
@@ -43,21 +45,27 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   | Effector | Tracks |
   |---|---|
   | Hips | move, rotate, "feet stay planted" (the pelvis drops if needed to keep the feet reachable) |
-  | Spine (lower back) | rotate the Spine bone |
+  | Spine (lower back) | rotate the Spine bone; move shifts half through the pelvis and tilts it for the rest (feet stay planted) |
   | Spine1 (mid back) | rotate Spine1; move bends Spine |
   | Chest | rotate, spread over the three spine bones; move bends Spine1 + Spine |
   | Neck | rotate the neck; move bends the upper spine |
   | Head | rotate, spread over neck and head; move bends neck, Spine2, Spine1 |
   | Shoulders | rotate the clavicle |
   | Hands | move, rotate, pin, hold, pull (the chest leans toward a target out of reach) |
-  | Elbows, knees | swivel around the limb line |
-  | Fingers | curl, spread, thumb |
+  | Elbows, knees | swivel around the limb line; rotate turns the forearm / shin (the hand / foot keeps its orientation) |
+  | Fingers | curl, spread, thumb; rotate turns all fingers |
   | Feet | move, rotate, hold |
-  | Toes | bend |
+  | Toes | bend, rotate |
+  | Group IK | one handle moves / rotates several effectors about a pivot (arm, leg, both hands, both feet, upper body, whole body, or custom) |
 
   Torso moves use CCD with at most 45° per joint, so a far target is reached as close as the spine allows.
   Every effector is an offset over the FK result, so the clip keeps moving underneath.
   IK offsets are in world axes: X sideways, Y up, Z forward.
+- **Group IK** (IK… → Group IK, or "+ New custom group IK…"):
+  - Set the share (%) each member takes of the move, and the pivot it rotates about.
+  - Members already carried by another member of the same group take no extra share, so nothing moves
+    twice. An unpinned hand on a moving chest is one example.
+  - Arm / leg groups mirror as both sides.
 - **Gizmo:**
   - Rotate (R) and Move (W) drive bones and effectors, with a live preview.
   - Auto-key writes the change at the playhead when you let go. Otherwise use Key / Cancel.
@@ -72,8 +80,17 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - Drag a track's bottom edge to set its height.
   - Ctrl / Alt + wheel zooms a track's values. Tall tracks show a value grid.
   - Double-click a point, or click a track's value readout, to type an exact time and value.
-  - Arrow keys nudge the selected points. Ctrl while dragging snaps.
-- **Trail:** the path of the selected joint over the whole timeline.
+  - Magnet (🧲, next to Grid): new and dragged points stick to the chosen unit's lines. Ctrl also snaps the value.
+  - Arrow keys nudge the selected points.
+  - Track separators are drawn bold; each bone / group / IK block starts with a brighter line.
+- **Trail:** the path of the selected joint over the whole timeline, with dots on the grid unit's lines
+  (magnet on) or every 0.1 s.
+  - Drag a dot to reshape the path. The change is keyed at that dot's time. The ± falloff (s) next to the
+    Trail button adds anchors that keep the edit local.
+  - Where the edit is written:
+    - IK joints (hands, feet, hips, spine, chest, neck, head): their Move tracks.
+    - Forearm / shin: elbow / knee swivel.
+    - Any other bone: its parent's FK adjust.
 - **Export:**
   - JSON automation (FK + IK) plus a 10 Hz sampling.
   - Save for Claude (the artifact database).

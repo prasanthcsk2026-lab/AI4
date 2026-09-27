@@ -51,7 +51,7 @@ function setPointAt(pts, t, v) {
   pts.splice(at, 0, { t, v, k: 0 });
 }
 // a key: on a still-flat track the first key sets the whole track (like a single key in a DCC); after that it adds shape
-function keyAt(pts, t, v) {
+function keyAtFlat(pts, t, v) {
   if (pts.every((p) => Math.abs(p.v - pts[0].v) < 1e-6)) for (const p of pts) p.v = v;
   setPointAt(pts, t, v);
 }
@@ -120,7 +120,7 @@ const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
   selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
-  inPlace: true, follow: true, autoKey: true, travelBase: V3(), unit: 'sec', mirrorPref: true,
+  inPlace: true, follow: true, autoKey: true, travelBase: V3(), unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
@@ -154,7 +154,9 @@ function normalizeAuto(a) {
       for (const x of AXES) delete ba.show['h' + x];
     }
   }
-  for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; for (const k of EFF_BY_ID[id].tracks) if (!e.tr[k]) e.tr[k] = flat(TRK[k].ref, a.dur); }
+  for (const id of a.ikOrder) if (id.startsWith('ig:c') && a.ik[id]) registerIG(id, a.ik[id].label);
+  a.ikOrder = a.ikOrder.filter((id) => EFF_BY_ID[id]);
+  for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; if (EFF_BY_ID[id].kind === 'igroup') { e.members = e.members || { ...EFF_BY_ID[id].members }; e.pivot = e.pivot || EFF_BY_ID[id].pivot; } for (const k of EFF_BY_ID[id].tracks) if (!e.tr[k]) e.tr[k] = flat(TRK[k].ref, a.dur); }
   return a;
 }
 
@@ -165,7 +167,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -227,7 +229,9 @@ async function boot() {
     if (!c.n || !c.q) continue;
     clips.push({ id: 'move:' + c.name, name: c.name, label: `${c.name} · ${c.src || ''} · ${((c.n - 1) / gl.fps).toFixed(2)} s`, kind: 'move', c, dur: (c.n - 1) / gl.fps, group: 'One-shot moves' });
   }
-  if (store.ui) for (const k of ['inPlace', 'follow', 'autoKey', 'showIK', 'mirrorPref']) if (typeof store.ui[k] === 'boolean') S[k] = store.ui[k];
+  if (store.ui) for (const k of ['inPlace', 'follow', 'autoKey', 'showIK', 'mirrorPref', 'magnet']) if (typeof store.ui[k] === 'boolean') S[k] = store.ui[k];
+  if (store.ui && isFinite(store.ui.falloff)) S.falloff = clamp(+store.ui.falloff, 0, 2);
+  $('btnMagnet').setAttribute('aria-pressed', S.magnet); $('falloffIn').value = S.falloff;
   if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
   $('unitSel').value = S.unit;
   syncToggles();
@@ -254,32 +258,51 @@ function buildClipSelect() {
 function buildBoneTree() {
   const under = new Set(); rig.b.hips.traverse((o) => o.isBone && under.add(o));
   const all = rig.bones.filter((b) => under.has(b));
-  const roots = all.filter((b) => !all.includes(b.parent));
-  function walk(b, depth, q) {
-    const kids = all.filter((c) => c.parent === b);
-    const kidRows = []; for (const k of kids) kidRows.push(...walk(k, depth + 1, q));
-    const matchSelf = !q || b.name.toLowerCase().includes(q);
-    if (!matchSelf && !kidRows.length) return [];
-    const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = (depth * 16 + 8) + 'px';
-    const inTl = !!A.bones[b.name];
-    const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = b.name; if (inTl) tn.style.color = 'var(--accent)';
-    row.append(tn);
-    if (inTl) { const m = document.createElement('span'); m.className = 'mini'; m.style.cssText = 'opacity:.6;pointer-events:none'; m.textContent = 'in timeline'; row.append(m); }
-    row.onclick = () => {
-      $('boneDlg').hidden = true;
-      if (inTl) selectBone(b.name); else openAddDialog({ type: 'bone', name: b.name });
-    };
-    return [row, ...kidRows];
+  // sections (body, each arm, each hand's fingers, each leg); a finger is one row of segment chips
+  const isEnd = (b) => /_End$|(Thumb|Index|Middle|Ring|Pinky)4$/i.test(b.name);   // finger tips carry no motion
+  const sections = [['Body', [rig.b.hips, rig.b.spine, rig.b.spine1, rig.b.spine2, rig.b.neck, rig.b.head], null]];
+  for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
+    const sd = rig.side[S];
+    sections.push([side + ' arm', [sd.clav, sd.upper, sd.fore, sd.hand], null]);
+    const fingers = sd.hand.children.filter((c) => c.isBone).map((f) => { const chain = []; let b = f; while (b && b.isBone) { chain.push(b); b = b.children.find((c) => c.isBone); } return chain; });
+    sections.push([side + ' fingers', [], fingers]);
   }
+  for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) { const sd = rig.side[S]; sections.push([side + ' leg', [sd.thigh, sd.shin, sd.foot, sd.toe], null]); }
+  const listed = new Set(); for (const [, bs, fs] of sections) { bs.forEach((b) => listed.add(b)); (fs || []).forEach((c) => c.forEach((b) => listed.add(b))); }
+  sections.push(['Other', all.filter((b) => !listed.has(b) && !/_End$/i.test(b.name)), null]);
+  const inTl = (n) => !!A.bones[n];
+  const pick = (n) => { $('boneDlg').hidden = true; if (inTl(n)) selectBone(n); else openAddDialog({ type: 'bone', name: n }); };
   function render(q) {
     const root = $('boneTree'); root.textContent = '';
-    const items = []; for (const r of roots) items.push(...walk(r, 0, q.trim().toLowerCase()));
-    if (!items.length) { root.innerHTML = '<div class="empty">No bones match.</div>'; return; }
-    for (const it of items) root.append(it);
+    q = q.trim().toLowerCase();
+    const hit = (b) => !q || b.name.toLowerCase().includes(q);
+    for (const [title, bones, fingers] of sections) {
+      const rowsHere = [];
+      bones.filter(hit).forEach((b, i) => {
+        const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = (8 + Math.min(i, 5) * 12) + 'px';
+        const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = b.name; if (inTl(b.name)) tn.classList.add('on');
+        row.append(tn);
+        if (inTl(b.name)) { const m = document.createElement('span'); m.className = 'intl'; m.textContent = 'in timeline'; row.append(m); }
+        row.onclick = () => pick(b.name);
+        rowsHere.push(row);
+      });
+      for (const chain of fingers || []) {
+        const segs = chain.filter((b) => !isEnd(b) && hit(b)); if (!segs.length) continue;
+        const row = document.createElement('div'); row.className = 'treerow fingerrow';
+        const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = chain[0].name.replace(/^(Left|Right)Hand/, '').replace(/\d+$/, '');
+        const chips = document.createElement('span'); chips.className = 'chips';
+        for (const b of segs) { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip-seg' + (inTl(b.name) ? ' on' : ''); c.textContent = b.name.match(/\d+$/) ? b.name.match(/\d+$/)[0] : b.name; c.title = b.name + (inTl(b.name) ? ' · in timeline' : ''); c.onclick = (e) => { e.stopPropagation(); pick(b.name); }; chips.append(c); }
+        row.append(tn, chips); row.onclick = () => pick(segs[0].name);
+        rowsHere.push(row);
+      }
+      if (!rowsHere.length) continue;
+      const h = document.createElement('div'); h.className = 'treegrp'; h.textContent = title; root.append(h, ...rowsHere);
+    }
+    if (!root.children.length) root.innerHTML = '<div class="empty">No bones match.</div>';
   }
   const renderMode = (q) => (treeMode === 'ik' ? renderIKList(q) : treeMode === 'group' ? renderGroupList(q) : render(q));
   $('boneSearch').oninput = () => renderMode($('boneSearch').value);
-  $('btnAddBone').onclick = () => { treeMode = 'bone'; $('boneDlgTitle').textContent = 'Add a bone'; $('boneDlgNote').textContent = 'Body → Left / Right → fingers, in hierarchy order.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; render(''); $('boneSearch').focus(); };
+  $('btnAddBone').onclick = () => { treeMode = 'bone'; $('boneDlgTitle').textContent = 'Add a bone'; $('boneDlgNote').textContent = 'Parent → child order in each part. A finger\'s numbers are its segments, from the knuckle out.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; render(''); $('boneSearch').focus(); };
   $('btnAddIK').onclick = () => { treeMode = 'ik'; $('boneDlgTitle').textContent = 'Add an IK effector'; $('boneDlgNote').textContent = 'HumanIK-style effectors. Offsets are in world axes: X sideways, Y up, Z forward.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; renderIKList(''); $('boneSearch').focus(); };
   $('btnAddGroup').onclick = () => { treeMode = 'group'; $('boneDlgTitle').textContent = 'Add a group'; $('boneDlgNote').textContent = 'One weight track for many bones. Weights multiply: a bone inside two groups gets both.'; $('boneDlg').hidden = false; $('boneSearch').value = ''; renderGroupList(''); $('boneSearch').focus(); };
   $('boneDlgClose').onclick = () => { $('boneDlg').hidden = true; };
@@ -297,9 +320,15 @@ function renderIKList(q) {
     const inTl = !!A.ik[e.id];
     const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = '16px';
     const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = e.label; if (inTl) tn.style.color = COL.ik;
-    const d = document.createElement('span'); d.className = 'mini'; d.style.cssText = 'opacity:.6;pointer-events:none'; d.textContent = inTl ? 'in timeline' : e.what;
+    const d = document.createElement('span'); d.className = 'note2'; d.textContent = inTl ? 'in timeline' : e.what; d.title = e.what;
     row.append(tn, d);
     row.onclick = () => { $('boneDlg').hidden = true; if (inTl) selectEff(e.id); else openAddDialog({ type: 'eff', id: e.id }); };
+    root.append(row);
+  }
+  if (!q || 'custom group ik'.includes(q)) {
+    const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = '16px';
+    row.innerHTML = '<span class="tn" style="color:var(--accent)">+ New custom group IK…</span><span class="note2">pick any hands, feet, hips, spine, head</span>';
+    row.onclick = () => { $('boneDlg').hidden = true; let n = 1; while (EFF_BY_ID['ig:c' + n]) n++; registerIG('ig:c' + n, 'Custom group ' + n); openAddDialog({ type: 'eff', id: 'ig:c' + n }); };
     root.append(row);
   }
   if (!root.children.length) root.innerHTML = '<div class="empty">No effectors match.</div>';
@@ -403,6 +432,28 @@ function openAddDialog(target, existingShow) {
     row.append(mcb, document.createTextNode(`Mirror — both sides as one "${plain}" (edits apply to left and right${own ? '; replaces ' + twin + "'s own tracks" : ''})`));
     box.append(row);
   }
+  // group IK: name (custom), members with their share of the move, pivot
+  let igUI = null;
+  if (isEff && def.kind === 'igroup') {
+    const e = A.ik[def.id], mem = (e && e.members) || def.members, piv = (e && e.pivot) || def.pivot;
+    const sec = document.createElement('div'); sec.className = 'igsec';
+    let nameIn = null;
+    if (def.custom) { const l = document.createElement('label'); l.className = 'igline'; l.append('Name '); nameIn = document.createElement('input'); nameIn.type = 'text'; nameIn.value = (e && e.label) || def.label; l.append(nameIn); sec.append(l); }
+    const h = document.createElement('div'); h.className = 'axhead'; h.textContent = 'Members — % of the group move each one takes'; sec.append(h);
+    const ins = {};
+    for (const id of MOVABLE) {
+      const l = document.createElement('label'); l.className = 'igline';
+      const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 100; inp.step = 5; inp.value = Math.round((mem[id] || 0) * 100);
+      l.append(EFF_BY_ID[id].label, inp); sec.append(l); ins[id] = inp;
+    }
+    const pl = document.createElement('label'); pl.className = 'igline'; pl.append('Pivot (rotate about)');
+    const sel = document.createElement('select');
+    const opts = [...(IG_AUTO_PIVOT[def.id] ? [['auto', 'Auto (' + IG_AUTO_PIVOT[def.id]().name + ')']] : []), ['centroid', 'Centre of the members'], ...MOVABLE.map((id) => [id, EFF_BY_ID[id].label])];
+    for (const [v, t] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
+    sel.value = opts.some(([v]) => v === piv) ? piv : 'centroid'; pl.append(sel); sec.append(pl);
+    box.append(sec);
+    igUI = () => ({ label: nameIn ? nameIn.value.trim() || def.label : null, pivot: sel.value, members: Object.fromEntries(MOVABLE.map((id) => [id, clamp((+ins[id].value || 0) / 100, 0, 1)]).filter(([, v]) => v > 0)) });
+  }
   const ok = $('addDlgOk'), cancel = $('addDlgCancel');
   ok.textContent = existingShow ? 'Apply' : 'Add';
   ok.onclick = () => {
@@ -411,7 +462,7 @@ function openAddDialog(target, existingShow) {
     dlg.hidden = true;
     const mirror = !!(mcb && mcb.checked);
     if (mcb) S.mirrorPref = mirror;
-    if (isGrp) commitAddGroup(target.id, show, mirror); else if (isEff) commitAddEff(target.id, show, mirror); else commitAddBone(target.name, show, mirror);
+    if (isGrp) commitAddGroup(target.id, show, mirror); else if (isEff) commitAddEff(target.id, show, mirror, igUI && igUI()); else commitAddBone(target.name, show, mirror);
   };
   cancel.onclick = () => { dlg.hidden = true; };
   dlg.onkeydown = (e) => { if (e.key === 'Escape') dlg.hidden = true; if (e.key === 'Enter') ok.click(); };
@@ -437,9 +488,10 @@ function ensureGroup(gid) {
   if (!A.groups[gid]) { A.groups[gid] = newGroupAuto(S.dur); A.groupOrder.push(gid); }
   return A.groups[gid];
 }
-function commitAddEff(id, show, mirror) {
+function commitAddEff(id, show, mirror, ig) {
   pushUndo();
-  ensureEff(id).show = show;
+  const e = ensureEff(id); e.show = show;
+  if (ig) { e.members = ig.members; e.pivot = ig.pivot; if (ig.label) { e.label = ig.label; registerIG(id, ig.label); } }
   setMirrorLink('eff', id, mirror);
   selectEff(id); save();
   const r = document.querySelector(`[data-eff="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });

@@ -41,6 +41,11 @@ function mirrorBoneCopy(name, target) {
 function mirrorEffCopy(id, to) {
   const src = A.ik[id], dst = newEffAuto(to, S.dur);
   for (const k of EFF_BY_ID[id].tracks) dst.tr[k] = clonePts(src.tr[k], EFF_FLIP.has(k) ? -1 : 1);
+  if (src.members) {   // group IK: members and pivot swap sides too
+    const sw = (k) => (/^[LR]/.test(k) ? (k[0] === 'L' ? 'R' : 'L') + k.slice(1) : k);
+    dst.members = Object.fromEntries(Object.entries(src.members).map(([k, v]) => [sw(k), v]));
+    dst.pivot = src.pivot === 'auto' || src.pivot === 'centroid' ? src.pivot : sw(src.pivot);
+  }
   dst.show = { ...src.show }; dst.collapsed = src.collapsed;
   return dst;
 }

@@ -33,7 +33,7 @@ function exportObj() {
     tool: 'Animation Blender', format: 3, exportedAt: new Date().toISOString(),
     clip: { id: cur.id, name: cur.c.name, label: cur.name, kind: cur.kind, speed_mps: cur.c.speed ?? null, cycle_s: +cur.dur.toFixed(4), legsOnly: !!cur.c.legsOnly },
     duration_s: S.dur, in_place: S.inPlace,
-    note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
+    note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
     moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
@@ -48,7 +48,7 @@ function exportObj() {
     ik: A.ikOrder.filter((id) => A.ik[id]).map((id) => {
       const e = A.ik[id], tracks = {};
       for (const k of EFF_BY_ID[id].tracks) tracks[k] = P(e.tr[k], TRK[k].fmt === pct ? 100 : 1);
-      return { effector: id, mirror: !!e.mirror, mirror_of: e.mirrorOf, label: EFF_BY_ID[id].label, show: e.show, tracks };
+      return { effector: id, mirror: !!e.mirror, mirror_of: e.mirrorOf, label: EFF_BY_ID[id].label, show: e.show, tracks, ...(e.members ? { members_pct: Object.fromEntries(Object.entries(e.members).map(([k, v]) => [k, Math.round(v * 100)])), pivot: e.pivot } : {}) };
     }),
     view: { heights: A.heights, zoom: A.zoom },
   };
@@ -83,11 +83,14 @@ function importObj(o) {
     n.groups[g.group] = ga; n.groupOrder.push(g.group);
   }
   for (const f of o.ik || []) {
+    if (f.effector && f.effector.startsWith('ig:c')) registerIG(f.effector, f.label);
     if (!EFF_BY_ID[f.effector]) continue;
     const e = newEffAuto(f.effector, d);
     for (const k of EFF_BY_ID[f.effector].tracks) e.tr[k] = P(f.tracks && f.tracks[k], TRK[k].fmt === pct ? 100 : 1) || e.tr[k];
     if (f.show) e.show = f.show;
     if (f.mirror) e.mirror = true; if (f.mirror_of) e.mirrorOf = f.mirror_of;
+    if (f.members_pct) e.members = Object.fromEntries(Object.entries(f.members_pct).filter(([k]) => EFF_BY_ID[k]).map(([k, v]) => [k, clamp(+v / 100, 0, 1)]));
+    if (f.pivot) e.pivot = f.pivot; if (f.effector.startsWith('ig:c')) e.label = f.label;
     n.ik[f.effector] = e; n.ikOrder.push(f.effector);
   }
   if (o.view) { n.heights = o.view.heights || {}; n.zoom = o.view.zoom || {}; }
@@ -213,5 +216,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

@@ -12,13 +12,14 @@ function pendingIsZero(p) {
   if (p.kind === 'bone') return AXES.every((a) => Math.abs(p.deg[a]) < 0.05);
   return (!p.dpos || p.dpos.length() < 5e-4) && (!p.drot || Math.abs(p.drot.w) > 0.99999) && Math.abs(p.dswivel || 0) < 0.05;
 }
-function keyPending() {
-  const p = redirectMirrored(pending); if (!p) return;
-  pending = null;
-  if (pendingIsZero(p)) { updateGizPanel(); return; }
+function keyPending() { const p = pending; pending = null; keyChange(p, S.t, 0); }
+// write a change into the tracks at time t; falloff > 0 keeps the change local (anchors at t ± falloff)
+function keyChange(p0, t, falloff) {
+  const p = redirectMirrored(p0);
+  if (!p || pendingIsZero(p)) { updateGizPanel(); return; }
   pushUndo();
   let showChanged = false;
-  const t = S.t;
+  const keyAt = (pts, tt, v) => keyLocal(pts, tt, v, falloff);
   if (p.kind === 'bone') {
     const ba = A.bones[p.name] || (showChanged = true, ensureBone(p.name));
     for (const a of AXES) {
@@ -49,6 +50,12 @@ function keyPending() {
   }
   if (showChanged) rebuildRows(); else for (const r of rows) if (r.cv) { drawLane(r); refreshSummary(r); }
   editVersion++; trailDirty = true; save(); updateGizPanel(); updateSelChip();
+}
+
+function keyLocal(pts, t, v, f) {
+  if (!(f > 0)) return keyAtFlat(pts, t, v);
+  for (const tt of [t - f, t + f]) if (tt > 1e-4 && tt < S.dur - 1e-4 && !pts.some((q) => Math.abs(q.t - tt) < 1e-3)) setPointAt(pts, tt, evalPts(pts, tt));
+  setPointAt(pts, t, v);
 }
 
 // ---------------------------------------------------------------- gizmo
@@ -171,26 +178,30 @@ $('btnAutoKey').onclick = () => { S.autoKey = !S.autoKey; syncToggles(); save();
 // ---------------------------------------------------------------- IK handles
 let handles = [];
 const HC = { idle: new THREE.Color('#2f8f74'), on: new THREE.Color(COL.ik), sel: new THREE.Color('#ff4fa3') };
+let handleGeo = null;
+function makeHandle(d) {
+  const g = d.kind === 'igroup' ? 'grp' : d.kind === 'torso' ? (d.id === 'chest' || d.id === 'head' ? 'body' : 'ring') : { hips: 'body', hand: 'end', foot: 'end', elbow: 'pole', knee: 'pole' }[d.kind] || 'small';
+  const m = new THREE.Mesh(handleGeo[g], new THREE.MeshBasicMaterial({ color: HC.idle, depthTest: false, transparent: true, opacity: 0.9, wireframe: g === 'grp' }));
+  if (g === 'body' || g === 'ring') m.rotation.x = Math.PI / 2;
+  m.renderOrder = 12; m.frustumCulled = false; scene.add(m);
+  handles.push({ d, m });
+}
 function buildHandles() {
-  const geo = {
+  handleGeo = {
     body: new THREE.TorusGeometry(0.07, 0.009, 8, 32),
     ring: new THREE.TorusGeometry(0.05, 0.007, 8, 28),
     end: new THREE.BoxGeometry(0.045, 0.045, 0.045),
     pole: new THREE.OctahedronGeometry(0.026),
     small: new THREE.SphereGeometry(0.018, 12, 8),
+    grp: new THREE.OctahedronGeometry(0.06),
   };
-  for (const d of EFFECTORS) {
-    const g = d.kind === 'torso' ? (d.id === 'chest' || d.id === 'head' ? 'body' : 'ring') : { hips: 'body', hand: 'end', foot: 'end', elbow: 'pole', knee: 'pole' }[d.kind] || 'small';
-    const m = new THREE.Mesh(geo[g], new THREE.MeshBasicMaterial({ color: HC.idle, depthTest: false, transparent: true, opacity: 0.9 }));
-    if (g === 'body' || g === 'ring') m.rotation.x = Math.PI / 2;
-    m.renderOrder = 12; m.frustumCulled = false; scene.add(m);
-    handles.push({ d, m });
-  }
+  for (const d of EFFECTORS) makeHandle(d);
 }
 function updateHandles() {
+  if (handles.length < EFFECTORS.length) for (const d of EFFECTORS) if (!handles.some((h) => h.d === d)) makeHandle(d);   // custom group IKs
   for (const h of handles) {
-    h.m.visible = S.showIK;
-    if (!S.showIK) continue;
+    h.m.visible = S.showIK && (h.d.kind !== 'igroup' || !!A.ik[h.d.id] || S.selEff === h.d.id);   // group IK handles only once used
+    if (!h.m.visible) continue;
     h.m.position.copy(effPos(h.d));
     const on = !!A.ik[h.d.id], sel = S.selEff === h.d.id;
     h.m.material.color.copy(sel ? HC.sel : on ? HC.on : HC.idle);
@@ -203,32 +214,38 @@ function updateHandles() {
 let skel = null;
 function buildSkeleton() {
   const under = new Set(); rig.b.hips.traverse((o) => o.isBone && under.add(o));
-  const joints = rig.bones.filter((b) => under.has(b) && !/Thumb|Index|Middle|Ring|Pinky|_End$/i.test(b.name));   // (fingers: pick them from the list)
-  const js = new Set(joints); const pairs = joints.filter((b) => b !== rig.b.hips && js.has(b.parent)).map((b) => [b, b.parent]);
+  const joints = rig.bones.filter((b) => under.has(b) && !/Thumb|Index|Middle|Ring|Pinky|_End$/i.test(b.name));
+  const fjoints = rig.bones.filter((b) => under.has(b) && /Thumb|Index|Middle|Ring|Pinky/i.test(b.name) && !/4$|_End$/i.test(b.name));   // finger joints: smaller dots
+  const js = new Set([...joints, ...fjoints]); const pairs = [...joints, ...fjoints].filter((b) => b !== rig.b.hips && js.has(b.parent)).map((b) => [b, b.parent]);
   const mk = (color, op) => {
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pairs.length * 6), 3));
     const lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color, transparent: true, opacity: op, depthTest: false })); lines.renderOrder = 10; lines.frustumCulled = false; scene.add(lines); return lines;
   };
-  const pg = new THREE.BufferGeometry();
-  pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(joints.length * 3), 3));
-  pg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(joints.length * 3), 3));
   const dot = document.createElement('canvas'); dot.width = dot.height = 32;
   { const x = dot.getContext('2d'); x.fillStyle = '#fff'; x.beginPath(); x.arc(16, 16, 14, 0, Math.PI * 2); x.fill(); }
-  const pts = new THREE.Points(pg, new THREE.PointsMaterial({ size: 8, sizeAttenuation: false, vertexColors: true, depthTest: false, transparent: true, map: new THREE.CanvasTexture(dot), alphaTest: 0.5 }));   // round joints, square IK handles
-  pts.renderOrder = 11; pts.frustumCulled = false; scene.add(pts);
-  skel = { joints, pairs, lines: mk('#9aa7a0', 0.8), ghost: mk('#f08a1c', 0.6), pts, gQ: new Float32Array(B * 4), gH: V3() };
+  const dotTex = new THREE.CanvasTexture(dot);
+  const mkPts = (list, size) => {   // round joints (IK handles are the square / ring ones)
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(list.length * 3), 3));
+    pg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(list.length * 3), 3));
+    const pts = new THREE.Points(pg, new THREE.PointsMaterial({ size, sizeAttenuation: false, vertexColors: true, depthTest: false, transparent: true, map: dotTex, alphaTest: 0.5 }));
+    pts.renderOrder = 11; pts.frustumCulled = false; scene.add(pts); return pts;
+  };
+  skel = { joints, fjoints, pairs, lines: mk('#9aa7a0', 0.8), ghost: mk('#f08a1c', 0.6), pts: mkPts(joints, 8), fpts: mkPts(fjoints, 5), gQ: new Float32Array(B * 4), gH: V3() };
 }
 const cSel = new THREE.Color('#ff4fa3'), cIn = new THREE.Color('#f08a1c'), cBase = new THREE.Color('#dfe6e1'), cGrp = new THREE.Color(COL.group);
 function updateSkeleton(t) {
-  const { joints, pairs, lines, ghost, pts } = skel;
-  lines.visible = pts.visible = S.bones; ghost.visible = S.ghost;
+  const { joints, fjoints, pairs, lines, ghost, pts, fpts } = skel;
+  lines.visible = pts.visible = fpts.visible = S.bones; ghost.visible = S.ghost;
   if (S.bones) {
     const lp = lines.geometry.attributes.position.array; pairs.forEach(([a, b], i) => { worldP(a, vv); lp.set([vv.x, vv.y, vv.z], i * 6); worldP(b, vv); lp.set([vv.x, vv.y, vv.z], i * 6 + 3); });
     lines.geometry.attributes.position.needsUpdate = true;
-    const pp = pts.geometry.attributes.position.array, pc = pts.geometry.attributes.color.array;
     const gm = S.selGroup ? groupMembers(S.selGroup) : null;
-    joints.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = b.name === S.selected ? cSel : gm && gm.has(b.name) ? cGrp : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
-    pts.geometry.attributes.position.needsUpdate = true; pts.geometry.attributes.color.needsUpdate = true;
+    for (const [P, list] of [[pts, joints], [fpts, fjoints]]) {
+      const pp = P.geometry.attributes.position.array, pc = P.geometry.attributes.color.array;
+      list.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = b.name === S.selected ? cSel : gm && gm.has(b.name) ? cGrp : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
+      P.geometry.attributes.position.needsUpdate = true; P.geometry.attributes.color.needsUpdate = true;
+    }
   }
   if (S.ghost) {   // the untouched clip, as a skeleton, travelling with him
     sampleClip(clipTime(t), skel.gQ, skel.gH);
@@ -247,8 +264,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const b = renderer.domElement.getBoundingClientRect();
   const scr = (p) => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * b.width + b.left, (1 - q.y) / 2 * b.height + b.top, q.z]; };
   let best = null, bd = 16;
-  if (S.showIK) for (const h of handles) { const [x, y, z] = scr(h.m.position); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < bd) { bd = d; best = { eff: h.d.id }; } }
+  if (S.showIK) for (const h of handles) { if (!h.m.visible) continue; const [x, y, z] = scr(h.m.position); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < bd) { bd = d; best = { eff: h.d.id }; } }
   if (!best && S.bones) for (const j of skel.joints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < bd) { bd = d; best = { bone: j.name }; } }
+  if (!best && S.bones) { let fd = 9; for (const j of skel.fjoints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < fd) { fd = d; best = { bone: j.name }; } } }
   if (!best) clearSelection(); else if (best.eff) selectEff(best.eff); else selectBone(best.bone);
 });
 function updateSelChip() {
@@ -304,34 +322,107 @@ function trailBone() {
   if (S.selEff) return effBone(EFF_BY_ID[S.selEff]);
   return null;
 }
+function trailDotTimes() {   // the dots: on the grid unit's lines with the magnet on, else every 0.1 s
+  let ts = [];
+  if (S.magnet) ts = visibleGrid(timeGrid(), (ruler.clientWidth || 800) * Math.min(2, window.devicePixelRatio || 1), Math.min(2, window.devicePixelRatio || 1)).filter((g) => g.level >= 1 || S.unit === 'step').map((g) => g.t);
+  if (ts.length < 2 || ts.length > 400) { ts = []; for (let i = 0; i <= Math.round(S.dur * 10); i++) ts.push(i / 10); }
+  return [...new Set(ts.map((t) => +clamp(t, 0, S.dur).toFixed(5)))].sort((a, b) => a - b);
+}
 function computeTrail() {
   trailDirty = false;
   const bone = trailBone();
   if (!trail) {
-    const g = new THREE.BufferGeometry();
-    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, opacity: 0.9 }));
-    const dots = new THREE.Points(g, new THREE.PointsMaterial({ size: 4, sizeAttenuation: false, vertexColors: true, depthTest: false, transparent: true }));
-    line.renderOrder = dots.renderOrder = 9; line.frustumCulled = dots.frustumCulled = false; scene.add(line, dots);
-    trail = { line, dots };
+    const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, opacity: 0.9 }));
+    const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 7, sizeAttenuation: false, vertexColors: true, depthTest: false, transparent: true }));
+    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.02, 16, 10), new THREE.MeshBasicMaterial({ color: '#ff4fa3', depthTest: false, transparent: true }));
+    line.renderOrder = 9; dots.renderOrder = 13; marker.renderOrder = 14; marker.visible = false;
+    line.frustumCulled = dots.frustumCulled = false; scene.add(line, dots, marker);
+    trail = { line, dots, marker, times: [], pos: [] };
   }
   if (!bone) { trail.line.visible = trail.dots.visible = false; return; }
-  const n = Math.round(clamp(S.dur * 30, 30, 300)), pos = new Float32Array((n + 1) * 3), col = new Float32Array((n + 1) * 3);
   const c0 = new THREE.Color('#5fd3a8'), c1 = new THREE.Color('#ff4fa3'), c = new THREE.Color();
-  for (let i = 0; i <= n; i++) {
-    const t = (i / n) * S.dur;
-    evaluate(t, null);
-    const p = worldP(bone);
-    pos.set([p.x, p.y, p.z], i * 3); c.copy(c0).lerp(c1, i / n); col.set([c.r, c.g, c.b], i * 3);
-  }
-  const g = trail.line.geometry;
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  g.computeBoundingSphere();
+  const sampleAt = (ts) => { const pos = new Float32Array(ts.length * 3), col = new Float32Array(ts.length * 3), pts = []; ts.forEach((t, i) => { evaluate(t, null); const p = worldP(bone); pts.push(p); pos.set([p.x, p.y, p.z], i * 3); c.copy(c0).lerp(c1, t / S.dur); col.set([c.r, c.g, c.b], i * 3); }); return { pos, col, pts }; };
+  const n = Math.round(clamp(S.dur * 30, 30, 300)), lineTs = Array.from({ length: n + 1 }, (_, i) => (i / n) * S.dur);
+  const L = sampleAt(lineTs), times = trailDotTimes(), D = sampleAt(times);
+  const set = (obj, R) => { const g = obj.geometry; g.setAttribute('position', new THREE.BufferAttribute(R.pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(R.col, 3)); g.computeBoundingSphere(); };
+  set(trail.line, L); set(trail.dots, D);
+  trail.times = times; trail.pos = D.pts;
 }
 function updateTrail() {
-  if (!S.trail) { if (trail) trail.line.visible = trail.dots.visible = false; return; }
-  if (trailDirty) computeTrail();
+  if (!S.trail) { if (trail) trail.line.visible = trail.dots.visible = trail.marker.visible = false; return; }
+  if (trailDirty && !trailDrag) computeTrail();
   if (trail) trail.line.visible = trail.dots.visible = !!trailBone();
 }
+// ---- editing the trail: drag a dot, the change is keyed at that dot's time (local, with falloff)
+function trailOwner() {   // → how a dragged dot writes back: IK move, swivel, or the parent bone's FK adjust
+  if (S.selEff) {
+    const d = EFF_BY_ID[S.selEff];
+    if (d.tracks.includes('px')) return { kind: 'eff', id: d.id };
+    if (d.kind === 'elbow' || d.kind === 'knee') return { kind: 'swivel', id: d.id };
+    return null;
+  }
+  if (!S.selected || !boneIdx.has(S.selected)) return null;
+  const bone = rig.bones[boneIdx.get(S.selected)];
+  const e = EFFECTORS.find((x) => x.kind !== 'igroup' && x.tracks.includes('px') && effBone(x) === bone);
+  if (e) return { kind: 'eff', id: e.id };
+  for (const Sd of ['L', 'R']) { if (bone === rig.side[Sd].fore) return { kind: 'swivel', id: Sd + 'elbow' }; if (bone === rig.side[Sd].shin) return { kind: 'swivel', id: Sd + 'knee' }; }
+  return bone.parent && bone.parent.isBone ? { kind: 'fk', bone } : null;
+}
+function applyTrailEdit(t, delta) {
+  const o = trailOwner(); if (!o || delta.length() < 1e-4) return;
+  let p = null;
+  if (o.kind === 'eff') p = { kind: 'eff', id: o.id, dpos: delta.clone() };
+  else if (o.kind === 'swivel') {
+    evaluate(t, null);
+    const d = EFF_BY_ID[o.id], sd = rig.side[d.side], elbow = d.kind === 'elbow';
+    const root = worldP(elbow ? sd.upper : sd.thigh), end = worldP(elbow ? sd.hand : sd.foot), j = worldP(elbow ? sd.fore : sd.shin), ax = end.sub(root).normalize();
+    const a0 = perpNorm(j.clone().sub(root), ax, V3()), a1 = perpNorm(j.clone().add(delta).sub(root), ax, V3());
+    if (a0 && a1) p = { kind: 'eff', id: o.id, dswivel: Math.atan2(V3().crossVectors(a0, a1).dot(ax), a0.dot(a1)) / DEG };
+  } else {
+    evaluate(t, null);
+    const par = o.bone.parent, pp = worldP(par), bp = worldP(o.bone);
+    const q = new THREE.Quaternion().setFromUnitVectors(bp.clone().sub(pp).normalize(), bp.clone().add(delta).sub(pp).normalize());
+    const W = worldQ(par), local = W.clone().invert().multiply(q).multiply(W);
+    logQ(local, vv);
+    p = { kind: 'bone', name: par.name, deg: { x: vv.x / DEG, y: vv.y / DEG, z: vv.z / DEG } };
+  }
+  if (p) keyChange(p, t, S.falloff);
+}
+let trailDrag = null;
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2();
+function pointerOnPlane(e, plane) {
+  const r = renderer.domElement.getBoundingClientRect();
+  _ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  return _ray.ray.intersectPlane(plane, V3());
+}
+view.addEventListener('pointerdown', (e) => {   // capture phase: a dot wins over orbit and the gizmo
+  if (e.button !== 0 || !S.trail || !trail || !trail.dots.visible || !trail.pos.length || !trailOwner()) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  let best = -1, bd = 10;
+  trail.pos.forEach((p, i) => { const q = p.clone().project(camera); const x = (q.x + 1) / 2 * r.width + r.left, y = (1 - q.y) / 2 * r.height + r.top, d = Math.hypot(x - e.clientX, y - e.clientY); if (q.z < 1 && d < bd) { bd = d; best = i; } });
+  if (best < 0) return;
+  e.stopPropagation(); e.preventDefault();
+  const p0 = trail.pos[best].clone(), n = camera.getWorldDirection(V3());
+  trailDrag = { i: best, t: trail.times[best], p0, p1: p0.clone(), plane: new THREE.Plane().setFromNormalAndCoplanarPoint(n, p0) };
+  trail.marker.position.copy(p0); trail.marker.visible = true;
+  view.setPointerCapture(e.pointerId);
+}, true);
+window.addEventListener('pointermove', (e) => {
+  if (!trailDrag) return;
+  const p = pointerOnPlane(e, trailDrag.plane); if (!p) return;
+  trailDrag.p1.copy(p); trail.marker.position.copy(p);
+  const d = p.clone().sub(trailDrag.p0).multiplyScalar(100);
+  tip(e, `${trailDrag.t.toFixed(2)} s${unitReadout(trailDrag.t) ? ' (' + unitReadout(trailDrag.t) + ')' : ''} · Δ ${d.x.toFixed(1)} / ${d.y.toFixed(1)} / ${d.z.toFixed(1)} cm · ±${S.falloff.toFixed(2)} s`);
+});
+window.addEventListener('pointerup', () => {
+  if (!trailDrag) return;
+  const { t, p0, p1 } = trailDrag; trailDrag = null; tip(null);
+  trail.marker.visible = false;
+  applyTrailEdit(t, p1.clone().sub(p0));
+  trailDirty = true;
+});
+$('falloffIn').onchange = () => { S.falloff = clamp(parseFloat($('falloffIn').value) || 0, 0, 2); $('falloffIn').value = S.falloff; save(); };
 
 // ---------------------------------------------------------------- camera: follow + frame
 const followPos = V3(); let followInit = false;

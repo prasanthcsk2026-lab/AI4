@@ -31,7 +31,7 @@
     </div>
     <div class="field"><label for="unitSel">Grid</label><select id="unitSel" title="Timeline unit: grid lines, ruler and Ctrl-snap">
       <option value="sec">Seconds</option><option value="frame">Frames (30 fps)</option><option value="cycle">Cycles (bars)</option><option value="step">Foot steps (locks)</option>
-    </select></div>
+    </select><button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Magnet</button></div>
     <div class="spacer"></div>
     <div class="io">
       <button type="button" id="btnFootLock" title="Write foot hold (world lock) tracks from the clip's foot contacts">Auto foot-lock</button>
@@ -58,7 +58,8 @@
       <div class="btngroup" role="group" aria-label="Show">
         <button type="button" id="btnBones" aria-pressed="true" title="Show the skeleton">Bones</button>
         <button type="button" id="btnIK" aria-pressed="true" title="Show the IK handles">IK</button>
-        <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline">Trail</button>
+        <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline · drag its dots to reshape it">Trail</button>
+        <label class="falloff" title="Trail edits: how far in time (±s) a dragged dot pulls its neighbours">±<input id="falloffIn" type="number" min="0" max="2" step="0.05" value="0.15">s</label>
         <button type="button" id="btnGhost" aria-pressed="false" title="Show the untouched clip as a ghost">Ghost</button>
       </div>
       <div class="btngroup" role="group" aria-label="World">

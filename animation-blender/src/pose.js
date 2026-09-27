@@ -38,28 +38,57 @@ const EFF_BY_ID = {};
   add({ id: 'hips', label: 'Hips', group: 'Body', kind: 'hips', tracks: ['blend', ...P, ...R, 'feet'], defaultShow: P, what: 'pelvis: move / rotate, feet stay' });
   // torso controllers: rotate turns their own bone(s) (children follow); move bends the chain below them so the
   // controller point goes to the target (CCD, a capped angle per joint)
-  add({ id: 'spine', label: 'Spine (lower back)', group: 'Body', kind: 'torso', seg: 'spine', spread: ['spine'], chain: null, tracks: ['blend', ...R], defaultShow: ['rx'], what: 'rotate the Spine bone' });
+  add({ id: 'spine', label: 'Spine (lower back)', group: 'Body', kind: 'torso', seg: 'spine', spread: ['spine'], chain: null, tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate the Spine bone · move tilts / shifts the pelvis (feet stay)' });
   add({ id: 'spine1', label: 'Spine1 (mid back)', group: 'Body', kind: 'torso', seg: 'spine1', spread: ['spine1'], chain: ['spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate Spine1 · move bends Spine' });
   add({ id: 'chest', label: 'Chest', group: 'Body', kind: 'torso', seg: 'spine2', spread: ['spine', 'spine1', 'spine2'], chain: ['spine1', 'spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate spread over the spine · move bends it' });
   add({ id: 'neck', label: 'Neck', group: 'Body', kind: 'torso', seg: 'neck', spread: ['neck'], chain: ['spine2', 'spine1', 'spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate the neck · move bends the upper spine' });
   add({ id: 'head', label: 'Head', group: 'Body', kind: 'torso', seg: 'head', spread: ['neck', 'head'], chain: ['neck', 'spine2', 'spine1'], tracks: ['blend', ...P, ...R], defaultShow: ['ry'], what: 'rotate neck + head · move bends neck and chest' });
   for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
     add({ id: S + 'shoulder', label: side + ' shoulder', group: side + ' arm', kind: 'shoulder', side: S, tracks: ['blend', ...R], defaultShow: ['rz'], what: 'clavicle shrug / reach' });
-    add({ id: S + 'elbow', label: side + ' elbow', group: side + ' arm', kind: 'elbow', side: S, tracks: ['swivel'], defaultShow: ['swivel'], what: 'elbow direction (pole)' });
+    add({ id: S + 'elbow', label: side + ' elbow', group: side + ' arm', kind: 'elbow', side: S, tracks: ['swivel', ...R], defaultShow: ['swivel'], what: 'elbow direction (pole) · rotate turns the forearm' });
     add({ id: S + 'hand', label: side + ' hand', group: side + ' arm', kind: 'hand', side: S, tracks: ['blend', ...P, ...R, 'pin', 'hold', 'pull'], defaultShow: P, what: 'arm IK: move / rotate the hand' });
-    add({ id: S + 'fingers', label: side + ' fingers', group: side + ' arm', kind: 'fingers', side: S, tracks: ['curl', 'spread', 'thumb'], defaultShow: ['curl'], what: 'curl, spread, thumb' });
+    add({ id: S + 'fingers', label: side + ' fingers', group: side + ' arm', kind: 'fingers', side: S, tracks: ['curl', 'spread', 'thumb', ...R], defaultShow: ['curl'], what: 'curl, spread, thumb · rotate turns all fingers' });
   }
   for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
-    add({ id: S + 'knee', label: side + ' knee', group: side + ' leg', kind: 'knee', side: S, tracks: ['swivel'], defaultShow: ['swivel'], what: 'knee direction (pole)' });
+    add({ id: S + 'knee', label: side + ' knee', group: side + ' leg', kind: 'knee', side: S, tracks: ['swivel', ...R], defaultShow: ['swivel'], what: 'knee direction (pole) · rotate turns the shin' });
     add({ id: S + 'foot', label: side + ' foot', group: side + ' leg', kind: 'foot', side: S, tracks: ['blend', ...P, ...R, 'hold'], defaultShow: P, what: 'leg IK: move / rotate the foot' });
-    add({ id: S + 'toes', label: side + ' toes', group: side + ' leg', kind: 'toes', side: S, tracks: ['bend'], defaultShow: ['bend'], what: 'toe bend' });
+    add({ id: S + 'toes', label: side + ' toes', group: side + ' leg', kind: 'toes', side: S, tracks: ['bend', ...R], defaultShow: ['bend'], what: 'toe bend · rotate' });
   }
+  // group IK: one handle moves / rotates several effectors together, about a pivot. Members that another member
+  // already carries (a hand on a moving chest, unpinned) take no extra share, so nothing moves twice.
+  const G = (id, label, members, pivot, what, poles = []) => add({ id, label, group: 'Group IK', kind: 'igroup', members, pivot, poles, tracks: ['blend', ...P, ...R], defaultShow: P, what });
+  for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
+    G('ig:' + S + 'arm', side + ' arm group', { [S + 'hand']: 1 }, 'auto', 'hand + elbow about the shoulder', [S + 'elbow']);
+    G('ig:' + S + 'leg', side + ' leg group', { [S + 'foot']: 1 }, 'auto', 'foot + knee about the hip', [S + 'knee']);
+  }
+  G('ig:hands', 'Both hands', { Lhand: 1, Rhand: 1 }, 'centroid', 'both hands together', ['Lelbow', 'Relbow']);
+  G('ig:feet', 'Both feet', { Lfoot: 1, Rfoot: 1 }, 'centroid', 'both feet together', ['Lknee', 'Rknee']);
+  G('ig:upper', 'Upper body', { chest: 1, Lhand: 1, Rhand: 1 }, 'auto', 'chest + hands about the lower back', ['Lelbow', 'Relbow']);
+  G('ig:body', 'Whole body', { hips: 1, Lfoot: 1, Rfoot: 1, Lhand: 1, Rhand: 1 }, 'auto', 'everything about the hips', ['Lelbow', 'Relbow', 'Lknee', 'Rknee']);
 })();
+const MOVABLE = ['hips', 'spine', 'spine1', 'chest', 'neck', 'head', 'Lhand', 'Rhand', 'Lfoot', 'Rfoot'];
+const IG_AUTO_PIVOT = { 'ig:Larm': () => rig.side.L.upper, 'ig:Rarm': () => rig.side.R.upper, 'ig:Lleg': () => rig.side.L.thigh, 'ig:Rleg': () => rig.side.R.thigh, 'ig:upper': () => rig.b.spine, 'ig:body': () => rig.b.hips };
+function registerIG(id, label) {   // a custom group IK (id "ig:c<n>")
+  if (EFF_BY_ID[id]) { if (label) EFF_BY_ID[id].label = label; return EFF_BY_ID[id]; }
+  const d = { id, label: label || 'Custom group', group: 'Group IK', kind: 'igroup', custom: true, members: {}, pivot: 'centroid', poles: [], tracks: ['blend', 'px', 'py', 'pz', 'rx', 'ry', 'rz'], defaultShow: ['px', 'py', 'pz'], what: 'your own set of effectors' };
+  EFFECTORS.push(d); EFF_BY_ID[id] = d; return d;
+}
+function igMembers(gid) { const e = A && A.ik[gid]; return (e && e.members) || EFF_BY_ID[gid].members; }
+function igPivotPos(gid) {
+  const e = A && A.ik[gid], pv = (e && e.pivot) || EFF_BY_ID[gid].pivot;
+  if (pv === 'auto' && IG_AUTO_PIVOT[gid]) return worldP(IG_AUTO_PIVOT[gid]());
+  if (pv !== 'centroid' && EFF_BY_ID[pv]) return effPos(EFF_BY_ID[pv]);
+  const ids = Object.keys(igMembers(gid)).filter((k) => igMembers(gid)[k] > 0 && EFF_BY_ID[k]);
+  if (!ids.length) return worldP(rig.b.hips);
+  return ids.reduce((acc, k) => acc.add(effPos(EFF_BY_ID[k])), V3()).divideScalar(ids.length);
+}
 function newEffAuto(id, dur) {
   const d = EFF_BY_ID[id], tr = {};
   for (const k of d.tracks) tr[k] = flat(TRK[k].ref, dur);
   const show = {}; for (const k of d.defaultShow) show[k] = true;
-  return { collapsed: false, show, tr };
+  const e = { collapsed: false, show, tr };
+  if (d.kind === 'igroup') { e.members = { ...d.members }; e.pivot = d.pivot; if (d.custom) e.label = d.label; }
+  return e;
 }
 function trackLabel(d, k) {
   const T = TRK[k];
@@ -67,6 +96,12 @@ function trackLabel(d, k) {
   return `${T.label}${T.hint ? ` <i>${T.hint.split(' ')[0] === '+' ? T.hint : ''}</i>` : ''}`;
 }
 function effBone(d) {
+  if (d.kind === 'igroup') {
+    const e = A && A.ik[d.id], pv = (e && e.pivot) || d.pivot;
+    if (pv === 'auto' && IG_AUTO_PIVOT[d.id]) return IG_AUTO_PIVOT[d.id]();
+    const first = EFF_BY_ID[pv] ? pv : Object.keys(igMembers(d.id))[0];
+    return first && EFF_BY_ID[first] ? effBone(EFF_BY_ID[first]) : rig.b.hips;
+  }
   const sd = d.side ? rig.side[d.side] : null;
   switch (d.kind) {
     case 'hips': return rig.b.hips;
@@ -81,7 +116,7 @@ function effBone(d) {
   }
   return rig.b.hips;
 }
-const effPos = (d) => worldP(effBone(d));
+const effPos = (d) => (d.kind === 'igroup' ? igPivotPos(d.id) : worldP(effBone(d)));
 
 // finger spread axes (per first segment): turn the finger toward the index side (+) about the palm normal
 function buildEffectors() {
@@ -371,10 +406,45 @@ function holdTarget(bone, pts, t) {   // world spot the effector had (FK) when t
 }
 
 // ---------------------------------------------------------------- full-body IK solve
+// which active group IKs hold an effector, and how much of the group's move it takes
+const CARRIERS = { spine: ['hips'], spine1: ['spine', 'hips'], chest: ['spine1', 'spine', 'hips'], neck: ['chest', 'spine1', 'spine', 'hips'], head: ['neck', 'chest', 'spine1', 'spine', 'hips'], Lhand: ['chest', 'spine1', 'spine', 'hips'], Rhand: ['chest', 'spine1', 'spine', 'hips'], Lfoot: ['hips'], Rfoot: ['hips'] };
+function makeGroupCtx(t, pend) {
+  const ids = A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].kind === 'igroup');
+  if (pend && pend.kind === 'eff' && EFF_BY_ID[pend.id] && EFF_BY_ID[pend.id].kind === 'igroup' && !ids.includes(pend.id)) ids.push(pend.id);
+  const pivots = new Map();
+  const ctx = {
+    ids,
+    has(id) { return ids.some((g) => (igMembers(g)[id] || 0) > 0 || (EFF_BY_ID[g].poles || []).includes(id)); },
+    carried(id, g) {   // 0…1: how much of this member the group already moves through another member
+      const m = igMembers(g);
+      if (!(CARRIERS[id] || []).some((c) => (m[c] || 0) > 0)) return 0;
+      if (/hand$/.test(id)) { const e = A.ik[id]; if (e && evalPts(e.tr.hold, t) >= 0.5) return 0; return 1 - (A.ik[id] ? effVal(id, 'pin', t) * effVal(id, 'blend', t) : 0); }
+      if (/foot$/.test(id)) { const e = A.ik[id]; if (e && evalPts(e.tr.hold, t) >= 0.5) return 0; return 1 - (A.ik.hips ? effVal('hips', 'feet', t) : 1); }
+      return 1;
+    },
+    // → { dpos, q, apply(point) }: the groups' move of a member whose base position is `base`
+    xf(id, base) {
+      const parts = [];
+      for (const g of ids) {
+        const mw = igMembers(g)[id] || 0; if (mw <= 0) continue;
+        const w = effVal(g, 'blend', t) * mw * (1 - this.carried(id, g)); if (w < 1e-4) continue;
+        if (!pivots.has(g)) pivots.set(g, igPivotPos(g));
+        parts.push({ pivot: pivots.get(g), q: effRotQ(g, t, pend, w), dp: effPosOff(g, t, pend, w) });
+      }
+      const apply = (pt) => { const p = pt.clone(); for (const x of parts) p.sub(x.pivot).applyQuaternion(x.q).add(x.pivot).add(x.dp); return p; };
+      const q = new THREE.Quaternion(); for (const x of parts) q.premultiply(x.q);
+      return { dpos: parts.length ? apply(base).sub(base) : V3(), q, apply, any: parts.length > 0 };
+    },
+  };
+  return ctx;
+}
+
+// ---------------------------------------------------------------- full-body IK solve
 function solveIK(t, pend) {
   const active = A.ikOrder.length || (pend && pend.kind === 'eff');
   if (!active) return;
-  const on = (id) => effActive(id, pend);
+  const GX = makeGroupCtx(t, pend);
+  const on = (id) => effActive(id, pend) || GX.has(id);
   const b = rig.b;
   // FK reference, before any effector moves the body
   const fkRef = {};
@@ -387,24 +457,26 @@ function solveIK(t, pend) {
   if (on('hips')) {
     const w = effVal('hips', 'blend', t);
     feetPin = effVal('hips', 'feet', t);
-    const off = effPosOff('hips', t, pend, w);
-    if (off.lengthSq() > 1e-12) rig.setHipsWorld(worldP(b.hips).add(off));
-    rig.setDelta(b.hips, effRotQ('hips', t, pend, w).multiply(rig.delta(b.hips)));
+    const p0 = worldP(b.hips), gx = GX.xf('hips', p0);
+    const off = effPosOff('hips', t, pend, w).add(gx.dpos);
+    if (off.lengthSq() > 1e-12) rig.setHipsWorld(p0.add(off));
+    rig.setDelta(b.hips, gx.q.clone().multiply(effRotQ('hips', t, pend, w)).multiply(rig.delta(b.hips)));
   }
   // 2. leg targets (needed now: the hips come down if planted feet are out of reach)
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0);
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine');
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     let base = carried.clone().lerp(fkRef[Sd].foot, on('hips') ? feetPin : 0);
-    const baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
+    let baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
     const e = A.ik[fId];
     if (e && evalPts(e.tr.hold, t) >= 0.5) base = holdTarget(sd.foot, e.tr.hold, t);
-    const w = on(fId) ? effVal(fId, 'blend', t) : 0;
-    const target = base.add(effPosOff(fId, t, pend, w));
-    legT[Sd] = { target, baseQ, w };
+    const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
+    const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
+    baseQ = gx.q.clone().multiply(baseQ);
+    legT[Sd] = { target, baseQ, w, gx };
   }
   if (on('hips')) {   // lower the pelvis just enough that both planted feet stay reachable
     let drop = 0;
@@ -420,12 +492,16 @@ function solveIK(t, pend) {
   // 3. spine, head, shoulders
   for (const id of TORSO_IDS) {
     if (!on(id)) continue;
-    const d = EFF_BY_ID[id], w = effVal(id, 'blend', t);
-    if (d.chain && d.tracks.includes('px')) {
-      const off = effPosOff(id, t, pend, w);
-      if (off.lengthSq() > 1e-10) ccdMove(b[d.seg], d.chain.map((k) => b[k]), worldP(b[d.seg]).add(off));
+    const d = EFF_BY_ID[id], w = effVal(id, 'blend', t), p0 = worldP(b[d.seg]), gx = GX.xf(id, p0);
+    const off = effPosOff(id, t, pend, w).add(gx.dpos);
+    if (off.lengthSq() > 1e-10) {
+      if (d.chain) ccdMove(b[d.seg], d.chain.map((k) => b[k]), p0.clone().add(off));
+      else {   // the lower back: half of it a pelvis shift, the rest a pelvis tilt (the feet are re-planted below)
+        rig.setHipsWorld(worldP(b.hips).addScaledVector(off, 0.5)); b.hips.updateMatrixWorld(true);
+        ccdMove(b.spine, [b.hips], p0.clone().add(off), 8, 30);
+      }
     }
-    spreadOver(d.spread.map((k) => b[k]), effRotQ(id, t, pend, w));
+    spreadOver(d.spread.map((k) => b[k]), gx.q.clone().multiply(effRotQ(id, t, pend, w)));
   }
   for (const Sd of ['L', 'R']) { const id = Sd + 'shoulder'; if (on(id)) rotateBoneWorld(rig.side[Sd].clav, effRotQ(id, t, pend, effVal(id, 'blend', t))); }
   // 4. hand targets, then the body leans toward targets out of reach (pull)
@@ -434,12 +510,14 @@ function solveIK(t, pend) {
     const sd = rig.side[Sd], hId = Sd + 'hand';
     if (!on(hId) && !on(Sd + 'elbow')) continue;
     const carried = worldP(sd.hand), carriedQ = rig.delta(sd.hand);
-    const w = on(hId) ? effVal(hId, 'blend', t) : 0, pin = on(hId) ? effVal(hId, 'pin', t) * w : 0;
+    const w = A.ik[hId] || (pend && pend.id === hId) ? effVal(hId, 'blend', t) : 0, pin = w ? effVal(hId, 'pin', t) * w : 0;
     let base = carried.clone().lerp(fkRef[Sd].hand, pin);
-    const baseQ = carriedQ.clone().slerp(fkRef[Sd].handQ, pin);
+    let baseQ = carriedQ.clone().slerp(fkRef[Sd].handQ, pin);
     const e = A.ik[hId];
     if (e && evalPts(e.tr.hold, t) >= 0.5) base = holdTarget(sd.hand, e.tr.hold, t);
-    armT[Sd] = { target: base.add(effPosOff(hId, t, pend, w)), baseQ, w, pull: on(hId) ? effVal(hId, 'pull', t) * w : 0 };
+    const gx = GX.xf(hId, base);
+    baseQ = gx.q.clone().multiply(baseQ);
+    armT[Sd] = { target: base.clone().add(effPosOff(hId, t, pend, w)).add(gx.dpos), baseQ, w, gx, pull: w ? effVal(hId, 'pull', t) * w : 0 };
   }
   for (const Sd of ['L', 'R']) {
     const a = armT[Sd]; if (!a || a.pull <= 0) continue;
@@ -449,36 +527,42 @@ function solveIK(t, pend) {
     const base = worldP(b.spine), from = sh.sub(base).normalize(), to = a.target.clone().sub(base).normalize();
     spreadOver([b.spine, b.spine1, b.spine2], new THREE.Quaternion().slerp(new THREE.Quaternion().setFromUnitVectors(from, to), need * 0.85));
   }
-  // 5. arms
+  // 5. arms (+ forearm rotate)
   for (const Sd of ['L', 'R']) {
     const a = armT[Sd]; if (!a) continue;
     const sd = rig.side[Sd], s = sd.s, sh = worldP(sd.upper);
-    const fwd = V3(0, 0, 1);
     let pole = worldP(sd.fore).addScaledVector(V3(s * 0.3, -0.25, -1).normalize(), 0.05);
+    if (a.gx.any) pole = a.gx.apply(pole);   // the elbow turns with the hand's group move
     const sw = effSwivel(Sd + 'elbow', t, pend);
     if (Math.abs(sw) > 1e-5) { const ax = a.target.clone().sub(sh).normalize(); pole = pole.sub(sh).applyAxisAngle(ax, sw).add(sh); }
-    const r = ikLimb(sd.arm, sh, a.target, pole, fwd.negate());
+    const r = ikLimb(sd.arm, sh, a.target, pole, V3(0, 0, -1));
     rig.setDelta(sd.upper, r.d1); rig.setDelta(sd.fore, r.d2);
-    rig.setDelta(sd.hand, on(Sd + 'hand') ? effRotQ(Sd + 'hand', t, pend, a.w).multiply(a.baseQ) : a.baseQ);
+    const handQ = a.w ? effRotQ(Sd + 'hand', t, pend, a.w).multiply(a.baseQ) : a.baseQ;
+    if (on(Sd + 'elbow')) rotateBoneWorld(sd.fore, effRotQ(Sd + 'elbow', t, pend));
+    rig.setDelta(sd.hand, handQ);
   }
-  // 6. legs, feet, toes
+  // 6. legs (+ shin rotate), feet, toes
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], l = legT[Sd];
     if (l) {
       const hip = worldP(sd.thigh);
       let pole = worldP(sd.shin).addScaledVector(V3(0, 0, 1), 0.05);
+      if (l.gx.any) pole = l.gx.apply(pole);
       const sw = effSwivel(Sd + 'knee', t, pend);
       if (Math.abs(sw) > 1e-5) { const ax = l.target.clone().sub(hip).normalize(); pole = pole.sub(hip).applyAxisAngle(ax, sw).add(hip); }
       const r = ikLimb(sd.leg, hip, l.target, pole, V3(0, 0, 1));
       rig.setDelta(sd.thigh, r.d1); rig.setDelta(sd.shin, r.d2);
-      rig.setDelta(sd.foot, on(Sd + 'foot') ? effRotQ(Sd + 'foot', t, pend, l.w).multiply(l.baseQ) : l.baseQ);
+      const footQ = (A.ik[Sd + 'foot'] || (pend && pend.id === Sd + 'foot')) ? effRotQ(Sd + 'foot', t, pend, l.w).multiply(l.baseQ) : l.baseQ;
+      if (on(Sd + 'knee')) rotateBoneWorld(sd.shin, effRotQ(Sd + 'knee', t, pend));
+      rig.setDelta(sd.foot, footQ);
     }
     if (on(Sd + 'toes')) {
       const bend = effVal(Sd + 'toes', 'bend', t) * DEG, lat = V3(1, 0, 0).applyQuaternion(rig.delta(sd.foot)).normalize();
       rotateBoneWorld(sd.toe, qAxis(lat, -bend));
+      rotateBoneWorld(sd.toe, effRotQ(Sd + 'toes', t, pend));
     }
   }
-  // 7. fingers (local, on top of the clip's hand)
+  // 7. fingers (local, on top of the clip's hand), then their shared rotate
   for (const Sd of ['L', 'R']) {
     const id = Sd + 'fingers'; if (!on(id)) continue;
     const sd = rig.side[Sd], curl = effVal(id, 'curl', t), spread = effVal(id, 'spread', t), thumb = effVal(id, 'thumb', t);
@@ -488,6 +572,8 @@ function solveIK(t, pend) {
       if (f.spread && f.spreadAxis && Math.abs(spread) > 1e-6) f.bone.quaternion.multiply(qAxis(f.spreadAxis, spread * f.spread * DEG));
     }
     sd.hand.updateMatrixWorld(true);
+    const q = effRotQ(id, t, pend);
+    if (Math.abs(q.w) < 0.999999) for (const f of sd.fingers) if (f.depth === 0) rotateBoneWorld(f.bone, q);
   }
 }
 
