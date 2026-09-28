@@ -186,10 +186,13 @@ python3 -m http.server -d animation-blender/dist 8000
 `dist/` is not committed; rebuild it after editing `src/`. three.js and the fonts load from CDNs.
 
 ## Import FBX (Character Creator)
-**Import FBX…** reads a CC / iClone FBX (`CC_Base_` bones, auto-mapped; the mapping can be changed), picks a take, finds the left-foot landings and cuts one loop (or a one-shot), in place by default. Imported clips live in this browser's cache (IndexedDB) until **Save to project** stores them in the artifact database; cache clips can be deleted from the dialog.
+**Import FBX…** reads a CC / iClone FBX (`CC_Base_` bones, auto-mapped; the mapping can be changed), picks a take, finds the left-foot landings and cuts one loop (or a one-shot), The travel is taken out and kept as speed + direction, so the header **In place** toggle decides whether it travels. Imported clips live in this browser's cache (IndexedDB) until **Save to project** stores them in the artifact database; cache clips can be deleted from the dialog.
 
 ## Deleting
 Deletes happen at once with a **Deleted · Undo** toast. Right double-click deletes whatever is under the cursor; a single right-click opens the menu. Reset clip and Revert still ask first.
 
 ## Symmetrize
-One cycle from left-foot landing to left-foot landing; each half is stretched uniformly so the right foot lands at the middle. Output keeps the clip's own frame count with no repeated frames. **Even swing** is optional (off by default).
+One cycle from left-foot landing to left-foot landing; each half is stretched uniformly so the right foot lands at the middle. Output keeps the clip's own frame count with no repeated frames. Modes: **Phase matching only** (default: timing only, every pose untouched), **Phase matching + average arms** (shoulder → hand matched to the other side half a cycle later, strength slider), **Average whole body**, **Copy one side**. **Even swing** is optional (off by default).
+
+## Foot on ground (braking)
+Master "+" → **Foot on ground**: +g % of the cycle (0–30) lengthens each foot's contact and shortens its swing by the same amount, cycle length unchanged. Automate it together with a lower cycle / moving speed for a natural braking stop. Auto foot-lock follows the longer contacts.

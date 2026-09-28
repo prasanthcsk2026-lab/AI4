@@ -15,6 +15,7 @@ const HEIGHT_PRESETS = [['Small', 30], ['Normal', LANE_H], ['Tall', 90], ['Extra
 const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
+  gnd: { range: [0, GND_MAX], ref: 0, color: '#7fd4a8', scale: 1, unit: '% of cycle', fmt: (v) => '+' + Math.round(v) + '%', snap: 1 },
   cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% speed', fmt: (v) => Math.round(v) + '%', snap: 5 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
@@ -68,6 +69,7 @@ function rebuildRows() {
     addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
     addBarsRow();
   }
+  if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   for (const k of A.symOrder) {
     const sy = A.sym[k]; if (!sy) continue;
@@ -188,6 +190,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
     { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
     { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
+    { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
   ]);
 };
 $('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };
@@ -599,6 +602,7 @@ function deleteTrackNow(r) {
   if (!o) {   // master tracks
     if (r.key === 'speed') A.showMaster.speed = false; else if (r.key === 'move') A.showMaster.move = false;
     else if (r.key === 'cyc') { A.showMaster.cycle = false; A.barSpeed = {}; }
+    else if (r.key === 'gnd') A.showMaster.gnd = false;
     rebuildSpeedLUT();
   } else if (o.type === 'bone') {
     const ba = A.bones[o.name]; ba.show[last] = false;

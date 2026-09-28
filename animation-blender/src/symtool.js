@@ -67,10 +67,12 @@ function stMeasure(Qs, Hs, M) {   // foot heights and forward offsets from the h
 }
 // Average (and Centre): each frame is averaged with the mirror of its partner frame (the same cycle half a cycle
 // later, given as its own buffer). Rotations relative to the parent, in world axes, 50 % slerp × strength; side
-// bones pair with their twin, centre bones with themselves. centreOnly: side bones keep their own motion.
-function stMirrorAverageAB(Qa, Ha, Qb, Hb, N, strength, centreOnly = false) {
+// bones pair with their twin, centre bones with themselves. only: 'centre' (side bones keep their own motion) or
+// 'arms' (shoulder → hand on both sides; every other bone and the hips keep their own motion).
+function stMirrorAverageAB(Qa, Ha, Qb, Hb, N, strength, only = null) {
   const F = ST.fk, bones = rig.bones, twin = bones.map((b, i) => { const m = mirrorName(b.name); return m != null && boneIdx.has(m) ? boneIdx.get(m) : i; });
   const rel = (Q, H, k) => { F.run(Q.subarray(k * B * 4, (k + 1) * B * 4), V3(H[k * 3], H[k * 3 + 1], H[k * 3 + 2]), 0); const out = []; for (let i = 0; i < B; i++) { const p = F.parent[i]; out.push(p < 0 ? F.delta(i) : F.delta(p).invert().multiply(F.delta(i))); } return { D: out, root: F.Q[0].clone() }; };
+  const ARM = new Set(); if (only === 'arms') for (const Sd of ['Left', 'Right']) for (const n of ['Shoulder', 'Arm', 'ForeArm', 'Hand']) { const i = rig.bones.findIndex((b) => normName(b.name) === (Sd + n).toLowerCase()); if (i >= 0) ARM.add(i); }
   let mx = 0; for (let k = 0; k < N; k++) mx += Ha[k * 3]; mx /= N;
   const mir = (q) => new THREE.Quaternion(q.x, -q.y, -q.z, q.w), f = 0.5 * strength, tmp = new THREE.Quaternion();
   const out = new Float32Array(Qa.length), Ho = Ha.slice();
@@ -79,11 +81,11 @@ function stMirrorAverageAB(Qa, Ha, Qb, Hb, N, strength, centreOnly = false) {
     for (let i = 0; i < B; i++) {
       const p = F.parent[i];
       if (p < 0) { dW[i] = A.root.clone().multiply(F.bqInv[i]); wW[i] = A.root.clone(); Qa.subarray((k * B + i) * 4, (k * B + i) * 4 + 4).forEach((v, c) => { out[(k * B + i) * 4 + c] = v; }); continue; }
-      const side = twin[i] !== i, d = centreOnly && side ? A.D[i].clone() : A.D[i].clone().slerp(mir(Bp.D[twin[i]]), f);
+      const side = twin[i] !== i, keep = (only === 'centre' && side) || (only === 'arms' && !ARM.has(i)), d = keep ? A.D[i].clone() : A.D[i].clone().slerp(mir(Bp.D[twin[i]]), f);
       dW[i] = dW[p].clone().multiply(d); wW[i] = dW[i].clone().multiply(F.bq[i]);
       tmp.copy(wW[p]).invert().multiply(wW[i]).toArray(out, (k * B + i) * 4);
     }
-    Ho[k * 3] = mx + lerp(Ha[k * 3] - mx, -(Hb[k * 3] - mx), f); Ho[k * 3 + 1] = lerp(Ha[k * 3 + 1], Hb[k * 3 + 1], f); Ho[k * 3 + 2] = lerp(Ha[k * 3 + 2], Hb[k * 3 + 2], f);
+    if (only !== 'arms') Ho[k * 3] = mx + lerp(Ha[k * 3] - mx, -(Hb[k * 3] - mx), f); if (only !== 'arms') { Ho[k * 3 + 1] = lerp(Ha[k * 3 + 1], Hb[k * 3 + 1], f); Ho[k * 3 + 2] = lerp(Ha[k * 3 + 2], Hb[k * 3 + 2], f); }
   }
   Qa.set(out); Ha.set(Ho);
 }
@@ -148,8 +150,9 @@ function stProcess() {
     for (let j = 0, acc = 0; j < N; j++) { acc += minStep + (ex > 0 ? ((st[j] - minStep) * room) / ex : room / N); c[j + 1] = acc; }
     const cAt = (u) => { const f = mod1(u) * N, i = Math.floor(f); return lerp(c[i], c[Math.min(N, i + 1)], f - i); };
     const [Qo, Ho] = fill((u) => base(cAt(u)), N);
-    if (o.mode === 'avg') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w); }
-    else if (o.center) { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, 1, true); }
+    if (o.mode === 'arms') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w, 'arms'); }   // phase matching + arm swing matched
+    else if (o.mode === 'avg') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w); }
+    else if (o.mode === 'copy' && o.center) { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, 1, 'centre'); }
     const after = stMeasure(Qo, Ho, N);
     if (easeInfo) { const nz = stLimbZ(Qo, Ho, N); easeInfo.hands.push(stEndsShare(nz.slice(0, 2), o.zone)); easeInfo.feet.push(stEndsShare(nz.slice(2), o.zone)); }
     const win = {};
@@ -245,7 +248,7 @@ function stSave() {
   try {
     store.baked = store.baked || {}; store.baked[ST.clip.id] = packBk(bk);
     const vs = stVersions(); vs.forEach((v) => { v.current = false; });
-    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.mode === 'avg' ? 'average' : [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs].filter(Boolean).join(', '), o.retime && 'feet on bars', o.swing && 'even swing'].filter(Boolean).join(', ') });
+    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.mode === 'phase' ? 'phase match' : o.mode === 'arms' ? 'phase match + arms avg' : o.mode === 'avg' ? 'average' : [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs].filter(Boolean).join(', '), o.retime && 'feet on bars', o.swing && 'even swing'].filter(Boolean).join(', ') });
     while (vs.length > 8) vs.shift();
   } catch { /* storage full: the session keeps it */ }
   save(); markBakedClips(); stFillVersions();
@@ -295,7 +298,7 @@ for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCente
 $('stEase').oninput = () => { $('stEasev').textContent = (+$('stEase').value > 0 ? '+' : '') + $('stEase').value; };
 $('stEase').onchange = stRun;
 $('stMode').onchange = () => { stModeUI(); stRun(); };
-function stModeUI() { const avg = $('stMode').value === 'avg'; for (const el of document.querySelectorAll('.copyonly')) el.hidden = avg; }
+function stModeUI() { const m = $('stMode').value; for (const el of document.querySelectorAll('.copyonly')) el.hidden = m !== 'copy'; for (const el of document.querySelectorAll('.wonly')) el.hidden = m === 'phase'; }
 $('stW').oninput = () => { $('stWv').textContent = $('stW').value + '%'; };
 $('stW').onchange = stRun;
 $('stSave').onclick = stSave;

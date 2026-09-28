@@ -105,10 +105,10 @@
   <h2>Symmetrize tool</h2>
   <label class="stline">Clip <select id="stClip"></select></label>
   <div class="stgrid">
-    <label>Mode</label><select id="stMode"><option value="avg" selected>Average both sides (mirror, half a cycle apart)</option><option value="copy">Copy one side onto the other</option></select>
+    <label>Mode</label><select id="stMode"><option value="phase" selected>Phase matching only (timing, poses untouched)</option><option value="arms">Phase matching + average arms (shoulder → hand)</option><option value="avg">Average whole body (mirror, half a cycle apart)</option><option value="copy">Copy one side onto the other</option></select>
     <label class="copyonly">Arms</label><select class="copyonly" id="stArms"><option value="">Keep as is</option><option value="RL" selected>Right → Left</option><option value="LR">Left → Right</option></select>
     <label class="copyonly">Legs</label><select class="copyonly" id="stLegs"><option value="" selected>Keep as is</option><option value="RL">Right → Left</option><option value="LR">Left → Right</option></select>
-    <label>Strength</label><span class="stw"><input type="range" id="stW" min="0" max="100" value="100"><b id="stWv">100%</b></span>
+    <label class="wonly">Strength</label><span class="stw wonly"><input type="range" id="stW" min="0" max="100" value="100"><b id="stWv">100%</b></span>
     <label class="copyonly">Cycle split</label><span class="copyonly"><input type="number" id="stSplit" min="30" max="70" step="0.5" value="50"> %</span>
     <label>Feet on bars</label><span><input type="checkbox" id="stRetime" checked> <select id="stStart"><option value="L">Left lands on the bar</option><option value="R">Right lands on the bar</option></select></span>
     <label>Swing ease</label><span class="stw"><input type="range" id="stEase" min="-100" max="100" step="5" value="0" title="+ spreads the swing speed evenly (less time hanging at the ends), − hangs longer at the ends; the whole body together, feet stay on the bars"><b id="stEasev">0</b></span>
@@ -171,7 +171,6 @@
           <label>Kind <select id="impKind"><option value="loop">Loop (cycle)</option><option value="move">One-shot</option></select></label>
           <label>Start frame <input type="number" id="impStart" min="0" step="1"></label>
           <label>End frame <input type="number" id="impEnd" min="1" step="1"></label>
-          <label class="cb"><input type="checkbox" id="impInPlace" checked> In place</label>
         </div>
         <p class="note" id="impInfo"></p>
         <details><summary id="impMap"></summary><div id="impMapTable"></div></details>

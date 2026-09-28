@@ -290,6 +290,30 @@ function wholeEff(name, t) {
   while (p && p.isBone) { const pba = A.bones[p.name]; if (pba && pba.withChildren) W *= evalPts(pba.whole, t); p = p.parent; }
   return W;
 }
+// ---------------------------------------------------------------- foot on ground (braking)
+// "Foot on ground" +g % of the cycle: each leg's stance (its contact window) is stretched by g and its swing
+// squeezed by the same amount, so the cycle length stays. The leg (thigh and below) samples the clip at that
+// re-timed phase; everything else is untouched. Auto foot-lock follows the longer contacts.
+const GND_MAX = 30;
+function clipWin(Sd) { const bk = BAKED[cur.id] || cur.c.origBk, w = (bk && bk.win) || cur.c.win; return w && w[Sd] ? w[Sd] : null; }
+function gndAt(t) { return A.gnd && cur && cur.kind === 'loop' ? clamp(evalPts(A.gnd, t), 0, GND_MAX) / 100 : 0; }
+function gndWin(Sd, g) {   // the contact window after the stretch
+  const w = clipWin(Sd); if (!w) return null;
+  const s = w[1] - w[0]; return [w[0], w[0] + Math.min(0.95, s + g)];
+}
+function gndPhase(Sd, p, g) {   // output phase → source phase for that leg
+  const w = clipWin(Sd); if (!w || g < 1e-4) return p;
+  const s = w[1] - w[0], s2 = Math.min(0.95, s + g), du = mod1(p - w[0]);
+  return w[0] + (du < s2 ? du * (s / s2) : s + (du - s2) * ((1 - s) / (1 - s2)));
+}
+let gndLegs = null;
+function gndLegSets() {
+  if (gndLegs && gndLegs.rig === rig) return gndLegs;
+  gndLegs = { rig };
+  for (const Sd of ['L', 'R']) { const set = new Set(); rig.side[Sd].thigh.traverse((o) => { if (o.isBone) set.add(o.name); }); gndLegs[Sd] = set; }
+  return gndLegs;
+}
+const gndArr = { L: null, R: null }, gndH = V3();
 const shiftPool = [], HshiftScratch = V3(), _trav = V3();
 function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
@@ -307,10 +331,19 @@ function composePose(t, Qout, Hout, pend) {
     const key = Math.round(sh * 1000); shiftKeyOf.set(name, key);
     if (!shiftArr.has(key)) { const arr = shiftPool.pop() || new Float32Array(B * 4); sampleClip(clipTime(t) + sh * (cur.dur || 1), arr, HshiftScratch); shiftArr.set(key, arr); }
   }
+  // foot on ground: each leg from its own re-timed phase (a bone's own timing shift still wins)
+  const g = gndAt(t), legOf = g > 1e-4 ? gndLegSets() : null;
+  if (legOf) for (const Sd of ['L', 'R']) {
+    if (!clipWin(Sd)) { gndArr[Sd] = null; continue; }
+    const ct = clipTime(t), cyc = Math.floor(ct / cur.dur), p = mod1(ct / cur.dur);
+    if (!gndArr[Sd]) gndArr[Sd] = new Float32Array(B * 4);
+    sampleClip((cyc + gndPhase(Sd, p, g)) * cur.dur, gndArr[Sd], gndH);
+  }
   const pb = pend && pend.kind === 'bone' ? pend : null;
   for (let i = 0; i < B; i++) {
     const o = i * 4, name = rig.bones[i].name, ba = A.bones[name];
-    const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : QC;
+    const legSd = legOf ? (legOf.L.has(name) ? 'L' : legOf.R.has(name) ? 'R' : null) : null;
+    const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : legSd && gndArr[legSd] ? gndArr[legSd] : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
     const W = wholeEff(name, t) * (gF ? gF[i][0] : 1);
@@ -741,7 +774,8 @@ function evaluate(t, pend) {
 
 // ---------------------------------------------------------------- auto foot-lock from the clip's contacts
 function footContact(Sd, t) {
-  const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk;
+  const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk, g = gndAt(t);
+  if (g > 1e-4) { const w = gndWin(Sd, g); if (w) return inWin(mod1(ct / cur.dur), w); }   // foot on ground: the longer contact
   if (bk && bk.win && cur.kind === 'loop') return bk.win[Sd] ? inWin(mod1(ct / cur.dur), bk.win[Sd]) : null;   // a processed clip: its measured contacts
   if (cur.kind === 'loop') return c.win && c.win[Sd] ? inWin(mod1(ct / cur.dur), c.win[Sd]) : null;
   const arr = Sd === 'L' ? c.cL : c.cR, fps = (gl && gl.fps) || 30;

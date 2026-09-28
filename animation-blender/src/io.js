@@ -26,7 +26,7 @@ function setLength(dIn) {
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
   for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
   for (const k of A.symOrder) { scale(A.sym[k].weight); scale(A.sym[k].offset); }
-  scale(A.cyc);
+  scale(A.cyc); scale(A.gnd);
   S.dur = A.dur = d; S.t = Math.min(S.t, d); S.v0 = 0; S.v1 = d; syncLenInputs(); updateHScroll(); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 }
 $('btnReset').onclick = () => {
@@ -47,7 +47,7 @@ function exportObj() {
     symmetrize: A.symOrder.map((k) => ({ item: k, label: symLabel(k), weight_pct: P(A.sym[k].weight, 100), offset_pct: P(A.sym[k].offset, 100) })),
     note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
-    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, show_master: A.showMaster,
+    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, foot_on_ground_extra_pct: P(A.gnd), show_master: A.showMaster,
     moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
@@ -277,5 +277,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

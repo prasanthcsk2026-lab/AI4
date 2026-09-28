@@ -5,7 +5,7 @@
 //  matched to this character, and every frame is retargeted:
 //    target world rotation = (source rotation since its rest pose) · (rest-direction alignment) · target bind
 //  so an A-pose rest in the file still gives the right pose here. The hips path is scaled to this character's leg
-//  length; "in place" takes the travel out (and keeps its speed for the travel view). A loop is cut from one
+//  length; the travel is taken out and kept as speed + direction, so the header "In place" toggle decides whether it travels. A loop is cut from one
 //  left-foot landing to the next. Imported clips live in this browser (IndexedDB) until "Save to project".
 // ============================================================================
 const CC_TO_RIG = {   // Character Creator (CC_Base_…) → this rig (Mixamo names)
@@ -79,9 +79,10 @@ function impRetarget(src, map, take, fps = 30) {
     const dt = rig.bp(tc).sub(rig.bp(tb)).normalize(), ds = src.rest.get(sc).p.clone().sub(src.rest.get(sb).p).normalize();
     align.set(tb, new THREE.Quaternion().setFromUnitVectors(dt, ds));
   }
-  const sHips = map.get(rig.b.hips.name), sFeet = ['L', 'R'].map((S) => map.get(rig.side[S].foot.name)).filter(Boolean);
-  const sGround = sFeet.length ? Math.min(...sFeet.map((f) => src.rest.get(f).p.y)) : 0;
-  const k = sHips ? (rig.bp(rig.b.hips).y - rig.soleY) / Math.max(1e-4, src.rest.get(sHips).p.y - sGround) : 1;
+  // hips scale = this character's leg length / the file's (thigh → knee → ankle bone lengths: the same in any pose)
+  const sHips = map.get(rig.b.hips.name), legLen = (get) => { let tot = 0, cnt = 0; for (const S of ['L', 'R']) { const [a, b2, c] = ['thigh', 'shin', 'foot'].map((k2) => get(rig.side[S][k2])); if (a && b2 && c) { tot += a.distanceTo(b2) + b2.distanceTo(c); cnt++; } } return cnt ? tot / cnt : 0; };
+  const tLeg = legLen((b2) => rig.bp(b2)), sLeg = legLen((b2) => { const m = map.get(b2.name); return m ? src.rest.get(m).p : null; });
+  const k = sHips && sLeg > 1e-4 ? tLeg / sLeg : 1;
   const tHips0 = rig.bp(rig.b.hips), world = new Array(B), tmp = new THREE.Quaternion(), wq = new THREE.Quaternion();
   for (let f = 0; f < n; f++) {
     mixer.setTime(Math.min(take.duration, f / fps)); src.obj.updateMatrixWorld(true);
@@ -108,12 +109,12 @@ function impLandings(fr) {
   for (let f = 1; f < fr.n; f++) if (ys[f] < lo + 0.02 && ys[f - 1] >= lo + 0.02) out.push(f);
   return out;
 }
-function impCut(fr, a, b, inPlace) {   // frames a … b−1 (a loop: b is the next landing), travel taken out
+function impCut(fr, a, b) {   // frames a … b−1 (a loop: b is the next landing); the travel is taken out of the hips and kept as speed + direction
   const n = Math.max(2, b - a), q = fr.q.slice(a * B * 4, (a + n) * B * 4), hp = fr.hp.slice(a * 3, (a + n) * 3);
   const end = Math.min(fr.n - 1, a + n), T = (end - a) / fr.fps, vx = (fr.hp[end * 3] - fr.hp[a * 3]) / T, vz = (fr.hp[end * 3 + 2] - fr.hp[a * 3 + 2]) / T;
   const speed = Math.hypot(vx, vz), dir = Math.atan2(vx, vz);
-  if (inPlace) for (let f = 0; f < n; f++) { const t = f / fr.fps; hp[f * 3] -= vx * t + (fr.hp[a * 3] - rig.bp(rig.b.hips).x); hp[f * 3 + 2] -= vz * t + (fr.hp[a * 3 + 2] - rig.bp(rig.b.hips).z); }
-  return { n, fps: fr.fps, q, hp, speed: inPlace ? speed : 0, dir };
+  for (let f = 0; f < n; f++) { const t = f / fr.fps; hp[f * 3] -= vx * t + (fr.hp[a * 3] - rig.bp(rig.b.hips).x); hp[f * 3 + 2] -= vz * t + (fr.hp[a * 3 + 2] - rig.bp(rig.b.hips).z); }
+  return { n, fps: fr.fps, q, hp, speed, dir };
 }
 
 // ---------------------------------------------------------------- dialog
@@ -184,7 +185,7 @@ function impDetect() {   // retarget once, find the loop
 async function impDo() {
   if (!IMP.frames) return;
   const a = clamp(Math.round(+$('impStart').value), 0, IMP.frames.n - 2), b = clamp(Math.round(+$('impEnd').value), a + 2, IMP.frames.n);
-  const loop = $('impKind').value === 'loop', cut = impCut(IMP.frames, a, loop ? b : b + 1 > IMP.frames.n ? IMP.frames.n : b + 1, $('impInPlace').checked);
+  const loop = $('impKind').value === 'loop', cut = impCut(IMP.frames, a, loop ? b : b + 1 > IMP.frames.n ? IMP.frames.n : b + 1);
   const name = ($('impName').value || IMP.src.name).trim(), id = 'imp:' + name.replace(/[^A-Za-z0-9_.-]/g, '_');
   const rec = { id, name, kind: loop ? 'loop' : 'move', fps: cut.fps, n: cut.n, q: cut.q, hp: cut.hp, speed: cut.speed, dir: cut.dir, where: 'cache', at: Date.now() };
   if (loop) {   // measured contacts, so the timeline shows the feet
@@ -194,7 +195,7 @@ async function impDo() {
   }
   try { await idbPut(rec); } catch (e) { $('impNote').textContent = 'Could not keep it in this browser: ' + e.message; }
   addImportedClip(rec); buildClipSelect(); markBakedClips(); selectClip(id); impList();
-  $('impNote').textContent = `Imported "${name}" (${cut.n} frames, ${loop ? 'loop' : 'one-shot'}${$('impInPlace').checked ? ', in place' : ''}). It is kept in this browser; "Save to project" stores it in the project.`;
+  $('impNote').textContent = `Imported "${name}" (${cut.n} frames, ${loop ? 'loop' : 'one-shot'}). Turn "In place" off in the header to see it travel. It is kept in this browser; "Save to project" stores it in the project.`;
 }
 $('btnImportAnim').onclick = openImport;
 $('impFile').onchange = () => { const f = $('impFile').files[0]; if (f) impFileChosen(f); };
