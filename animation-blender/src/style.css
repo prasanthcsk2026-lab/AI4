@@ -113,9 +113,13 @@
   .stgrid input[type=number] { width: 64px; }
   .stw { display: flex; align-items: center; gap: 8px; } .stw input { flex: 1; accent-color: #e58ad6; }
   #stStrip { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-  .stinfo { font: 500 12px var(--mono); color: var(--ink-2); } .stinfo b { color: var(--ink); font-weight: 500; }
+  .stinfo { font: 500 12px var(--mono); color: var(--ink-2); } .stinfo b { color: var(--ink); font-weight: 500; } .stinfo .ok { color: #7ddc6a; } .stinfo .warn { color: #ffb74a; }
+  .stver { display: flex; gap: 6px; } .stver select { flex: 1; min-width: 0; }
   .stbtns { display: flex; flex-wrap: wrap; gap: 8px; }
   .toolpanel .note { margin: 0; font-size: 12px; color: var(--muted); }
+  #helpDlg .box { width: min(620px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; max-height: calc(100vh - 32px); }
+  .helpbody { overflow: auto; } .helpbody p { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
+  .helpbtn { font: 700 13px Georgia, serif !important; font-style: italic !important; width: 26px; padding: 3px 0 !important; border-radius: 50% !important; }
   .symtag { font: 700 10px var(--display); letter-spacing: .1em; color: #1a0f18; background: #e58ad6; border-radius: 3px; padding: 1px 4px; }
   .row.sym { background: #1a1419; }
   .row.sym .h { background: #1a1419; }

@@ -32,6 +32,11 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
 - **Symmetrize tool** (header → Symmetrize, a side panel):
   - Load an in-place loop and mirror its arms and/or legs (right → left or left → right), with a strength and a cycle split.
   - Feet on bars retimes the cycle so the chosen foot lands at 0 % and the other at 50 %. Before / after contacts and step times are shown.
+  - The mirrored side gets the whole cycle of the source side, half a cycle away, so none of its old motion is left.
+  - Even swing retimes back-most → passing under the hips = passing → front-most for both feet.
+  - Centre averages hips, spine, neck and head with their mirror half a cycle away, so the body sways alike both ways.
+  - The retime is a smooth monotone spline, so there are no sudden speed changes. A loop-seam check says whether last → first frame joins smoothly.
+  - Every Save is kept as a version (the newest 8 per clip); Restore any of them, or Revert to original.
   - It previews live on the character. Save replaces the clip: on the timeline the feet then fall on the bars for any number of cycles.
   - Save to project stores it for Claude to apply to the project files.
   - Export writes N cycles, in place or with travel, as FBX or glTF (each zipped).
@@ -42,9 +47,10 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
     (100 % = fully symmetric). A cycle split track (50 % = even) evens out unequal steps.
   - Viewport readouts show each hand's peak reach forward of the hips (R / L / Δ cm) and the step times
     measured from the feet as they are (L→R / R→L / Δ s).
+- **Help:** the "i" button beside IK… explains the timeline.
 - **Master tracks are optional** ("+" beside Group… / Bone… / IK…): playback speed, moving speed, and cycle speed + bar reach. Hidden ones keep their values.
 - **Bar reach:** click a quarter-bar segment to make it v % faster (speed × (1 + v/100)) or slower. A change carries on into later segments until changed again, and changes multiply (10 then 10 = × 1.21). Each cell shows its value and the running factor.
-- **Cycle speed** (automation, reach time %): 100 = neutral, 150 = 1.5 × the time. It eases between points and multiplies with bar reach.
+- **Cycle speed** (automation, speed %): 100 = neutral, 150 = 1.5 × as fast (older saves are converted). It eases between points and multiplies with bar reach.
 - **Realtime bars** (header checkbox): bar lines where the bars really fall after bar reach / cycle speed; off keeps them evenly spaced.
 - **Timeline zoom:** the scroll bar under the tracks (drag to scroll, drag its ends to zoom), Ctrl + wheel to zoom at the cursor, Shift + wheel to scroll, Fit for the whole length. It follows the playhead while playing. Alt + wheel zooms a track's values.
 - **Viewport layout:**

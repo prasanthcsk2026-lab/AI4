@@ -15,7 +15,7 @@ const HEIGHT_PRESETS = [['Small', 30], ['Normal', LANE_H], ['Tall', 90], ['Extra
 const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
-  cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% reach time', fmt: (v) => Math.round(v) + '%', snap: 5 },
+  cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% speed', fmt: (v) => Math.round(v) + '%', snap: 5 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   a: { range: [-ADJ_MAX, ADJ_MAX], ref: 0, color: COL.adjust, scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 },
@@ -63,7 +63,7 @@ function rebuildRows() {
   if (A.showMaster.speed) addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
   if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
   if (A.showMaster.cycle) {
-    addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>reach time %</i>', null);
+    addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
     addBarsRow();
   }
   // symmetrize (one side follows the other, mirrored, half a cycle later)
@@ -149,11 +149,9 @@ function rebuildRows() {
       addTrackRow(`e|${id}|${k}`, effSpec(k), () => e.tr[k], (p) => { e.tr[k] = p; }, `${axl}${T.kind ? (T.kind === 'p' ? 'Move' : 'Rotate') : T.label} <i>${info}</i>`, { type: 'eff', id, k });
     }
   }
-  if (!A.order.length && !A.ikOrder.length && !A.groupOrder.length && !A.symOrder.length) {
+  if (!rows.length) {
     const e = document.createElement('div'); e.className = 'empty';
-    e.innerHTML = '<b>Groups:</b> "Group…" — one weight for a whole arm, leg, spine…; groups and bones inside them multiply (arm 60 % × hand 50 % = hand at 30 %). <b>FK:</b> "Add bone…" (or click a joint) — <b>weight</b> 0–200 % of the clip, <b>adjust</b> in degrees about each axis (the axis names say what each one does), <b>timing offset</b>. ' +
-      '<b>IK:</b> "Add IK…" (or click a round IK handle) — move / rotate hips, chest, head, shoulders, hands, feet; swivel elbows and knees; curl fingers; pin, hold and pull. ' +
-      'In a lane: click to add a point, drag it, drag the small ring between two points to bend the curve, double-click a point to type its value, right-click a point to delete it. Drag a track\'s bottom edge to make it taller; Ctrl / Alt + wheel zooms its values. Hold Ctrl while dragging to snap. Shift-drag box-selects; Ctrl+Z / Y undo / redo.';
+    e.textContent = 'Nothing on the timeline yet. Add a group, bone or IK effector on the left; the "i" button explains how the timeline works.';
     tracksEl.append(e);
   }
   if (window.__slRebuildTree) window.__slRebuildTree();
@@ -188,6 +186,9 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
   ]);
 };
+$('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };
+$('helpClose').onclick = () => { $('helpDlg').hidden = true; };
+$('helpDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('helpDlg').hidden = true; });
 $('realtimeCb').onchange = () => { S.realtime = $('realtimeCb').checked; gridCache = null; layoutLanes(); trailDirty = true; save(); };
 
 // ---------------------------------------------------------------- horizontal zoom / scroll
@@ -613,7 +614,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden; }
+function dialogsOpen() { return !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

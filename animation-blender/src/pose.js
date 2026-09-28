@@ -193,7 +193,7 @@ function groupFactor(name, gw, gt) {
 function cycleRate() { return 1; }   // the clip always plays at its own cadence; Length / Cycles only set how long the timeline is
 // Bar reach speed: every quarter-bar segment of the clip cycles can be made v % faster (speed × (1 + v/100));
 // a change carries on into every later segment until another one changes it again (they multiply). The cycle-speed
-// track is the reach time in % (100 = neutral, 150 = 1.5× the time, i.e. speed × 100/150). Both act in clip time.
+// track is a speed in % (100 = neutral, 150 = 1.5× as fast). Both act in clip time.
 const segLen = () => (cur && cur.dur > 0 ? cur.dur / 4 : 1);
 function segMulTable(maxSeg) {   // cumulative speed factor of segment q (0-based, across all cycles)
   const cum = new Float32Array(maxSeg + 1); let m = 1;
@@ -207,7 +207,7 @@ function rebuildSpeedLUT() {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
     const q = Math.min(maxSeg, Math.floor(lut[i - 1] / sl)), cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
-    lut[i] = lut[i - 1] + play * (loop ? cum[q] : 1) * (100 / cyc) * dt;
+    lut[i] = lut[i - 1] + play * (loop ? cum[q] : 1) * (cyc / 100) * dt;
   }
   S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;

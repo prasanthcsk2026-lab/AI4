@@ -125,7 +125,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], barSpeed: {}, cyc: flat(100, dur), showMaster: { speed: false, move: false, cycle: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], barSpeed: {}, cyc: flat(100, dur), cycV2: true, showMaster: { speed: false, move: false, cycle: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -138,6 +138,7 @@ function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
   a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
   a.barSpeed = a.barSpeed || {}; a.cyc = a.cyc || flat(100, a.dur);
+  if (!a.cycV2) { for (const p of a.cyc) p.v = clamp(10000 / Math.max(1, p.v), 25, 400); a.cycV2 = true; }   // was reach time %, now speed %
   a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);

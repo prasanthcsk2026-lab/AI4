@@ -83,7 +83,7 @@
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
   <section class="tl" aria-label="Automation timeline">
     <div class="tl-head">
-      <div class="addbar"><button type="button" id="btnAddMaster" title="Optional master tracks: playback speed, moving speed, cycle speed + bar reach">+</button><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button></div>
+      <div class="addbar"><button type="button" id="btnAddMaster" title="Optional master tracks: playback speed, moving speed, cycle speed + bar reach">+</button><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button><button type="button" id="btnHelp" class="helpbtn" title="How the timeline works">i</button></div>
       <canvas id="ruler" aria-label="Time ruler: click or drag to move the playhead"></canvas>
     </div>
     <div class="tracks" id="tracks"></div>
@@ -108,14 +108,32 @@
     <label>Strength</label><span class="stw"><input type="range" id="stW" min="0" max="100" value="100"><b id="stWv">100%</b></span>
     <label>Cycle split</label><span><input type="number" id="stSplit" min="30" max="70" step="0.5" value="50"> %</span>
     <label>Feet on bars</label><span><input type="checkbox" id="stRetime" checked> <select id="stStart"><option value="L">Left lands on the bar</option><option value="R">Right lands on the bar</option></select></span>
+    <label>Even swing</label><span><input type="checkbox" id="stSwing" checked> back → centre = centre → front</span>
+    <label>Centre</label><span><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
   </div>
   <canvas id="stStrip"></canvas>
   <div id="stInfo" class="stinfo"></div>
-  <div class="stbtns"><button type="button" class="primary" id="stSave">Save (replace clip)</button><button type="button" id="stSaveProj">Save to project</button></div>
+  <div class="stbtns"><button type="button" class="primary" id="stSave">Save (replace clip)</button><button type="button" id="stSaveProj">Save to project</button><button type="button" id="stRevert" title="Put the original clip back">Revert to original</button></div>
+  <div class="stgrid"><label>Versions</label><span class="stver"><select id="stVer"></select><button type="button" id="stRestore">Restore</button></span></div>
   <div class="stgrid"><label>Export</label><span><input type="number" id="stCycles" min="1" max="200" value="4"> cycles <label class="cb"><input type="checkbox" id="stTravel"> with travel</label></span></div>
   <div class="stbtns"><button type="button" id="stFbx">Export FBX</button><button type="button" id="stGlb">Export glTF</button><button type="button" id="stClose">Close</button></div>
   <p class="note" id="stNote"></p>
 </aside>
+<div class="sheet" id="helpDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <h2 id="helpTitle">How the timeline works</h2>
+    <div class="helpbody">
+      <p><b>Groups</b> (Group…): one weight for a whole arm, leg, spine…; groups and bones inside them multiply (arm 60 % × hand 50 % = hand at 30 %).</p>
+      <p><b>FK</b> (Bone…, or click a joint): <b>weight</b> 0–200 % of the clip, <b>adjust</b> in degrees about each axis (the axis names say what each one does), <b>timing offset</b>.</p>
+      <p><b>IK</b> (IK…, or click a square / ring handle): move / rotate hips, spine, chest, neck, head, shoulders, hands, feet; swivel elbows and knees; curl fingers; pin, hold and pull; group IK and IK controllers.</p>
+      <p><b>+</b>: optional master tracks: playback speed, moving speed, cycle speed and bar reach.</p>
+      <p><b>In a lane</b>: click to add a point (the magnet snaps it to the grid), drag it, drag the small ring between two points to bend the curve, double-click a point or click a value to type it, right-click a point to delete it. Shift-drag box-selects; arrows nudge; Ctrl+C / V copy and paste; Ctrl+Z / Y undo / redo.</p>
+      <p><b>Tracks</b>: drag a track's bottom edge to make it taller; Alt + wheel zooms its values. <b>Time</b>: Ctrl + wheel zooms, Shift + wheel scrolls, the bar at the bottom scrolls and zooms, Fit shows everything.</p>
+      <p><b>Viewport</b>: Q select · W move · E rotate · K key · F frame · Space play.</p>
+    </div>
+    <div class="acts"><button type="button" class="primary" id="helpClose">Close</button></div>
+  </div>
+</div>
 <div class="sheet" id="bakeDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="bakeTitle">
     <h2 id="bakeTitle">Bake / Project</h2>
