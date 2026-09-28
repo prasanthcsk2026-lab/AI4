@@ -120,12 +120,12 @@ const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
   selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
-  inPlace: true, follow: true, autoKey: true, travelBase: V3(), limits: true, limitHits: new Set(), lenMode: 'length', unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
+  inPlace: true, follow: true, autoKey: true, travelBase: V3(), realtime: false, v0: 0, v1: 10, limits: true, limitHits: new Set(), lenMode: 'length', unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], barSpeed: {}, cyc: flat(100, dur), showMaster: { speed: false, move: false, cycle: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -137,6 +137,8 @@ function newBoneAuto(dur) {
 function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
   a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
+  a.barSpeed = a.barSpeed || {}; a.cyc = a.cyc || flat(100, a.dur);
+  a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
@@ -170,7 +172,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { realtime: S.realtime, lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -181,7 +183,7 @@ function pushUndo() { if (suppressUndo || !cur) return; undoStack.push(snapshot(
 function restoreSnapshot(s) {
   const o = JSON.parse(s);
   if (o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
-  A = normalizeAuto(o.A); S.dur = A.dur; syncLenInputs(); S.t = Math.min(S.t, S.dur);
+  A = normalizeAuto(o.A); S.dur = A.dur; S.v0 = clamp(S.v0, 0, S.dur); S.v1 = clamp(S.v1, S.v0 + 0.05, S.dur); syncLenInputs(); S.t = Math.min(S.t, S.dur);
   selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
@@ -238,6 +240,8 @@ async function boot() {
   if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
   if (store.ui && ['length', 'cycles'].includes(store.ui.lenMode)) S.lenMode = store.ui.lenMode;
   if (store.ui && typeof store.ui.limits === 'boolean') S.limits = store.ui.limits;
+  if (store.ui && typeof store.ui.realtime === 'boolean') S.realtime = store.ui.realtime;
+  $('realtimeCb').checked = S.realtime;
   $('lenMode').value = S.lenMode;
   $('unitSel').value = S.unit;
   syncToggles();
@@ -383,7 +387,7 @@ function selectClip(id) {
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];
   A = normalizeAuto(saved && saved.speed ? saved : newAuto(S.lenMode === 'cycles' ? +(5 * cur.dur).toFixed(3) : 10));
-  S.dur = A.dur; syncLenInputs();
+  S.dur = A.dur; syncLenInputs(); S.v0 = 0; S.v1 = S.dur; updateHScroll();
   S.t = 0; S.travelBase.set(0, 0, 0); selPts = new Set(); selRow = null; undoStack = []; redoStack = [];
   moveEndCache = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();

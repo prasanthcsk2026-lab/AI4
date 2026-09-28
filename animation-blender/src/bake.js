@@ -58,7 +58,7 @@ function revertBake() {
 }
 function loadBaked() {
   for (const [id, b] of Object.entries(store.baked || {})) {
-    try { const q = b64ToF32(b.q); if (q.length !== b.n * B * 4) continue; BAKED[id] = { n: b.n, loop: b.loop, fps: b.fps, q, hp: b64ToF32(b.hp) }; } catch { /* skip a broken entry */ }
+    try { const q = b64ToF32(b.q); if (q.length !== b.n * B * 4) continue; BAKED[id] = { n: b.n, loop: b.loop, fps: b.fps, q, hp: b64ToF32(b.hp), win: b.win }; } catch { /* skip a broken entry */ }
   }
   markBakedClips();
 }

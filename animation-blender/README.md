@@ -29,13 +29,28 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
 - **Length or Cycles** (header, "Set by"): set the timeline either by its length in seconds or by how
   many clip cycles it holds; the other value follows. The clip's cadence never changes; only the
   playback-speed track changes speed. New clips start at 10 s in Length mode, or 5 cycles in Cycles mode.
-- **Symmetrize** (Group… → Symmetrize): arms or legs, right → left or left → right.
+- **Symmetrize tool** (header → Symmetrize, a side panel):
+  - Load an in-place loop and mirror its arms and/or legs (right → left or left → right), with a strength and a cycle split.
+  - Feet on bars retimes the cycle so the chosen foot lands at 0 % and the other at 50 %. Before / after contacts and step times are shown.
+  - It previews live on the character. Save replaces the clip: on the timeline the feet then fall on the bars for any number of cycles.
+  - Save to project stores it for Claude to apply to the project files.
+  - Export writes N cycles, in place or with travel, as FBX or glTF (each zipped).
+- **Symmetrize on the timeline** (Group… → Symmetrize): arms or legs, right → left or left → right.
   - The target side takes the other side's clip motion from half a cycle away, mirrored across the
     body's mid-plane.
   - It is measured relative to the chest (arms) or pelvis (legs), and blended by a weight track
     (100 % = fully symmetric). A cycle split track (50 % = even) evens out unequal steps.
   - Viewport readouts show each hand's peak reach forward of the hips (R / L / Δ cm) and the step times
     measured from the feet as they are (L→R / R→L / Δ s).
+- **Master tracks are optional** ("+" beside Group… / Bone… / IK…): playback speed, moving speed, and cycle speed + bar reach. Hidden ones keep their values.
+- **Bar reach:** click a quarter-bar segment to make it v % faster (speed × (1 + v/100)) or slower. A change carries on into later segments until changed again, and changes multiply (10 then 10 = × 1.21). Each cell shows its value and the running factor.
+- **Cycle speed** (automation, reach time %): 100 = neutral, 150 = 1.5 × the time. It eases between points and multiplies with bar reach.
+- **Realtime bars** (header checkbox): bar lines where the bars really fall after bar reach / cycle speed; off keeps them evenly spaced.
+- **Timeline zoom:** the scroll bar under the tracks (drag to scroll, drag its ends to zoom), Ctrl + wheel to zoom at the cursor, Shift + wheel to scroll, Fit for the whole length. It follows the playhead while playing. Alt + wheel zooms a track's values.
+- **Viewport layout:**
+  - Left toolbar: Select (Q), Move (W), Rotate (E), Auto-key.
+  - Top right: View (bones, IK, ghost, limits, trail + falloff).
+  - Bottom right: World (in place, follow, frame).
 - **Moving speed** (master track): scales the ground the character covers without changing the cadence.
   Playback speed changes the cadence. Both can be automated; travel integrates moving speed over time.
 - **Grid units** (Grid in the header): Seconds, Frames (30 fps), Cycles (bars of the clip loop), or Foot
@@ -131,6 +146,8 @@ src/mirror.js    both-sides mirror (sync after edits, side-less names, gizmo red
 src/timeline.js  track rows (height, zoom, exact values), editing, menus, keys, ruler
 src/viewport.js  gizmo + keying, IK handles, skeleton, picking, trail, camera follow, toggles
 src/bake.js      bake & replace, save to project, baked clip export
+src/fbx.js       binary FBX 7.4 writer (skeleton + animation)
+src/symtool.js   symmetrize tool panel (mirror, feet-on-bars retime, save, export)
 src/io.js        transport, JSON / glTF export + import, frame loop
 assets/          character (base64 glb) and motion data
 build.py         bundles everything into dist/animation-blender.html

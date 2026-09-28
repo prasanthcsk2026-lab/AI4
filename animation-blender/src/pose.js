@@ -191,9 +191,25 @@ function groupFactor(name, gw, gt) {
 // the timeline holds A.cycles cycles of the clip in S.dur seconds: that sets the base cadence; the playback-speed
 // track multiplies on top of it. Clip time at each timeline time = rate × ∫ speed.
 function cycleRate() { return 1; }   // the clip always plays at its own cadence; Length / Cycles only set how long the timeline is
+// Bar reach speed: every quarter-bar segment of the clip cycles can be made v % faster (speed × (1 + v/100));
+// a change carries on into every later segment until another one changes it again (they multiply). The cycle-speed
+// track is the reach time in % (100 = neutral, 150 = 1.5× the time, i.e. speed × 100/150). Both act in clip time.
+const segLen = () => (cur && cur.dur > 0 ? cur.dur / 4 : 1);
+function segMulTable(maxSeg) {   // cumulative speed factor of segment q (0-based, across all cycles)
+  const cum = new Float32Array(maxSeg + 1); let m = 1;
+  for (let q = 0; q <= maxSeg; q++) { const v = A.barSpeed[q]; if (v) m *= Math.max(0.05, 1 + v / 100); cum[q] = m; }
+  return cum;
+}
 function rebuildSpeedLUT() {
-  const n = Math.max(2, Math.ceil(S.dur * 240) + 1), lut = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
-  for (let i = 1; i < n; i++) { const t0 = (i - 1) * dt, t1 = i * dt; lut[i] = lut[i - 1] + 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * dt * k; }
+  const n = Math.max(2, Math.ceil(S.dur * 960) + 1), lut = new Float32Array(n), nom = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
+  const sl = segLen(), maxSeg = Math.ceil((S.dur * SPEED_MAX * 8) / sl) + 8, cum = segMulTable(maxSeg), loop = cur && cur.kind === 'loop';
+  for (let i = 1; i < n; i++) {
+    const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
+    nom[i] = nom[i - 1] + play * dt;
+    const q = Math.min(maxSeg, Math.floor(lut[i - 1] / sl)), cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
+    lut[i] = lut[i - 1] + play * (loop ? cum[q] : 1) * (100 / cyc) * dt;
+  }
+  S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;
   rebuildTravelLUT(); gridCache = null; drawRuler();
 }
@@ -331,33 +347,38 @@ function symChain(region, Sd) {
   return symChains[region][Sd];
 }
 function newSymAuto(dur) { return { collapsed: false, show: { weight: true, offset: true }, weight: flat(1, dur), offset: flat(0.5, dur) }; }
+function ensureSymFK() { if (!symFK.a) { symFK.a = new VirtualFK(rig); symFK.b = new VirtualFK(rig); symFK.Q = new Float32Array(B * 4); symFK.H = V3(); } }
+// mirror the source pose (srcQ / srcH, already sampled) onto the target side of Qout, blended by w
+function symMirrorInto(Qout, Hout, key, w, srcQ, srcH) {
+  ensureSymFK();
+  const F = symFK.a, G = symFK.b, q = new THREE.Quaternion(), cl = new THREE.Quaternion();
+  F.run(srcQ, srcH, 0);
+  G.run(Qout, Hout, 0);   // the pose so far (an earlier item may have changed it)
+  const [region, dir] = key.split(':'), tgt = dir === 'RL' ? 'L' : 'R';
+  const ai = boneIdx.get((region === 'arm' ? rig.b.spine2 : rig.b.hips).name);
+  const aSrcInv = F.delta(ai).invert(), aCur = G.delta(ai);
+  const newW = new Map();
+  for (const tb of symChain(region, tgt)) {
+    const ti = boneIdx.get(tb.name), sn = mirrorName(tb.name), si = sn != null ? boneIdx.get(sn) : undefined;
+    if (si == null) continue;
+    const D = aSrcInv.clone().multiply(F.delta(si));                    // source, relative to its anchor
+    q.set(D.x, -D.y, -D.z, D.w);                                        // mirrored across x = 0
+    const world = aCur.clone().multiply(q).multiply(G.bq[ti]);
+    const pi = G.parent[ti], parentW = newW.get(pi) || G.Q[pi];
+    const local = parentW.clone().invert().multiply(world);
+    cl.fromArray(Qout, ti * 4).slerp(local, w).toArray(Qout, ti * 4);
+    newW.set(ti, parentW.clone().multiply(cl));
+  }
+}
 function applySymmetrize(t, Qout, Hout) {
   const act = A.symOrder.filter((k) => A.sym[k] && evalPts(A.sym[k].weight, t) > 1e-4);
   if (!act.length) return;
-  if (!symFK.a) { symFK.a = new VirtualFK(rig); symFK.b = new VirtualFK(rig); symFK.Q = new Float32Array(B * 4); symFK.H = V3(); }
-  const F = symFK.a, G = symFK.b;
-  const q = new THREE.Quaternion(), cl = new THREE.Quaternion();
+  ensureSymFK();
   for (const key of act) {
     // the source: `offset` of a cycle away (50 % = an even split; move it when one step is longer than the other)
     const off = A.sym[key].offset ? evalPts(A.sym[key].offset, t) : 0.5;
     sampleClip(clipTime(t) + (cur.kind === 'loop' ? cur.dur * off : 0), symFK.Q, symFK.H);
-    F.run(symFK.Q, symFK.H, 0);
-    G.run(Qout, Hout, 0);   // the pose so far (an earlier item may have changed it)
-    const [region, dir] = key.split(':'), w = clamp(evalPts(A.sym[key].weight, t), 0, 1), tgt = dir === 'RL' ? 'L' : 'R';
-    const ai = boneIdx.get((region === 'arm' ? rig.b.spine2 : rig.b.hips).name);
-    const aSrcInv = F.delta(ai).invert(), aCur = G.delta(ai);
-    const newW = new Map();
-    for (const tb of symChain(region, tgt)) {
-      const ti = boneIdx.get(tb.name), sn = mirrorName(tb.name), si = sn != null ? boneIdx.get(sn) : undefined;
-      if (si == null) continue;
-      const D = aSrcInv.clone().multiply(F.delta(si));                    // source, relative to its anchor
-      q.set(D.x, -D.y, -D.z, D.w);                                        // mirrored across x = 0
-      const world = aCur.clone().multiply(q).multiply(G.bq[ti]);
-      const pi = G.parent[ti], parentW = newW.get(pi) || G.Q[pi];
-      const local = parentW.clone().invert().multiply(world);
-      cl.fromArray(Qout, ti * 4).slerp(local, w).toArray(Qout, ti * 4);
-      newW.set(ti, parentW.clone().multiply(cl));
-    }
+    symMirrorInto(Qout, Hout, key, clamp(evalPts(A.sym[key].weight, t), 0, 1), symFK.Q, symFK.H);
   }
 }
 function applyPose(Q, H) {
@@ -718,7 +739,8 @@ function evaluate(t, pend) {
 
 // ---------------------------------------------------------------- auto foot-lock from the clip's contacts
 function footContact(Sd, t) {
-  const c = cur.c, ct = clipTime(t);
+  const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id];
+  if (bk && bk.win && cur.kind === 'loop') return bk.win[Sd] ? inWin(mod1(ct / cur.dur), bk.win[Sd]) : null;   // a processed clip: its measured contacts
   if (cur.kind === 'loop') return c.win && c.win[Sd] ? inWin(mod1(ct / cur.dur), c.win[Sd]) : null;
   const arr = Sd === 'L' ? c.cL : c.cR, fps = (gl && gl.fps) || 30;
   if (!arr) return null;

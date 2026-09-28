@@ -26,14 +26,14 @@ function setLength(dIn) {
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
   for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
   for (const k of A.symOrder) { scale(A.sym[k].weight); scale(A.sym[k].offset); }
-  S.dur = A.dur = d; S.t = Math.min(S.t, d); syncLenInputs(); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
+  scale(A.cyc);
+  S.dur = A.dur = d; S.t = Math.min(S.t, d); S.v0 = 0; S.v1 = d; syncLenInputs(); updateHScroll(); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 }
 $('btnReset').onclick = () => {
   const b = $('btnReset');
   if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
   b.dataset.armed = '1'; b.textContent = 'Click again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset clip'; }, 2500);
 };
-$('btnSym').onclick = () => { $('btnAddGroup').click(); };
 $('btnFootLock').onclick = () => { const msg = autoFootLock(); flash(msg); };
 let flashTimer = 0;
 function flash(msg) { const el = $('status'); el.dataset.flash = msg; clearTimeout(flashTimer); flashTimer = setTimeout(() => { delete el.dataset.flash; }, 5000); }
@@ -48,6 +48,7 @@ function exportObj() {
     symmetrize: A.symOrder.map((k) => ({ item: k, label: symLabel(k), weight_pct: P(A.sym[k].weight, 100), offset_pct: P(A.sym[k].offset, 100) })),
     note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
+    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, show_master: A.showMaster,
     moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
@@ -76,7 +77,7 @@ function importObj(o) {
   const clipId = o.clip && (o.clip.id || ('loop:' + o.clip.name));
   if (clipId && clipId !== cur.id && clips.find((x) => x.id === clipId)) selectClip(clipId);
   const d = +o.duration_s || S.dur, P = (a, div = 1) => (Array.isArray(a) && a.length ? a.map(([t, v, k]) => ({ t: +t, v: +v / div, k: +k || 0 })) : null);
-  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move;
+  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move; n.cyc = P(o.cycle_speed_reach_time_pct) || n.cyc; if (o.bar_reach_pct) n.barSpeed = o.bar_reach_pct; if (o.show_master) n.showMaster = o.show_master;
   for (const b of o.bones || []) {
     if (!boneIdx.has(b.bone)) continue;
     const ba = newBoneAuto(d);
@@ -110,7 +111,7 @@ function importObj(o) {
   pushUndo();
   n.cycles = +o.cycles > 0 ? +o.cycles : 0;
   for (const sy of o.symmetrize || []) if (SYM_KEYS.some(([k]) => k === sy.item)) { const x = newSymAuto(d); x.weight = P(sy.weight_pct, 100) || x.weight; x.offset = P(sy.offset_pct, 100) || x.offset; n.sym[sy.item] = x; n.symOrder.push(sy.item); }
-  A = normalizeAuto(n); S.dur = d; syncLenInputs(); S.t = 0; selPts = new Set(); selRow = null;
+  A = normalizeAuto(n); S.dur = d; S.v0 = 0; S.v1 = d; syncLenInputs(); S.t = 0; selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); rebuildRows(); save(); afterSelect();
 }
 
@@ -255,6 +256,7 @@ function frame(now) {
     controls.update();
     placeWorld(focus);
     renderer.render(scene, camera);
+    if (S.playing) followPlayhead();
     placePlayhead();
     $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
     updateUnitChip();
@@ -276,5 +278,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; } };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; } };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

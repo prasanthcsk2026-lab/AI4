@@ -103,9 +103,11 @@ function setGizmoMode(mode) {
   gizmoMode = gizmoMode === mode ? null : mode;
   $('btnGizRot').setAttribute('aria-pressed', gizmoMode === 'rotate');
   $('btnGizMove').setAttribute('aria-pressed', gizmoMode === 'move');
+  $('btnSelect').setAttribute('aria-pressed', !gizmoMode);
   updateGizmoTarget();
 }
 $('btnGizRot').onclick = () => setGizmoMode('rotate');
+$('btnSelect').onclick = () => { gizmoMode = null; setGizmoMode(null); };
 $('btnGizMove').onclick = () => setGizmoMode('move');
 function gizBonePos(g) { return g.type === 'bone' ? worldP(rig.bones[boneIdx.get(g.name)]) : effPos(EFF_BY_ID[g.id]); }
 function syncGizmoProxy() {
@@ -451,12 +453,13 @@ $('btnFrame').onclick = () => frameCamera(false);
 function syncToggles() {
   const set = (id, v) => $(id).setAttribute('aria-pressed', v);
   set('btnBones', S.bones); set('btnGhost', S.ghost); set('btnIK', S.showIK); set('btnTrail', S.trail);
+  $('falloffBox').hidden = !S.trail;
   set('btnLimits', S.limits); set('btnInPlace', S.inPlace); set('btnFollow', S.follow); set('btnAutoKey', S.autoKey); set('btnLoop', S.loop);
 }
 $('btnBones').onclick = () => { S.bones = !S.bones; syncToggles(); };
 $('btnGhost').onclick = () => { S.ghost = !S.ghost; syncToggles(); };
 $('btnIK').onclick = () => { S.showIK = !S.showIK; syncToggles(); save(); };
-$('btnTrail').onclick = () => { S.trail = !S.trail; trailDirty = true; syncToggles(); };
+$('btnTrail').onclick = () => { S.trail = !S.trail; trailDirty = true; syncToggles(); $('falloffBox').hidden = !S.trail; };
 $('btnInPlace').onclick = () => { S.inPlace = !S.inPlace; S.travelBase.set(0, 0, 0); trailDirty = true; holdCache.clear(); syncToggles(); save(); };
 $('btnLimits').onclick = () => { S.limits = !S.limits; S.limitHits = new Set(); editVersion++; trailDirty = true; syncToggles(); save(); };
 $('btnFollow').onclick = () => { S.follow = !S.follow; syncToggles(); save(); };

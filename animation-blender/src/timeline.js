@@ -15,6 +15,7 @@ const HEIGHT_PRESETS = [['Small', 30], ['Normal', LANE_H], ['Tall', 90], ['Extra
 const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
+  cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% reach time', fmt: (v) => Math.round(v) + '%', snap: 5 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   a: { range: [-ADJ_MAX, ADJ_MAX], ref: 0, color: COL.adjust, scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 },
@@ -58,8 +59,13 @@ let rowDrag = null;
 
 function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
-  addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
-  addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
+  // master tracks are optional (the "+" button); hidden ones keep working with their values
+  if (A.showMaster.speed) addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
+  if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
+  if (A.showMaster.cycle) {
+    addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>reach time %</i>', null);
+    addBarsRow();
+  }
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   for (const k of A.symOrder) {
     const sy = A.sym[k]; if (!sy) continue;
@@ -153,6 +159,108 @@ function rebuildRows() {
   if (window.__slRebuildTree) window.__slRebuildTree();
   layoutLanes();
 }
+// the bar reach row: one cell per quarter-bar segment; click to type how much faster (+) or slower (−) it is
+function addBarsRow() {
+  const r = mkRow('track bars', 'bars'); Object.assign(r, { kind: 'bars' });
+  r.h.innerHTML = '<span class="sw" style="background:#f5a3ff"></span><span class="name">Bar reach <i>% per quarter bar</i></span><div class="rz"></div>';
+  r.h.title = 'Click a segment to set how much faster (+) or slower (−) it is; the change carries on until the next one (they multiply). Right-click for options.';
+  const rz = r.h.querySelector('.rz');
+  rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
+  r.el.style.height = rowHeight(r) + 'px';
+  const cv = document.createElement('canvas'); r.cv = cv; r.lane.append(cv);
+  const segAt = (e) => { const [px] = evXY(r, e); return Math.floor(clipTime(tOf(r, px)) / segLen()); };
+  cv.addEventListener('click', (e) => openBarEdit(segAt(e), e));
+  cv.addEventListener('pointermove', (e) => { const q = segAt(e), v = A.barSpeed[q] || 0; tip(e, `bar ${Math.floor(q / 4) + 1} · .${q % 4}→${q % 4 === 3 ? 'next bar' : '.' + (q % 4 + 1)}: ${v >= 0 ? '+' : ''}${v}% · speed ×${segMulTable(q)[q].toFixed(3)}`); });
+  cv.addEventListener('pointerleave', () => tip(null));
+  cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const q = segAt(e); openMenu(e.clientX, e.clientY, [
+    { label: 'Set this segment…', action: () => openBarEdit(q, e) },
+    { label: 'Reset this segment', disabled: !A.barSpeed[q], action: () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); } },
+    { label: 'Clear all bar speeds', disabled: !Object.keys(A.barSpeed).length, action: () => { pushUndo(); A.barSpeed = {}; barsEdited(); } },
+  ]); });
+  tracksEl.append(r.el); rows.push(r);
+}
+// ---------------------------------------------------------------- "+" menu: the optional master tracks
+$('btnAddMaster').onclick = (e) => {
+  const b = e.currentTarget.getBoundingClientRect(), tog = (k) => () => { A.showMaster[k] = !A.showMaster[k]; rebuildRows(); save(); };
+  openMenu(b.left, b.bottom + 4, [
+    { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
+    { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
+    { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
+  ]);
+};
+$('realtimeCb').onchange = () => { S.realtime = $('realtimeCb').checked; gridCache = null; layoutLanes(); trailDirty = true; save(); };
+
+// ---------------------------------------------------------------- horizontal zoom / scroll
+function setView(a, b) {
+  const minSpan = Math.min(S.dur, 0.05);
+  let span = clamp(b - a, minSpan, S.dur); a = clamp(a, 0, S.dur - span);
+  S.v0 = a; S.v1 = a + span;
+  layoutLanes(); updateHScroll();
+}
+function updateHScroll() {
+  const th = $('hthumb'); th.style.left = (S.v0 / S.dur) * 100 + '%'; th.style.width = Math.max(0.5, (vSpan() / S.dur) * 100) + '%';
+}
+{
+  const bar = $('hscroll'); let hd = null;
+  bar.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); bar.setPointerCapture(e.pointerId);
+    const r = bar.getBoundingClientRect(), mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : e.target.id === 'hthumb' ? 'pan' : 'jump';
+    if (mode === 'jump') { const c = ((e.clientX - r.left) / r.width) * S.dur; setView(c - vSpan() / 2, c + vSpan() / 2); }
+    hd = { mode: mode === 'jump' ? 'pan' : mode, x0: e.clientX, a: S.v0, b: S.v1, w: r.width };
+  });
+  bar.addEventListener('pointermove', (e) => {
+    if (!hd) return;
+    const dt = ((e.clientX - hd.x0) / hd.w) * S.dur;
+    if (hd.mode === 'pan') setView(hd.a + dt, hd.b + dt);
+    else if (hd.mode === 'l') setView(Math.min(hd.a + dt, hd.b - 0.05), hd.b);
+    else setView(hd.a, Math.max(hd.b + dt, hd.a + 0.05));
+  });
+  bar.addEventListener('pointerup', () => { hd = null; });
+  $('btnFit').onclick = () => setView(0, S.dur);
+  // Ctrl / ⌘ + wheel: time zoom around the cursor · Shift + wheel: scroll
+  document.querySelector('.tl').addEventListener('wheel', (e) => {
+    if (e.altKey || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+    e.preventDefault();
+    const rb = ruler.getBoundingClientRect(), f = clamp((e.clientX - rb.left) / rb.width, 0, 1), c = S.v0 + f * vSpan();
+    if (e.shiftKey && !(e.ctrlKey || e.metaKey)) { const d = (e.deltaY || e.deltaX) / 600 * vSpan(); setView(S.v0 + d, S.v1 + d); return; }
+    const k = Math.exp(clamp(e.deltaY, -200, 200) * 0.003), span = vSpan() * k;
+    setView(c - f * span, c - f * span + span);
+  }, { passive: false });
+}
+function followPlayhead() {   // while playing, keep the playhead in view
+  if (vSpan() >= S.dur - 1e-6) return;
+  if (S.t > S.v1 || S.t < S.v0) { const span = vSpan(); setView(S.t - span * 0.1, S.t - span * 0.1 + span); }
+}
+
+function barsEdited() { rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save(); }
+function drawBars(r) {
+  const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
+  x.clearRect(0, 0, w, h); x.fillStyle = '#1d1a20'; x.fillRect(0, 0, w, h);
+  if (!S.speedLUT || !cur) return;
+  const total = S.speedLUT[S.speedLUT.length - 1], qMax = Math.ceil(total / sl), cum = segMulTable(qMax);
+  x.font = `600 ${10 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'middle'; x.textAlign = 'center';
+  for (let q = 0; q < qMax; q++) {
+    const a = xOf(r, timeOfClipTime(q * sl)), b = xOf(r, timeOfClipTime(Math.min(total, (q + 1) * sl)));
+    if (b < 0 || a > w) continue;
+    const v = A.barSpeed[q] || 0, m = cum[q];
+    x.fillStyle = v ? (v > 0 ? 'rgba(245,163,255,.28)' : 'rgba(120,180,255,.25)') : (Math.floor(q / 4) % 2 ? '#221e25' : '#1d1a20');
+    x.fillRect(a, 0, b - a, h);
+    x.fillStyle = q % 4 === 0 ? '#5b4e61' : '#3a3240'; x.fillRect(Math.round(a), 0, 1, h);
+    if (b - a > 34 * dpr) {
+      x.fillStyle = v ? '#f5d6ff' : '#6f6477'; x.fillText((v > 0 ? '+' : '') + v + '%', (a + b) / 2, h * (Math.abs(m - 1) > 1e-6 ? 0.36 : 0.5));
+      if (Math.abs(m - 1) > 1e-6) { x.fillStyle = '#b08fbd'; x.fillText('×' + m.toFixed(2), (a + b) / 2, h * 0.72); }
+    }
+  }
+  x.textAlign = 'left';
+}
+function openBarEdit(q, e) {
+  const box = $('numEdit'); numTarget = { bars: q };
+  $('numTL').hidden = true; $('numV').value = A.barSpeed[q] || 0; $('numV').step = 1; $('numVL').textContent = `bar ${Math.floor(q / 4) + 1} .${q % 4} → +/− %`;
+  box.hidden = false;
+  const bw = box.offsetWidth || 260;
+  box.style.left = clamp(e.clientX - bw / 2, 8, window.innerWidth - bw - 8) + 'px'; box.style.top = clamp(e.clientY - 70, 8, window.innerHeight - 60) + 'px';
+  $('numV').focus(); $('numV').select();
+}
 function boneSummary(ba) {
   const parts = [];
   if (!isFlat(ba.whole, 1)) parts.push('whole');
@@ -193,7 +301,7 @@ function lane(r) {
   });
   cv.addEventListener('dblclick', (e) => { const hit = hitPoint(r, e); if (hit != null) openNumEdit(r, hit, e); });
   cv.addEventListener('wheel', (e) => {
-    if (!(e.ctrlKey || e.altKey || e.metaKey)) return;
+    if (!e.altKey) return;   // Alt + wheel: value zoom (Ctrl / Shift + wheel: time zoom / scroll)
     e.preventDefault();
     const [, py] = evXY(r, e), v = vOfRaw(r, py), [lo, hi] = viewOf(r), k = Math.exp(clamp(e.deltaY, -200, 200) * 0.0025);
     setZoom(r, [v - (v - lo) * k, v + (hi - v) * k]);
@@ -215,6 +323,7 @@ function zoomToFit(r) {
 }
 function layoutLane(r) {
   if (!r.cv) return;
+  if (r.kind === 'bars') { const dpr = Math.min(2, window.devicePixelRatio || 1), w = r.lane.clientWidth || 300, h = Math.max(10, rowHeight(r) - 2); r.cv.width = Math.round(w * dpr); r.cv.height = Math.round(h * dpr); r.cv.style.width = w + 'px'; r.cv.style.height = h + 'px'; drawBars(r); return; }
   const dpr = Math.min(2, window.devicePixelRatio || 1), w = r.lane.clientWidth || 300, h = Math.max(10, rowHeight(r) - 1);
   r.cv.width = Math.round(w * dpr); r.cv.height = Math.round(h * dpr); r.cv.style.width = w + 'px'; r.cv.style.height = h + 'px';
   drawLane(r);
@@ -223,13 +332,17 @@ function layoutLanes() { for (const r of rows) layoutLane(r); drawRuler(); place
 // geometry
 const viewOf = (r) => A.zoom[r.key] || r.range;
 const dprOf = (r) => r.cv.width / Math.max(1, r.cv.clientWidth || r.lane.clientWidth || 1);
-function xOf(r, t) { return (t / S.dur) * r.cv.width; }
-function tOf(r, x) { return clamp((x / r.cv.width) * S.dur, 0, S.dur); }
+// the visible time window (horizontal zoom / scroll): S.v0 … S.v1 seconds
+const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
+const xT = (t, w) => ((t - S.v0) / vSpan()) * w;
+function xOf(r, t) { return xT(t, r.cv.width); }
+function tOf(r, x) { return clamp(S.v0 + (x / r.cv.width) * vSpan(), 0, S.dur); }
 function yOf(r, v) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return p + (1 - (v - lo) / (hi - lo)) * (h - 2 * p); }
 function vOfRaw(r, y) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return lo + (1 - (y - p) / (h - 2 * p)) * (hi - lo); }
 function vOf(r, y) { return clamp(vOfRaw(r, y), r.range[0], r.range[1]); }
 function niceStep(span, n) { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
 function drawLane(r) {
+  if (r.kind === 'bars') return drawBars(r);
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), pts = r.get();
   x.clearRect(0, 0, w, h);
   x.fillStyle = rows.indexOf(r) % 2 ? '#1b201d' : '#1f2522'; x.fillRect(0, 0, w, h);
@@ -332,7 +445,7 @@ function onLaneHover(e, r) {
 function edited(r, live = false) {
   if (live) syncMirrors();
   drawLane(r);
-  if (r.key === 'speed' || r.key === 'move') rebuildSpeedLUT();
+  if (r.key === 'speed' || r.key === 'move' || r.key === 'cyc') rebuildSpeedLUT();
   refreshSummary(r);
   editVersion++; trailDirty = true;
   if (!live) save();
@@ -343,6 +456,7 @@ function tip(e, text) { const el = $('tip'); if (!e) { el.hidden = true; return;
 let numTarget = null;
 function openNumEdit(r, i, e) {
   const box = $('numEdit'), pts = r.get(), p = i != null ? pts[i] : null;
+  $('numTL').hidden = false;
   numTarget = { r, i };
   $('numT').value = (p ? p.t : S.t).toFixed(3);
   $('numV').value = +((p ? p.v : evalPts(pts, S.t)) * r.scale).toFixed(3);
@@ -357,6 +471,11 @@ function openNumEdit(r, i, e) {
 function closeNumEdit() { $('numEdit').hidden = true; numTarget = null; }
 function applyNumEdit() {
   if (!numTarget) return;
+  if (numTarget.bars != null) {   // a bar reach segment
+    const q = numTarget.bars, v = clamp(Math.round((parseFloat($('numV').value) || 0) * 10) / 10, -90, 400);
+    pushUndo(); if (v) A.barSpeed[q] = v; else delete A.barSpeed[q];
+    closeNumEdit(); barsEdited(); return;
+  }
   const { r, i } = numTarget, pts = r.get();
   const t = clamp(parseFloat($('numT').value), 0, S.dur), raw = parseFloat($('numV').value);
   if (!isFinite(t) || !isFinite(raw)) { closeNumEdit(); return; }
@@ -511,8 +630,9 @@ window.addEventListener('keydown', (e) => {
   if (meta) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
   if (e.key.startsWith('Arrow')) { e.preventDefault(); nudgeSelection(e.key, e.shiftKey); return; }
-  if (k === 'r') { setGizmoMode('rotate'); return; }
-  if (k === 'w') { setGizmoMode('move'); return; }
+  if (k === 'r' || k === 'e') { if (gizmoMode !== 'rotate') setGizmoMode('rotate'); return; }
+  if (k === 'q') { gizmoMode = null; setGizmoMode(null); return; }
+  if (k === 'w') { if (gizmoMode !== 'move') setGizmoMode('move'); return; }
   if (k === 'f') { frameCamera(false); return; }
   if (k === 'k') { keyPending(); return; }
   if (e.key === 'Escape') { if (pending) cancelPending(); else clearSelection(); }
@@ -520,8 +640,7 @@ window.addEventListener('keydown', (e) => {
 
 // ruler + playhead
 const ruler = $('ruler'); let rulerDrag = false;
-function timeOfClipTime(ct) {
-  const lut = S.speedLUT; if (!lut || lut.length < 2) return 0;
+function timeOfClipTime(ct, lut = S.speedLUT) { if (!lut || lut.length < 2) return 0;
   if (ct <= lut[0]) return 0; if (ct >= lut[lut.length - 1]) return S.dur;
   let lo = 0, hi = lut.length - 1;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (lut[mid] < ct) lo = mid; else hi = mid; }
@@ -534,9 +653,11 @@ function drawFootMarks(x, W, H, dpr) {
   const totalCt = S.speedLUT[S.speedLUT.length - 1];
   try {
     const marks = [];
-    if (cur.kind === 'loop' && cur.c.win) {
+    const win = (BAKED[cur.id] && BAKED[cur.id].win) || cur.c.win;   // a symmetrized clip: its measured contacts
+    if (cur.kind === 'loop' && win) {
       for (const Sd of ['L', 'R']) {
-        const w0 = cur.c.win[Sd][0];
+        if (!win[Sd]) continue;
+        const w0 = win[Sd][0];
         for (let n = 0; n < 200; n++) { const ct = n * cur.dur + w0 * cur.dur; if (ct > totalCt + 1e-6) break; marks.push([timeOfClipTime(ct), Sd]); }
       }
     } else if (cur.kind === 'move') {
@@ -544,7 +665,7 @@ function drawFootMarks(x, W, H, dpr) {
       for (const Sd of ['L', 'R']) { const arr = con[Sd]; if (!arr) continue; for (let i = 1; i < arr.length; i++) if (arr[i] && !arr[i - 1]) marks.push([timeOfClipTime(i / fps), Sd]); }
     }
     for (const [t, Sd] of marks) {
-      const px = Math.round((t / S.dur) * (W - 1));
+      const px = Math.round(xT(t, W - 1));
       x.fillStyle = Sd === 'L' ? COL.timing : '#ff8a4a';
       x.beginPath(); x.moveTo(px - 3 * dpr, H - 2); x.lineTo(px + 3 * dpr, H - 2); x.lineTo(px, H - 2 - 6 * dpr); x.closePath(); x.fill();
     }
@@ -556,16 +677,23 @@ function drawRuler() {
   x.fillStyle = '#181d1a'; x.fillRect(0, 0, W, H);
   x.font = `500 ${11 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'top';
   const G = timeGrid(), vis = visibleGrid(G, W, dpr);
-  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = (sp.t0 / S.dur) * (W - 1), b = (sp.t1 / S.dur) * (W - 1); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
-  let lastLabel = -1e9;
+  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = xT(sp.t0, W - 1), b = xT(sp.t1, W - 1); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
+  const taken = [];   // labels: the major ones first, then the rest where they fit
   for (const g of vis) {
-    const px = Math.round((g.t / S.dur) * (W - 1)) + 0.5;
+    const px = Math.round(xT(g.t, W - 1)) + 0.5;
     x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : g.level === 2 ? '#7d8882' : g.level === 1 ? '#56615b' : '#3a443f';
     x.fillRect(px, g.level === 2 ? H * 0.45 : g.level === 1 ? H * 0.6 : H * 0.72, 1, H);
-    if (g.label && g.t < S.dur - 1e-6 && px - lastLabel > x.measureText(g.label).width + 10 * dpr) { x.fillStyle = g.S ? x.fillStyle : '#b4bdb7'; x.fillText(g.label, px + 4 * dpr, 5 * dpr); lastLabel = px; }
+  }
+  for (const pass of [2, 1, 0]) for (const g of vis) {
+    if (g.level !== pass || !g.label || g.t >= S.dur - 1e-6) continue;
+    const px = Math.round(xT(g.t, W - 1)) + 0.5, a0 = px + 4 * dpr, a1 = a0 + x.measureText(g.label).width + 6 * dpr;
+    if (a1 < 0 || a0 > W || taken.some(([l, r]) => a0 < r && a1 > l)) continue;
+    taken.push([a0, a1]);
+    x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : pass === 2 ? '#d4dbd6' : '#8d9892';
+    x.fillText(g.label, a0, 5 * dpr);
   }
   // clip cycle marks (where one loop / move of the clip ends, at the current speeds)
-  if (cur && S.speedLUT) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = S.speedLUT; for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round((i / (lut.length - 1)) * (W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
+  if (cur && S.speedLUT) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = S.speedLUT; for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
   drawFootMarks(x, W, H, dpr);
 }
 // ---------------------------------------------------------------- time units
@@ -573,7 +701,7 @@ function drawRuler() {
 let gridCache = null;
 const FPS = 30;
 function timeGrid() {
-  const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}`;
+  const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}|${S.realtime}`;
   if (gridCache && gridCache.key === key) return gridCache;
   const lines = [], spans = [];
   if (cur && S.speedLUT) {   // contact spans (used by the step unit and its colours)
@@ -593,8 +721,9 @@ function timeGrid() {
   if (S.unit === 'frame') {
     for (let f = 0; f <= Math.round(S.dur * FPS); f++) lines.push({ t: f / FPS, level: f % FPS === 0 ? 2 : f % 5 === 0 ? 1 : 0, label: f % 5 === 0 ? f + 'f' : '' });
   } else if (S.unit === 'cycle' && cur && S.speedLUT) {
-    const total = S.speedLUT[S.speedLUT.length - 1];
-    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? 'bar ' + (q / 8 + 1) : q % 2 === 0 ? '.' + (q % 8) / 2 : '' });
+    // realtime: bar lines where the bars really fall (after bar reach / cycle speed); otherwise evenly spaced
+    const lutG = S.realtime ? S.speedLUT : S.speedLUTNom, total = lutG[lutG.length - 1];
+    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? 'bar ' + (q / 8 + 1) : q % 2 === 0 ? '.' + (q % 8) / 2 : '' });
   } else if (S.unit === 'step' && spans.length) {
     const n = { L: 0, R: 0 };
     lines.push({ t: 0, level: 2, label: '' });
@@ -608,7 +737,7 @@ function timeGrid() {
   return gridCache;
 }
 function visibleGrid(G, w, dpr) {   // drop the finer levels when they would crowd (< 4 px apart)
-  const per = w / Math.max(1e-6, S.dur);
+  const per = w / vSpan();
   const gap = (lv) => { const ts = G.lines.filter((g) => g.level >= lv).map((g) => g.t); let m = Infinity; for (let i = 1; i < ts.length; i++) m = Math.min(m, ts[i] - ts[i - 1] || Infinity); return m * per; };
   const minLv = [0, 1, 2].find((lv) => gap(lv) >= 4 * dpr) ?? 2;
   return G.lines.filter((g) => g.level >= minLv);
@@ -627,11 +756,13 @@ function unitReadout(t) {
 $('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); trailDirty = true; save(); };
 $('btnMagnet').onclick = () => { S.magnet = !S.magnet; $('btnMagnet').setAttribute('aria-pressed', S.magnet); trailDirty = true; save(); };
 
-function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp((e.clientX - b.left) / b.width, 0, 1) * S.dur; }
+function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp(S.v0 + clamp((e.clientX - b.left) / b.width, 0, 1) * vSpan(), 0, S.dur); }
 ruler.addEventListener('pointerdown', (e) => { rulerDrag = true; ruler.setPointerCapture(e.pointerId); scrub(e); });
 function placePlayhead() {
   const tl = document.querySelector('.tl').getBoundingClientRect(), rb = ruler.getBoundingClientRect();
-  playhead.style.left = (rb.left - tl.left + (S.t / S.dur) * rb.width - 1) + 'px';
+  const f = (S.t - S.v0) / vSpan();
+  playhead.hidden = f < -0.001 || f > 1.001;
+  playhead.style.left = (rb.left - tl.left + f * rb.width - 1) + 'px';
 }
 // resizable timeline
 const grip = $('grip'); let gripDrag = false;
