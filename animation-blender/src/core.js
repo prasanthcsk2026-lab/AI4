@@ -337,7 +337,8 @@ function renderIKList(q) {
     row.onclick = () => { $('boneDlg').hidden = true; if (inTl) selectEff(e.id); else openAddDialog({ type: 'eff', id: e.id }); };
     root.append(row);
   }
-  if (!q || 'custom group ik'.includes(q)) {
+  if (!q || 'custom controllers group ik new'.includes(q)) {
+    if (group !== 'Custom controllers') { const h = document.createElement('div'); h.className = 'treegrp'; h.textContent = 'Custom controllers'; root.append(h); }
     const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = '16px';
     row.innerHTML = '<span class="tn" style="color:var(--accent)">+ New IK controller (a point between joints)…</span><span class="note2">e.g. both hands + hips: drag it and they follow</span>';
     row.onclick = () => { $('boneDlg').hidden = true; let n = 1; while (EFF_BY_ID['ig:c' + n]) n++; registerIG('ig:c' + n, 'Controller ' + n); openAddDialog({ type: 'eff', id: 'ig:c' + n }); };

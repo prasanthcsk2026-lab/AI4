@@ -311,3 +311,6 @@
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; display: flex; align-items: center; gap: 12px; background: #202824; border: 1px solid #3a4540; border-radius: 8px; padding: 8px 10px 8px 14px; box-shadow: 0 10px 28px rgba(0,0,0,.45); font: 500 13px var(--ui); color: var(--ink); max-width: calc(100vw - 32px); }
   #toastMsg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #toastUndo { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+
+  .tlsec { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #5cc8ff; border-top: 1px solid rgba(92,200,255,.35); background: rgba(92,200,255,.05); }
+  .iktag.cust { background: rgba(92,200,255,.18); color: #5cc8ff; }

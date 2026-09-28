@@ -179,7 +179,7 @@ $('btnAutoKey').onclick = () => { S.autoKey = !S.autoKey; syncToggles(); save();
 
 // ---------------------------------------------------------------- IK handles
 let handles = [];
-const HC = { idle: new THREE.Color('#2f8f74'), on: new THREE.Color(COL.ik), sel: new THREE.Color('#ff4fa3') };
+const HC = { idle: new THREE.Color('#2f8f74'), on: new THREE.Color(COL.ik), sel: new THREE.Color('#ff4fa3'), cIdle: new THREE.Color('#3a86b8'), cOn: new THREE.Color('#5cc8ff') };   // c…: custom controllers
 let handleGeo = null;
 function makeHandle(d) {
   const g = d.kind === 'igroup' ? 'grp' : d.kind === 'torso' ? (d.id === 'chest' || d.id === 'head' ? 'body' : 'ring') : { hips: 'body', hand: 'end', foot: 'end', elbow: 'pole', knee: 'pole' }[d.kind] || 'small';
@@ -202,11 +202,11 @@ function buildHandles() {
 function updateHandles() {
   if (handles.length < EFFECTORS.length) for (const d of EFFECTORS) if (!handles.some((h) => h.d === d)) makeHandle(d);   // custom group IKs
   for (const h of handles) {
-    h.m.visible = S.showIK && (h.d.kind !== 'igroup' || !!A.ik[h.d.id] || S.selEff === h.d.id);   // group IK handles only once used
+    h.m.visible = S.showIK && (h.d.kind !== 'igroup' || h.d.custom || !!A.ik[h.d.id] || S.selEff === h.d.id);   // built-in group IK handles only once used; custom controllers always
     if (!h.m.visible) continue;
     h.m.position.copy(effPos(h.d));
     const on = !!A.ik[h.d.id], sel = S.selEff === h.d.id;
-    h.m.material.color.copy(sel ? HC.sel : on ? HC.on : HC.idle);
+    h.m.material.color.copy(sel ? HC.sel : h.d.custom ? (on ? HC.cOn : HC.cIdle) : on ? HC.on : HC.idle);
     h.m.material.opacity = sel || on ? 0.95 : 0.4;
     h.m.scale.setScalar(sel || on ? 1 : 0.75);
   }

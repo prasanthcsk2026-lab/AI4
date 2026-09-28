@@ -70,7 +70,7 @@ const MOVABLE = ['hips', 'spine', 'spine1', 'chest', 'neck', 'head', 'Lhand', 'R
 const IG_AUTO_PIVOT = { 'ig:Larm': () => rig.side.L.upper, 'ig:Rarm': () => rig.side.R.upper, 'ig:Lleg': () => rig.side.L.thigh, 'ig:Rleg': () => rig.side.R.thigh, 'ig:upper': () => rig.b.spine, 'ig:body': () => rig.b.hips };
 function registerIG(id, label) {   // a custom group IK (id "ig:c<n>")
   if (EFF_BY_ID[id]) { if (label) EFF_BY_ID[id].label = label; return EFF_BY_ID[id]; }
-  const d = { id, label: label || 'Controller', group: 'Group IK', kind: 'igroup', custom: true, members: {}, pivot: 'centroid', poles: [], tracks: ['blend', 'px', 'py', 'pz', 'rx', 'ry', 'rz'], defaultShow: ['px', 'py', 'pz'], what: 'your own set of effectors' };
+  const d = { id, label: label || 'Controller', group: 'Custom controllers', kind: 'igroup', custom: true, members: {}, pivot: 'centroid', poles: [], tracks: ['blend', 'px', 'py', 'pz', 'rx', 'ry', 'rz'], defaultShow: ['px', 'py', 'pz'], what: 'your own set of effectors' };
   EFFECTORS.push(d); EFF_BY_ID[id] = d; return d;
 }
 function igMembers(gid) { const e = A && A.ik[gid]; return (e && e.members) || EFF_BY_ID[gid].members; }
@@ -212,7 +212,8 @@ function rebuildSpeedLUT() {
   S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;
   rebuildTravelLUT(); gridCache = null;
-  if (S.viewAll !== false) { S.v0 = 0; S.v1 = dispDur(); } else { const D = dispDur(); S.v1 = Math.min(S.v1, D); S.v0 = Math.min(S.v0, Math.max(0, S.v1 - 0.05)); }
+  if (typeof viewFreeze !== 'undefined' && viewFreeze) { /* dragging a timing point: keep the view */ }
+  else if (S.viewAll !== false) { S.v0 = 0; S.v1 = dispDur(); } else { const D = dispDur(); S.v1 = Math.min(S.v1, D); S.v0 = Math.min(S.v0, Math.max(0, S.v1 - 0.05)); }
   updateHScroll(); drawRuler();
 }
 function clipTime(t) { const lut = S.speedLUT, f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }

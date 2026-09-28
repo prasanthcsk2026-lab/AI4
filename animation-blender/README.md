@@ -196,3 +196,9 @@ One cycle from left-foot landing to left-foot landing; each half is stretched un
 
 ## Foot on ground (braking)
 Master "+" → **Foot on ground**: +g % of the cycle (0–30) lengthens each foot's contact and shortens its swing by the same amount, cycle length unchanged. Automate it together with a lower cycle / moving speed for a natural braking stop. Auto foot-lock follows the longer contacts.
+
+## Timeline
+Foot landings are coloured vertical lines through the lanes (left purple, right orange). While a timing point (playback / moving / cycle speed, foot on ground) is dragged, the bars, grid and ruler stay put and the character previews the new timing; the layout updates on release, lanes and ruler together.
+
+## Custom IK controllers
+Custom controllers have their own section in the IK dialog and on the timeline (tag **IK CUST**), and their handles (blue) show whenever the IK view is on.

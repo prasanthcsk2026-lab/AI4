@@ -132,14 +132,17 @@ function rebuildRows() {
     for (const a of AXES) if (sw['a' + a]) addTrackRow(k('a' + a), SPEC.a, () => ba.a[a], (p) => { ba.a[a] = p; }, `<b class="axl" style="color:${AXIS_COL[a]}">${a.toUpperCase()}</b> adjust <i>${lab[a] ? lab[a].short : ''}</i>`, { ...own, axis: a });
     if (sw.timing) addTrackRow(k('timing'), SPEC.timing, () => ba.timing, (p) => { ba.timing = p; }, 'Timing offset <i>phase %</i>', own);
   }
-  // IK effectors
-  for (const id of A.ikOrder) {
+  // IK effectors: the built-in ones, then the custom controllers in their own section
+  const ikIds = A.ikOrder.filter((id) => EFF_BY_ID[id] && !EFF_BY_ID[id].custom).concat(A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].custom));
+  let customHead = false;
+  for (const id of ikIds) {
     const e = A.ik[id], d = EFF_BY_ID[id]; if (!e || !d) continue;
     if (e.mirrorOf) continue;
+    if (d.custom && !customHead) { customHead = true; const sh = document.createElement('div'); sh.className = 'tlsec'; sh.textContent = 'Custom IK controllers'; tracksEl.append(sh); }
     const hr = mkRow('bone eff' + (isSelRow('eff', id) ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag">${d.kind === 'igroup' ? 'IK GRP' : 'IK'}</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag${d.custom ? ' cust' : ''}">${d.custom ? 'IK CUST' : d.kind === 'igroup' ? 'IK GRP' : 'IK'}</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = e.mirror ? sideless(d.label) : d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
@@ -349,10 +352,17 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // Display axis. Realtime bars on: real seconds. Off: "bar space" — the axis follows the bars, so every bar is the
 // same width however cycle speed / bar reach change the timing, and feet and curves stay lined up with the bars.
 // A display coordinate d is the nominal time (playback speed only) at which the clip reaches the same clip time.
-function barSpace() { return !S.realtime && S.speedLUTNom && S.speedLUT && Math.abs(S.speedLUT[S.speedLUT.length - 1] - S.speedLUTNom[S.speedLUTNom.length - 1]) + Object.keys(A.barSpeed || {}).length > 1e-6; }
+// While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
+// grid and ruler keep their place and the character previews the new timing; the layout updates on release.
+let viewFreeze = null;
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd']);
+const vLut = () => (viewFreeze ? viewFreeze.lut : S.speedLUT), vNom = () => (viewFreeze ? viewFreeze.nom : S.speedLUTNom);
+function freezeView() { if (!viewFreeze) viewFreeze = { lut: S.speedLUT.slice(), nom: S.speedLUTNom.slice(), grid: timeGrid(), bs: barSpace() }; }
+function thawView() { if (!viewFreeze) return; viewFreeze = null; gridCache = null; rebuildSpeedLUT(); layoutLanes(); }
+function barSpace() { if (viewFreeze) return viewFreeze.bs; return !S.realtime && S.speedLUTNom && S.speedLUT && Math.abs(S.speedLUT[S.speedLUT.length - 1] - S.speedLUTNom[S.speedLUTNom.length - 1]) + Object.keys(A.barSpeed || {}).length > 1e-6; }
 function lutAt(lut, t) { const f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
-function dispOf(t) { return barSpace() ? timeOfClipTime(lutAt(S.speedLUT, t), S.speedLUTNom, true) : t; }
-function tOfDisp(d) { return barSpace() ? timeOfClipTime(lutAt(S.speedLUTNom, d), S.speedLUT) : d; }
+function dispOf(t) { return barSpace() ? timeOfClipTime(lutAt(vLut(), t), vNom(), true) : t; }
+function tOfDisp(d) { return barSpace() ? timeOfClipTime(lutAt(vNom(), d), vLut()) : d; }
 function dispDur() { return barSpace() ? dispOf(S.dur) : S.dur; }
 const xT = (t, w) => ((dispOf(t) - S.v0) / vSpan()) * w;
 function xOf(r, t) { return xT(t, r.cv.width); }
@@ -370,6 +380,8 @@ function drawLane(r) {
   const G = timeGrid();
   if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.09)' : 'rgba(255,138,74,.08)'; const a = xOf(r, sp.t0), b = xOf(r, sp.t1); x.fillRect(a, 0, Math.max(1, b - a), h); x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.55)' : 'rgba(255,138,74,.55)'; x.fillRect(a, sp.S === 'L' ? h - 3 * dpr : h - 6 * dpr, Math.max(1, b - a), 2 * dpr); }
   for (const g of visibleGrid(G, w, dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#34403a' : g.level === 1 ? '#2b3430' : '#232a26'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
+  // foot landings: a line in the foot's colour
+  for (const [t, Sd] of footMarks()) { const px = Math.round(xOf(r, t)); if (px < -2 || px > w + 2) continue; x.fillStyle = Sd === 'L' ? 'rgba(201,139,214,.75)' : 'rgba(255,138,74,.75)'; x.fillRect(px, 0, Math.max(1, Math.round(dpr)), h); }
   // value grid with labels once the track is tall enough
   const [lo, hi] = viewOf(r), cssH = h / dpr;
   if (cssH >= 56) {
@@ -464,8 +476,10 @@ function onLaneHover(e, r) {
 }
 function edited(r, live = false) {
   if (live) syncMirrors();
-  drawLane(r);
-  if (r.key === 'speed' || r.key === 'move' || r.key === 'cyc') rebuildSpeedLUT();
+  if (TIMING_KEYS.has(r.key)) {
+    if (live) { freezeView(); rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
+    else { viewFreeze = null; rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
+  } else drawLane(r);
   refreshSummary(r);
   editVersion++; trailDirty = true;
   if (!live) save();
@@ -710,28 +724,28 @@ function timeOfClipTime(ct, lut = S.speedLUT, extend = false) { if (!lut || lut.
   const f = (ct - lut[lo]) / Math.max(1e-9, lut[hi] - lut[lo]);
   return t0 + (t1 - t0) * f;
 }
-function drawFootMarks(x, W, H, dpr) {
-  if (!cur || !S.speedLUT || !S.speedLUT.length) return;
-  const totalCt = S.speedLUT[S.speedLUT.length - 1];
+// foot landings as [time, side], drawn as coloured vertical lines through the lanes (L purple, R orange)
+let footMarkCache = null;
+function footMarks() {
+  const lut = vLut();
+  if (!cur || !lut || !lut.length) return [];
+  if (footMarkCache && footMarkCache.lut === lut && footMarkCache.v === editVersion && footMarkCache.id === cur.id) return footMarkCache.marks;
+  const totalCt = lut[lut.length - 1], marks = [];
   try {
-    const marks = [];
     const win = ((BAKED[cur.id] || cur.c.origBk || {}).win) || cur.c.win;   // a symmetrized clip: its measured contacts
     if (cur.kind === 'loop' && win) {
       for (const Sd of ['L', 'R']) {
         if (!win[Sd]) continue;
         const w0 = win[Sd][0];
-        for (let n = 0; n < 200; n++) { const ct = n * cur.dur + w0 * cur.dur; if (ct > totalCt + 1e-6) break; marks.push([timeOfClipTime(ct), Sd]); }
+        for (let n = 0; n < 2000; n++) { const ct = n * cur.dur + w0 * cur.dur; if (ct > totalCt + 1e-6) break; marks.push([timeOfClipTime(ct, lut), Sd]); }
       }
     } else if (cur.kind === 'move') {
       const fps = (gl && gl.fps) || 30, con = { L: cur.c.cL, R: cur.c.cR };
-      for (const Sd of ['L', 'R']) { const arr = con[Sd]; if (!arr) continue; for (let i = 1; i < arr.length; i++) if (arr[i] && !arr[i - 1]) marks.push([timeOfClipTime(i / fps), Sd]); }
+      for (const Sd of ['L', 'R']) { const arr = con[Sd]; if (!arr) continue; for (let i = 1; i < arr.length; i++) if (arr[i] && !arr[i - 1]) marks.push([timeOfClipTime(i / fps, lut), Sd]); }
     }
-    for (const [t, Sd] of marks) {
-      const px = Math.round(xT(t, W - 1));
-      x.fillStyle = Sd === 'L' ? COL.timing : '#ff8a4a';
-      x.beginPath(); x.moveTo(px - 3 * dpr, H - 2); x.lineTo(px + 3 * dpr, H - 2); x.lineTo(px, H - 2 - 6 * dpr); x.closePath(); x.fill();
-    }
-  } catch { /* clip missing contact data: skip the markers */ }
+  } catch { /* clip missing contact data: no marks */ }
+  footMarkCache = { lut, v: editVersion, id: cur.id, marks };
+  return marks;
 }
 function drawRuler() {
   const dpr = Math.min(2, window.devicePixelRatio || 1), w = ruler.clientWidth || 300; ruler.width = Math.round(w * dpr); ruler.height = Math.round(34 * dpr);
@@ -755,14 +769,14 @@ function drawRuler() {
     x.fillText(g.label, a0, 5 * dpr);
   }
   // clip cycle marks (where one loop / move of the clip ends, at the current speeds)
-  if (cur && S.speedLUT) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = S.speedLUT; for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
-  drawFootMarks(x, W, H, dpr);
+  if (cur && vLut()) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = vLut(); for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
 }
 // ---------------------------------------------------------------- time units
 // grid lines { t, level 0-2, label, S? } for the chosen unit; foot steps also give the contact spans
 let gridCache = null;
 const FPS = 30;
 function timeGrid() {
+  if (viewFreeze) return viewFreeze.grid;
   const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}|${S.realtime}`;
   if (gridCache && gridCache.key === key) return gridCache;
   const lines = [], spans = [];
