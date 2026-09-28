@@ -37,11 +37,12 @@ function rowHeight(r) { return r.key ? (A.heights[r.key] || LANE_H) : LANE_H; }
 function addTrackRow(key, spec, get, set, labelHTML, owner) {
   const r = mkRow('track', key);
   Object.assign(r, spec, { kind: 'track', get, set, owner });
-  r.h.innerHTML = `<span class="sw" style="background:${spec.color}"></span><span class="name">${labelHTML}</span><button type="button" class="val" title="Click to type a value at the playhead"></button><div class="rz" title="Drag to set this track's height · double-click for the default"></div>`;
+  r.h.innerHTML = `<span class="sw" style="background:${spec.color}"></span><span class="name">${labelHTML}</span><button type="button" class="val" title="Click to type a value at the playhead"></button><button type="button" class="tdel" title="Delete this track (its automation is cleared)">×</button><div class="rz" title="Drag to set this track's height · double-click for the default"></div>`;
   r.h.title = 'Double-click the name to reset · right-click the lane for track options';
   r.h.querySelector('.name').ondblclick = () => { pushUndo(); set(flat(spec.ref, S.dur)); edited(r); };
   r.valEl = r.h.querySelector('.val');
   r.valEl.onclick = (e) => openNumEdit(r, null, e);
+  r.h.querySelector('.tdel').onclick = () => deleteTrack(r);
   const rz = r.h.querySelector('.rz');
   rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
   rz.ondblclick = () => setRowHeight(r, LANE_H, true);
@@ -76,9 +77,10 @@ function rebuildRows() {
     hr.h.querySelector('[data-act="del"]').onclick = () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from the cycle split away (50 % = half a cycle), mirrored. Weight 100 % = fully symmetric. Watch the step times in the viewport.';
     tracksEl.append(hr.el); rows.push(hr);
+    sy.show = sy.show || { weight: true, offset: true };
     if (!sy.collapsed) {
-      addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
-      addTrackRow(`s|${k}|offset`, { ...SPEC.whole, range: [0.3, 0.7], ref: 0.5, color: '#c98bd6', snap: 0.005 }, () => sy.offset, (p) => { sy.offset = p; }, 'Cycle split <i>50 % = even steps</i>', { type: 'sym', id: k });
+      if (sy.show.weight !== false) addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
+      if (sy.show.offset !== false) addTrackRow(`s|${k}|offset`, { ...SPEC.whole, range: [0.3, 0.7], ref: 0.5, color: '#c98bd6', snap: 0.005 }, () => sy.offset, (p) => { sy.offset = p; }, 'Cycle split <i>50 % = even steps</i>', { type: 'sym', id: k });
     }
   }
   // groups (weights multiply into every bone they hold)
@@ -570,9 +572,35 @@ function openEffMenu(e, id) {
     { label: 'Remove effector', action: () => removeEff(id) },
   ]);
 }
+// delete a track: its automation goes back to neutral and it leaves the timeline; an item with no tracks left goes too
+function deleteTrack(r) {
+  pushUndo();
+  r.set(flat(r.ref, S.dur));
+  const part = r.key.split('|'), last = part[part.length - 1], o = r.owner;
+  if (!o) {   // master tracks
+    if (r.key === 'speed') A.showMaster.speed = false; else if (r.key === 'move') A.showMaster.move = false;
+    else if (r.key === 'cyc') { A.showMaster.cycle = false; A.barSpeed = {}; }
+    rebuildSpeedLUT();
+  } else if (o.type === 'bone') {
+    const ba = A.bones[o.name]; ba.show[last] = false;
+    if (!Object.values(ba.show).some(Boolean)) { delete A.bones[o.name]; A.order = A.order.filter((n) => n !== o.name); }
+  } else if (o.type === 'eff') {
+    const e = A.ik[o.id]; e.show[o.k] = false;
+    if (!Object.values(e.show).some(Boolean)) { delete A.ik[o.id]; A.ikOrder = A.ikOrder.filter((n) => n !== o.id); }
+  } else if (o.type === 'group') {
+    const g = A.groups[o.id]; g.show[last] = false;
+    if (!Object.values(g.show).some(Boolean)) { delete A.groups[o.id]; A.groupOrder = A.groupOrder.filter((n) => n !== o.id); }
+  } else if (o.type === 'sym') {
+    const sy = A.sym[o.id]; sy.show = sy.show || {}; sy.show[last] = false;
+    if (sy.show.weight === false && sy.show.offset === false) { delete A.sym[o.id]; A.symOrder = A.symOrder.filter((n) => n !== o.id); }
+  }
+  editVersion++; trailDirty = true; rebuildRows(); save(); updateSelChip();
+}
 function openLaneMenu(e, r) {
   const pts = r.get(), h = rowHeight(r);
   openMenu(e.clientX, e.clientY, [
+    { label: 'Delete track', action: () => deleteTrack(r) },
+    { sep: true },
     { label: 'Add point at playhead…', action: () => openNumEdit(r, null, e) },
     { label: 'Select all points', action: () => { selRow = r; selPts = new Set(pts.map((_, i) => i)); drawLane(r); } },
     { label: 'Copy track', action: () => { clipboard = { type: 'track', data: JSON.parse(JSON.stringify(pts)) }; } },

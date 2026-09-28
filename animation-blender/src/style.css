@@ -156,6 +156,10 @@
   .row .h .name { font: 500 12px var(--ui); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
   .row .h .name i { font-style: normal; color: var(--muted); }
   .row .h .val { font: 500 11px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); min-width: 58px; text-align: right; background: none; border: 1px solid transparent; border-radius: 4px; padding: 1px 4px; cursor: text; }
+  .row .h .tdel { visibility: hidden; flex: none; width: 20px; height: 20px; padding: 0; line-height: 18px; font-size: 13px; border-radius: 4px; color: var(--muted); }
+  .row .h:hover .tdel, .row .h .tdel:focus-visible { visibility: visible; }
+  @media (hover: none) { .row .h .tdel { visibility: visible; } }
+  .row .h .tdel:hover { color: #ff6b57; border-color: #ff6b57; }
   .row .h .val:hover { border-color: var(--line); background: var(--panel-2); }
   .row .h .sw { width: 6px; height: 16px; border-radius: 2px; flex: none; }
   .row canvas { display: block; width: 100%; cursor: crosshair; }

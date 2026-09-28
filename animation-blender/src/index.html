@@ -103,13 +103,14 @@
   <h2>Symmetrize tool</h2>
   <label class="stline">Clip <select id="stClip"></select></label>
   <div class="stgrid">
-    <label>Arms</label><select id="stArms"><option value="">Keep as is</option><option value="RL" selected>Right → Left</option><option value="LR">Left → Right</option></select>
-    <label>Legs</label><select id="stLegs"><option value="" selected>Keep as is</option><option value="RL">Right → Left</option><option value="LR">Left → Right</option></select>
+    <label>Mode</label><select id="stMode"><option value="avg" selected>Average both sides (mirror, half a cycle apart)</option><option value="copy">Copy one side onto the other</option></select>
+    <label class="copyonly">Arms</label><select class="copyonly" id="stArms"><option value="">Keep as is</option><option value="RL" selected>Right → Left</option><option value="LR">Left → Right</option></select>
+    <label class="copyonly">Legs</label><select class="copyonly" id="stLegs"><option value="" selected>Keep as is</option><option value="RL">Right → Left</option><option value="LR">Left → Right</option></select>
     <label>Strength</label><span class="stw"><input type="range" id="stW" min="0" max="100" value="100"><b id="stWv">100%</b></span>
-    <label>Cycle split</label><span><input type="number" id="stSplit" min="30" max="70" step="0.5" value="50"> %</span>
+    <label class="copyonly">Cycle split</label><span class="copyonly"><input type="number" id="stSplit" min="30" max="70" step="0.5" value="50"> %</span>
     <label>Feet on bars</label><span><input type="checkbox" id="stRetime" checked> <select id="stStart"><option value="L">Left lands on the bar</option><option value="R">Right lands on the bar</option></select></span>
     <label>Even swing</label><span><input type="checkbox" id="stSwing" checked> back → centre = centre → front</span>
-    <label>Centre</label><span><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
+    <label class="copyonly">Centre</label><span class="copyonly"><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
   </div>
   <canvas id="stStrip"></canvas>
   <div id="stInfo" class="stinfo"></div>

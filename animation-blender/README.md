@@ -30,7 +30,12 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   many clip cycles it holds; the other value follows. The clip's cadence never changes; only the
   playback-speed track changes speed. New clips start at 10 s in Length mode, or 5 cycles in Cycles mode.
 - **Symmetrize tool** (header → Symmetrize, a side panel):
-  - Load an in-place loop and mirror its arms and/or legs (right → left or left → right), with a strength and a cycle split.
+  - Load an in-place loop.
+  - Mode **Average** (default): the clip is first retimed, then every bone is averaged with the mirror of its
+    other-side twin half a cycle away (centre bones with their own mirror), with a slerp relative to the parent,
+    and the hips position likewise. Both sides keep half of their own motion and the result is symmetric.
+  - Mode **Copy**: one side's arms and/or legs replace the other's (right → left or left → right), with a cycle split.
+  - Strength scales either mode.
   - Feet on bars retimes the cycle so the chosen foot lands at 0 % and the other at 50 %. Before / after contacts and step times are shown.
   - The mirrored side gets the whole cycle of the source side, half a cycle away, so none of its old motion is left.
   - Even swing retimes back-most → passing under the hips = passing → front-most for both feet.
@@ -118,6 +123,7 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - The ground is infinite: a shader grid drawn from world coordinates that follows the camera.
   - "In place" off: the character travels with the clip's root motion and keeps going across loops.
   - Follow keeps the camera on the character. Frame (F) re-centres it.
+- **Delete a track:** the × on a track header (shown on hover) or right-click → Delete track. Its automation is cleared and it leaves the timeline. An item with no tracks left is removed. Ctrl+Z brings it back.
 - **Precision:**
   - Drag a track's bottom edge to set its height.
   - Ctrl / Alt + wheel zooms a track's values. Tall tracks show a value grid.

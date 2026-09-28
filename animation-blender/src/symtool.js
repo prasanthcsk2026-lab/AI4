@@ -12,7 +12,7 @@ function stOpts() {
   return {
     arms: $('stArms').value, legs: $('stLegs').value, w: clamp(+$('stW').value / 100, 0, 1),
     split: clamp(+$('stSplit').value / 100, 0.3, 0.7), retime: $('stRetime').checked, start: $('stStart').value,
-    center: $('stCenter').checked, swing: $('stSwing').checked,
+    center: $('stCenter').checked, swing: $('stSwing').checked, mode: $('stMode').value,
   };
 }
 // contacts in a cyclic list of foot heights: the main { on, off } of that foot, as phases (0…1)
@@ -72,6 +72,46 @@ function stCenterSym(Qs, Hs, M) {
   }
   Hs.set(Hn);
 }
+// Average mode: every bone takes the average of itself and the mirror of its other-side twin half a cycle away
+// (centre bones: of their own mirror half a cycle away). Rotations are averaged relative to the parent, in world
+// axes, with a 50 % slerp (× strength); the hips position is averaged the same way. The result is symmetric.
+function stMirrorAverage(Qs, Hs, M, strength) {
+  const F = ST.fk, bones = rig.bones, twin = bones.map((b) => { const m = mirrorName(b.name); return m != null && boneIdx.has(m) ? boneIdx.get(m) : bones.indexOf(b); });
+  const D = bones.map(() => new Array(M)), rootQ = [], half = M / 2;
+  const mx = (() => { let s = 0; for (let k = 0; k < M; k++) s += Hs[k * 3]; return s / M; })();
+  for (let k = 0; k < M; k++) {
+    F.run(Qs.subarray(k * B * 4, (k + 1) * B * 4), V3(Hs[k * 3], Hs[k * 3 + 1], Hs[k * 3 + 2]), 0);
+    for (let i = 0; i < B; i++) { const p = F.parent[i]; D[i][k] = p < 0 ? F.delta(i) : F.delta(p).invert().multiply(F.delta(i)); }
+    rootQ.push(F.Q[0].clone());
+  }
+  const mir = (q) => new THREE.Quaternion(q.x, -q.y, -q.z, q.w), f = 0.5 * strength;
+  const Hn = Hs.slice(), dW = new Array(B), wW = new Array(B), tmp = new THREE.Quaternion();
+  for (let k = 0; k < M; k++) {
+    const k2 = (k + half) % M;
+    for (let i = 0; i < B; i++) {
+      const p = F.parent[i];
+      if (p < 0) { dW[i] = rootQ[k].clone().multiply(F.bqInv[i]); wW[i] = rootQ[k].clone(); continue; }   // the root stays
+      const d = D[i][k].clone().slerp(mir(D[twin[i]][k2]), f);
+      dW[i] = dW[p].clone().multiply(d); wW[i] = dW[i].clone().multiply(F.bq[i]);
+      tmp.copy(wW[p]).invert().multiply(wW[i]).toArray(Qs, (k * B + i) * 4);
+    }
+    Hn[k * 3] = mx + lerp(Hs[k * 3] - mx, -(Hs[k2 * 3] - mx), f); Hn[k * 3 + 1] = lerp(Hs[k * 3 + 1], Hs[k2 * 3 + 1], f); Hn[k * 3 + 2] = lerp(Hs[k * 3 + 2], Hs[k2 * 3 + 2], f);
+  }
+  Hs.set(Hn);
+}
+function stResample(Q0, H0, M, warp, Qo, Ho, n) {   // Qo / Ho[j] = the source at phase warp(j / n)
+  for (let j = 0; j < n; j++) {
+    const f = mod1(warp(j / n)) * M, i0 = Math.floor(f) % M, i1 = (i0 + 1) % M, u = f - Math.floor(f);
+    for (let bI = 0; bI < B; bI++) {
+      const o0 = (i0 * B + bI) * 4, o1 = (i1 * B + bI) * 4, d = (j * B + bI) * 4;
+      let x1 = Q0[o1], y1 = Q0[o1 + 1], z1 = Q0[o1 + 2], w1 = Q0[o1 + 3];
+      if (Q0[o0] * x1 + Q0[o0 + 1] * y1 + Q0[o0 + 2] * z1 + Q0[o0 + 3] * w1 < 0) { x1 = -x1; y1 = -y1; z1 = -z1; w1 = -w1; }
+      const x = lerp(Q0[o0], x1, u), y = lerp(Q0[o0 + 1], y1, u), z = lerp(Q0[o0 + 2], z1, u), w = lerp(Q0[o0 + 3], w1, u), l = Math.hypot(x, y, z, w) || 1;
+      Qo[d] = x / l; Qo[d + 1] = y / l; Qo[d + 2] = z / l; Qo[d + 3] = w / l;
+    }
+    for (let c = 0; c < 3; c++) Ho[j * 3 + c] = lerp(H0[i0 * 3 + c], H0[i1 * 3 + c], u);
+  }
+}
 function stMeasure(Qs, Hs, M) {   // foot heights and forward offsets from the hips, per frame
   const fi = { L: boneIdx.get(rig.side.L.foot.name), R: boneIdx.get(rig.side.R.foot.name) }, hi = boneIdx.get(rig.b.hips.name);
   const ys = { L: [], R: [] }, zs = { L: [], R: [] };
@@ -99,7 +139,8 @@ function stProcess() {
       Qs.set(Q, k * B * 4); H.toArray(Hs, k * 3);
     }
   } finally { cur = keepCur; if (keepBk) BAKED[clip.id] = keepBk; else delete BAKED[clip.id]; }
-  if (o.center) stCenterSym(Qs, Hs, M);
+  if (o.mode === 'avg') { Qs.set(Q0); Hs.set(H0); }   // average: start from the clip itself (retime first, average after)
+  else if (o.center) stCenterSym(Qs, Hs, M);
   const before = stMeasure(Q0, H0, M), mid = stMeasure(Qs, Hs, M);
   // retime keys (output phase u ← source phase r, all relative to the start foot's landing)
   let warp = (u) => u;
@@ -124,17 +165,12 @@ function stProcess() {
     warp = (u) => a + sp(u);
   }
   const n = 64, q = new Float32Array(n * B * 4), hp = new Float32Array(n * 3);
-  for (let j = 0; j < n; j++) {
-    const f = mod1(warp(j / n)) * M, i0 = Math.floor(f) % M, i1 = (i0 + 1) % M, u = f - Math.floor(f);
-    for (let bI = 0; bI < B; bI++) {
-      const o0 = (i0 * B + bI) * 4, o1 = (i1 * B + bI) * 4, d = (j * B + bI) * 4;
-      let x1 = Qs[o1], y1 = Qs[o1 + 1], z1 = Qs[o1 + 2], w1 = Qs[o1 + 3];
-      if (Qs[o0] * x1 + Qs[o0 + 1] * y1 + Qs[o0 + 2] * z1 + Qs[o0 + 3] * w1 < 0) { x1 = -x1; y1 = -y1; z1 = -z1; w1 = -w1; }
-      const x = lerp(Qs[o0], x1, u), y = lerp(Qs[o0 + 1], y1, u), z = lerp(Qs[o0 + 2], z1, u), w = lerp(Qs[o0 + 3], w1, u), l = Math.hypot(x, y, z, w) || 1;
-      q[d] = x / l; q[d + 1] = y / l; q[d + 2] = z / l; q[d + 3] = w / l;
-    }
-    for (let c = 0; c < 3; c++) hp[j * 3 + c] = lerp(Hs[i0 * 3 + c], Hs[i1 * 3 + c], u);
-  }
+  if (o.mode === 'avg') {   // retimed at full resolution, then averaged with its mirror half a cycle away, then 64 frames
+    const Qw = new Float32Array(M * B * 4), Hw = new Float32Array(M * 3);
+    stResample(Qs, Hs, M, warp, Qw, Hw, M);
+    stMirrorAverage(Qw, Hw, M, o.w);
+    stResample(Qw, Hw, M, (u) => u, q, hp, n);
+  } else stResample(Qs, Hs, M, warp, q, hp, n);
   // measure the result (at a finer resampling of the output) and check the loop seam
   const after = stMeasure(q, hp, n);
   const win = {};
@@ -225,7 +261,7 @@ function stSave() {
   try {
     store.baked = store.baked || {}; store.baked[ST.clip.id] = packBk(bk);
     const vs = stVersions(); vs.forEach((v) => { v.current = false; });
-    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs, o.retime && 'feet on bars'].filter(Boolean).join(', ') });
+    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.mode === 'avg' ? 'average' : [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs].filter(Boolean).join(', '), o.retime && 'feet on bars', o.swing && 'even swing'].filter(Boolean).join(', ') });
     while (vs.length > 8) vs.shift();
   } catch { /* storage full: the session keeps it */ }
   save(); markBakedClips(); stFillVersions();
@@ -266,12 +302,14 @@ function openSymTool() {
   const sel = $('stClip'); sel.textContent = '';
   for (const c of clips.filter((x) => x.kind === 'loop')) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label + (BAKED[c.id] ? ' · baked' : ''); sel.append(o); }
   sel.value = cur.kind === 'loop' ? cur.id : sel.options[0].value;
-  $('symTool').hidden = false; $('stSaveProj').hidden = !caps.db;
+  $('symTool').hidden = false; $('stSaveProj').hidden = !caps.db; stModeUI();
   stLoad(sel.value);
 }
 $('btnSym').onclick = openSymTool;
 $('stClip').onchange = () => stLoad($('stClip').value);
 for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing']) $(id).onchange = stRun;
+$('stMode').onchange = () => { stModeUI(); stRun(); };
+function stModeUI() { const avg = $('stMode').value === 'avg'; for (const el of document.querySelectorAll('.copyonly')) el.hidden = avg; }
 $('stW').oninput = () => { $('stWv').textContent = $('stW').value + '%'; };
 $('stW').onchange = stRun;
 $('stSave').onclick = stSave;
