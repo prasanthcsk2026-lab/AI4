@@ -26,11 +26,20 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
     sideways moves, turns, rolls and swivels flip sign.
   - A gizmo change made on the other side's joint is mirrored back.
   - Turn "Both sides" off (right-click) to split them into two editable rows.
+- **Length + Cycles** (header): the timeline holds *Cycles* cycles of the clip in *Length* seconds.
+  This sets the base cadence, and the playback-speed track multiplies on top of it. New clips start at
+  10 s / 5 cycles; older saves keep their natural cadence.
+- **Symmetrize** (Group… → Symmetrize): arms or legs, right → left or left → right.
+  - The target side takes the other side's clip motion from half a cycle away, mirrored across the
+    body's mid-plane.
+  - It is measured relative to the chest (arms) or pelvis (legs), and blended by a weight track
+    (100 % = fully symmetric).
+  - A viewport readout shows each hand's peak reach forward of the hips (R / L / Δ cm) to check it.
 - **Moving speed** (master track): scales the ground the character covers without changing the cadence.
   Playback speed changes the cadence. Both can be automated; travel integrates moving speed over time.
 - **Grid units** (Grid in the header): Seconds, Frames (30 fps), Cycles (bars of the clip loop), or Foot
   steps. Foot steps shows the left / right contact (lock) spans in their own colours and labels L1, R1, L2…
-  The ruler, lane grid, Ctrl-snap and clock all use the chosen unit.
+  The ruler, lane grid and snapping use the chosen unit; its readout (with L / R contact dots for foot steps) sits in the viewport, bottom-left.
 - **FK tracks per bone:**
   - weight 0–200 % of the clip's rotation away from idle (whole bone and per axis)
   - adjust in degrees about each local axis

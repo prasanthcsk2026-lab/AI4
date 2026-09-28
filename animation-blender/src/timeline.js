@@ -60,6 +60,18 @@ function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
   addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
+  // symmetrize (one side follows the other, mirrored, half a cycle later)
+  for (const k of A.symOrder) {
+    const sy = A.sym[k]; if (!sy) continue;
+    const hr = mkRow('bone sym'); Object.assign(hr, { kind: 'sym', sym: k });
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!sy.collapsed}">${sy.collapsed ? '▸' : '▾'}</button><span class="symtag">SYM</span><span class="name"></span><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
+    hr.h.querySelector('.name').textContent = symLabel(k);
+    hr.h.querySelector('[data-act="fold"]').onclick = () => { sy.collapsed = !sy.collapsed; rebuildRows(); save(); };
+    hr.h.querySelector('[data-act="del"]').onclick = () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); };
+    hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from half a cycle away, mirrored. Weight 100 % = fully symmetric.';
+    tracksEl.append(hr.el); rows.push(hr);
+    if (!sy.collapsed) addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
+  }
   // groups (weights multiply into every bone they hold)
   for (const gid of A.groupOrder) {
     const g = A.groups[gid]; if (!g) continue;
@@ -128,7 +140,7 @@ function rebuildRows() {
       addTrackRow(`e|${id}|${k}`, effSpec(k), () => e.tr[k], (p) => { e.tr[k] = p; }, `${axl}${T.kind ? (T.kind === 'p' ? 'Move' : 'Rotate') : T.label} <i>${info}</i>`, { type: 'eff', id, k });
     }
   }
-  if (!A.order.length && !A.ikOrder.length && !A.groupOrder.length) {
+  if (!A.order.length && !A.ikOrder.length && !A.groupOrder.length && !A.symOrder.length) {
     const e = document.createElement('div'); e.className = 'empty';
     e.innerHTML = '<b>Groups:</b> "Group…" — one weight for a whole arm, leg, spine…; groups and bones inside them multiply (arm 60 % × hand 50 % = hand at 30 %). <b>FK:</b> "Add bone…" (or click a joint) — <b>weight</b> 0–200 % of the clip, <b>adjust</b> in degrees about each axis (the axis names say what each one does), <b>timing offset</b>. ' +
       '<b>IK:</b> "Add IK…" (or click a round IK handle) — move / rotate hips, chest, head, shoulders, hands, feet; swivel elbows and knees; curl fingers; pin, hold and pull. ' +
@@ -163,6 +175,7 @@ function effSummary(id) {
 function refreshSummary(r) {
   if (!r.owner) return;
   const o = r.owner;
+  if (o.type === 'sym') return;
   const hr = o.type === 'bone' ? rows.find((x) => x.kind === 'bone' && x.bone === o.name) : o.type === 'group' ? rows.find((x) => x.kind === 'group' && x.group === o.id) : rows.find((x) => x.kind === 'eff' && x.eff === o.id);
   if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = o.type === 'bone' ? boneSummary(A.bones[o.name]) : o.type === 'group' ? groupSummary(o.id) : effSummary(o.id);
 }

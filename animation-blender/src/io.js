@@ -7,7 +7,7 @@ $('btnPlay').onclick = () => { S.playing = !S.playing; if (S.playing && S.t >= S
 $('btnHome').onclick = goHome;
 $('btnLoop').onclick = () => { S.loop = !S.loop; syncToggles(); };
 $('durIn').onchange = () => {
-  const d = clamp(parseFloat($('durIn').value) || S.dur, 0.5, 60); $('durIn').value = d;
+  const d = clamp(parseFloat($('durIn').value) || S.dur, 0.5, 120); $('durIn').value = d;
   pushUndo();
   const k = d / S.dur;   // points keep their place relative to the length
   const scale = (pts) => pts.forEach((p) => (p.t *= k));
@@ -15,11 +15,16 @@ $('durIn').onchange = () => {
   for (const n of A.order) { const ba = A.bones[n]; scale(ba.whole); scale(ba.timing); for (const a of AXES) { scale(ba.w[a]); scale(ba.a[a]); } }
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
   for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
+  for (const k of A.symOrder) scale(A.sym[k].weight);
   S.dur = A.dur = d; S.t = Math.min(S.t, d); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
+};
+$('cycIn').onchange = () => {   // cycles in the length: sets the cadence (the length stays)
+  const c = clamp(parseFloat($('cycIn').value) || A.cycles, 0.25, 400); $('cycIn').value = c;
+  pushUndo(); A.cycles = c; rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 };
 $('btnReset').onclick = () => {
   const b = $('btnReset');
-  if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
+  if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur, A.cycles); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
   b.dataset.armed = '1'; b.textContent = 'Click again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset clip'; }, 2500);
 };
 $('btnFootLock').onclick = () => { const msg = autoFootLock(); flash(msg); };
@@ -32,7 +37,8 @@ function exportObj() {
   const o = {
     tool: 'Animation Blender', format: 3, exportedAt: new Date().toISOString(),
     clip: { id: cur.id, name: cur.c.name, label: cur.name, kind: cur.kind, speed_mps: cur.c.speed ?? null, cycle_s: +cur.dur.toFixed(4), legsOnly: !!cur.c.legsOnly },
-    duration_s: S.dur, in_place: S.inPlace,
+    duration_s: S.dur, cycles: A.cycles, in_place: S.inPlace,
+    symmetrize: A.symOrder.map((k) => ({ item: k, label: symLabel(k), weight_pct: P(A.sym[k].weight, 100) })),
     note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
     moving_speed_pct: P(A.move, 100),
@@ -95,7 +101,9 @@ function importObj(o) {
   }
   if (o.view) { n.heights = o.view.heights || {}; n.zoom = o.view.zoom || {}; }
   pushUndo();
-  A = normalizeAuto(n); S.dur = d; $('durIn').value = d; S.t = 0; selPts = new Set(); selRow = null;
+  n.cycles = +o.cycles > 0 ? +o.cycles : 0;
+  for (const sy of o.symmetrize || []) if (SYM_KEYS.some(([k]) => k === sy.item)) { const x = newSymAuto(d); x.weight = P(sy.weight_pct, 100) || x.weight; n.sym[sy.item] = x; n.symOrder.push(sy.item); }
+  A = normalizeAuto(n); S.dur = d; $('durIn').value = d; $('cycIn').value = A.cycles; S.t = 0; selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); rebuildRows(); save(); afterSelect();
 }
 
@@ -173,6 +181,35 @@ $('btnImport').onclick = () => openSheet('import');
 $('sheetB3').onclick = () => { $('sheet').hidden = true; };
 $('sheet').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('sheet').hidden = true; });
 
+// ---------------------------------------------------------------- viewport HUD: unit readout + hand reach
+function updateUnitChip() {
+  const el = $('unitChip'), ur = unitReadout(S.t);
+  el.hidden = !ur; if (!ur) return;
+  let html = '';
+  if (S.unit === 'step') {
+    const G = timeGrid(), on = (Sd) => G.spans.some((sp) => sp.S === Sd && S.t >= sp.t0 && S.t <= sp.t1);
+    html = `<span class="ft${on('L') ? ' on' : ''}"><i style="background:${COL.timing}"></i>L</span><span class="ft${on('R') ? ' on' : ''}"><i style="background:#ff8a4a"></i>R</span> `;
+  }
+  const key = html + ur; if (el.dataset.k === key) return; el.dataset.k = key;
+  el.innerHTML = html + '<b></b>'; el.lastChild.textContent = ur;
+}
+// how far forward of the hips each hand gets at its peak over the timeline (to check left / right symmetry)
+let reachAt = { v: -1, when: 0, L: 0, R: 0 };
+function updateReach() {
+  const now = performance.now();
+  if (reachAt.v === editVersion || now - reachAt.when < 500 || !cur) return;
+  reachAt = { v: editVersion, when: now, L: -Infinity, R: -Infinity };
+  const n = Math.round(clamp(S.dur * 20, 20, 240));
+  for (let i = 0; i <= n; i++) {
+    evaluate((i / n) * S.dur, null);
+    const hz = worldP(rig.b.hips).z;
+    for (const Sd of ['L', 'R']) reachAt[Sd] = Math.max(reachAt[Sd], worldP(rig.side[Sd].hand).z - hz);
+  }
+  const el = $('reachChip'), L = reachAt.L * 100, R = reachAt.R * 100, d = Math.abs(L - R);
+  el.hidden = false;
+  el.innerHTML = `Hand peak fwd <b>R ${R.toFixed(1)}</b> · <b>L ${L.toFixed(1)}</b> cm <span class="${d > 2 ? 'warn' : ''}">Δ ${d.toFixed(1)}</span>`;
+}
+
 // ---------------------------------------------------------------- loop
 let last = performance.now(), frameErrCount = 0;
 function frame(now) {
@@ -186,6 +223,7 @@ function frame(now) {
       }
     }
     updateTrail();
+    updateReach();
     evaluate(S.t, pending);
     updateSkeleton(S.t);
     updateHandles();
@@ -196,8 +234,8 @@ function frame(now) {
     placeWorld(focus);
     renderer.render(scene, camera);
     placePlayhead();
-    const ur = unitReadout(S.t);
-    $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s${ur ? ' · ' + ur : ''}`;
+    $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
+    updateUnitChip();
     const ct = clipTime(S.t), el = $('status');
     const travel = S.inPlace ? 'in place' : `travel ${hipsGround().length().toFixed(1)} m`;
     el.textContent = el.dataset.flash || `clip time ${ct.toFixed(2)} s · ${cur.kind === 'loop' ? 'cycle ' + cur.dur.toFixed(3) + ' s · phase ' + mod1(ct / cur.dur).toFixed(2) : 'move ' + cur.dur.toFixed(2) + ' s'} · speed ${Math.round(evalPts(A.speed, S.t) * 100)}% · moving ${Math.round(evalPts(A.move, S.t) * 100)}% · ${travel}`;
@@ -216,5 +254,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

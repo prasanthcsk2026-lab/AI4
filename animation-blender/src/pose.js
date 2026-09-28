@@ -187,9 +187,12 @@ function groupFactor(name, gw, gt) {
 }
 
 // ---------------------------------------------------------------- clip time + root travel
-function rebuildSpeedLUT() {   // clip time at each timeline time = ∫ speed
-  const n = Math.max(2, Math.ceil(S.dur * 240) + 1), lut = new Float32Array(n), dt = S.dur / (n - 1);
-  for (let i = 1; i < n; i++) { const t0 = (i - 1) * dt, t1 = i * dt; lut[i] = lut[i - 1] + 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * dt; }
+// the timeline holds A.cycles cycles of the clip in S.dur seconds: that sets the base cadence; the playback-speed
+// track multiplies on top of it. Clip time at each timeline time = rate × ∫ speed.
+function cycleRate() { return cur && A && A.cycles > 0 && cur.dur > 0 ? (A.cycles * cur.dur) / S.dur : 1; }
+function rebuildSpeedLUT() {
+  const n = Math.max(2, Math.ceil(S.dur * 240) + 1), lut = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
+  for (let i = 1; i < n; i++) { const t0 = (i - 1) * dt, t1 = i * dt; lut[i] = lut[i - 1] + 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * dt * k; }
   S.speedLUT = lut; editVersion++;
   rebuildTravelLUT(); gridCache = null; drawRuler();
 }
@@ -307,6 +310,51 @@ function composePose(t, Qout, Hout, pend) {
   for (const arr of shiftArr.values()) shiftPool.push(arr);
   const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
+  if (A.symOrder.length) applySymmetrize(t, Qout, Hout);
+}
+
+// ---------------------------------------------------------------- symmetrize (mirror with a half-cycle offset)
+// In a loop the left side should do, half a cycle later, what the right side did (mirrored). A symmetrize item
+// makes the target side's arm or leg take the source side's clip motion from half a cycle away, mirrored across
+// the body's mid-plane and measured relative to the chest (arms) or the pelvis (legs), blended by its weight track.
+const SYM_KEYS = [['arm:RL', 'Arms: right → left'], ['arm:LR', 'Arms: left → right'], ['leg:RL', 'Legs: right → left'], ['leg:LR', 'Legs: left → right']];
+const symLabel = (k) => (SYM_KEYS.find(([x]) => x === k) || [k, k])[1];
+let symChains = null;
+const symFK = { a: null, b: null, Q: null, H: null };
+function symChain(region, Sd) {
+  if (!symChains) {
+    const sub = (b) => { const out = []; b.traverse((o) => o.isBone && !/_End$/i.test(o.name) && out.push(o)); return out; };   // parents first
+    symChains = { arm: { L: sub(rig.side.L.clav), R: sub(rig.side.R.clav) }, leg: { L: sub(rig.side.L.thigh), R: sub(rig.side.R.thigh) } };
+  }
+  return symChains[region][Sd];
+}
+function newSymAuto(dur) { return { collapsed: false, show: { weight: true }, weight: flat(1, dur) }; }
+function applySymmetrize(t, Qout, Hout) {
+  const act = A.symOrder.filter((k) => A.sym[k] && evalPts(A.sym[k].weight, t) > 1e-4);
+  if (!act.length) return;
+  if (!symFK.a) { symFK.a = new VirtualFK(rig); symFK.b = new VirtualFK(rig); symFK.Q = new Float32Array(B * 4); symFK.H = V3(); }
+  const F = symFK.a, G = symFK.b;
+  sampleClip(clipTime(t) + (cur.kind === 'loop' ? cur.dur / 2 : 0), symFK.Q, symFK.H);   // the source: half a cycle away
+  F.run(symFK.Q, symFK.H, 0);
+  const q = new THREE.Quaternion(), cl = new THREE.Quaternion();
+  for (const key of act) {
+    G.run(Qout, Hout, 0);   // the pose so far (an earlier item may have changed it)
+    const [region, dir] = key.split(':'), w = clamp(evalPts(A.sym[key].weight, t), 0, 1), tgt = dir === 'RL' ? 'L' : 'R';
+    const ai = boneIdx.get((region === 'arm' ? rig.b.spine2 : rig.b.hips).name);
+    const aSrcInv = F.delta(ai).invert(), aCur = G.delta(ai);
+    const newW = new Map();
+    for (const tb of symChain(region, tgt)) {
+      const ti = boneIdx.get(tb.name), sn = mirrorName(tb.name), si = sn != null ? boneIdx.get(sn) : undefined;
+      if (si == null) continue;
+      const D = aSrcInv.clone().multiply(F.delta(si));                    // source, relative to its anchor
+      q.set(D.x, -D.y, -D.z, D.w);                                        // mirrored across x = 0
+      const world = aCur.clone().multiply(q).multiply(G.bq[ti]);
+      const pi = G.parent[ti], parentW = newW.get(pi) || G.Q[pi];
+      const local = parentW.clone().invert().multiply(world);
+      cl.fromArray(Qout, ti * 4).slerp(local, w).toArray(Qout, ti * 4);
+      newW.set(ti, parentW.clone().multiply(cl));
+    }
+  }
 }
 function applyPose(Q, H) {
   rig.bones.forEach((b, i) => { if (b !== rig.bones[0] || b === rig.b.hips) b.quaternion.set(Q[i * 4], Q[i * 4 + 1], Q[i * 4 + 2], Q[i * 4 + 3]); });

@@ -79,7 +79,18 @@
   #btnMagnet { margin-left: 6px; }
   .btngroup button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   .viewbtns button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  #status { position: absolute; left: 16px; bottom: 10px; font: 500 12px var(--mono); color: var(--muted); }
+  .hud { position: absolute; left: 16px; bottom: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; max-width: calc(100% - 32px); }
+  .hudchip { font: 500 12px var(--mono); color: var(--ink-2); gap: 8px; }
+  .hudchip .ft { display: inline-flex; align-items: center; gap: 4px; }
+  .hudchip .ft i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; opacity: .25; }
+  .hudchip .ft.on i { opacity: 1; box-shadow: 0 0 0 2px rgba(255,255,255,.12); }
+  .hudchip b { color: var(--ink); font-weight: 500; }
+  .hudchip .warn { color: #ffb74a; }
+  #status { font: 500 12px var(--mono); color: var(--muted); }
+  .symtag { font: 700 10px var(--display); letter-spacing: .1em; color: #1a0f18; background: #e58ad6; border-radius: 3px; padding: 1px 4px; }
+  .row.sym { background: #1a1419; }
+  .row.sym .h { background: #1a1419; }
+  #cycIn { width: 56px; }
   #loading { position: absolute; inset: 0; display: grid; place-items: center; font: 600 14px var(--display); letter-spacing: .15em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
   .grip { cursor: row-resize; background: var(--line); }
   .grip:hover { background: var(--accent); }
@@ -186,6 +197,7 @@
     .falloff input { width: 44px; }
     .btngroup button { padding: 4px 8px; font-size: 12px; }
     #status { display: none; }
+    .hud { bottom: 52px; left: 8px; }
     .addbar button { padding: 4px 6px; font-size: 12px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

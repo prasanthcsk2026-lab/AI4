@@ -125,7 +125,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur) { return { dur, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -137,6 +137,8 @@ function newBoneAuto(dur) {
 function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
   a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
+  a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
+  if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
   for (const n of a.order) {
     const ba = a.bones[n]; if (!ba) continue;
@@ -178,7 +180,7 @@ function pushUndo() { if (suppressUndo || !cur) return; undoStack.push(snapshot(
 function restoreSnapshot(s) {
   const o = JSON.parse(s);
   if (o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
-  A = normalizeAuto(o.A); S.dur = A.dur; $('durIn').value = S.dur; S.t = Math.min(S.t, S.dur);
+  A = normalizeAuto(o.A); S.dur = A.dur; $('durIn').value = S.dur; $('cycIn').value = A.cycles; S.t = Math.min(S.t, S.dur);
   selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
@@ -346,6 +348,17 @@ function renderGroupList(q) {
     r.onclick = () => { $('boneDlg').hidden = true; if (inTl) selectGroup(gid); else openAddDialog({ type: 'group', id: gid }); };
     root.append(r);
   };
+  if (!q || 'symmetrize arms legs mirror'.includes(q) || /sym|arm|leg/.test(q)) {
+    const h = document.createElement('div'); h.className = 'treegrp'; h.textContent = 'Symmetrize (mirror with a half-cycle offset)'; root.append(h);
+    for (const [k, label] of SYM_KEYS) {
+      const inTl = !!A.sym[k];
+      const r = document.createElement('div'); r.className = 'treerow'; r.style.paddingLeft = '16px';
+      r.innerHTML = `<span class="tn"${inTl ? ' style="color:#e58ad6"' : ''}></span><span class="note2">${inTl ? 'in timeline' : 'weight 100 % = fully symmetric'}</span>`;
+      r.firstChild.textContent = label;
+      r.onclick = () => { $('boneDlg').hidden = true; if (!inTl) { pushUndo(); A.sym[k] = newSymAuto(S.dur); A.symOrder.push(k); rebuildRows(); save(); } };
+      root.append(r);
+    }
+  }
   let cat = null;
   for (const g of GROUP_DEFS) {
     if (q && !g.label.toLowerCase().includes(q)) continue;
@@ -365,8 +378,8 @@ function selectClip(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];
-  A = normalizeAuto(saved && saved.speed ? saved : newAuto(Math.max(3, Math.round(cur.dur * 4 * 2) / 2)));
-  S.dur = A.dur; $('durIn').value = S.dur;
+  A = normalizeAuto(saved && saved.speed ? saved : newAuto(10, 5));
+  S.dur = A.dur; $('durIn').value = S.dur; $('cycIn').value = A.cycles;
   S.t = 0; S.travelBase.set(0, 0, 0); selPts = new Set(); selRow = null; undoStack = []; redoStack = [];
   moveEndCache = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
