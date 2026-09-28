@@ -194,6 +194,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
     { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
+    { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
   ]);
 };
 $('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };

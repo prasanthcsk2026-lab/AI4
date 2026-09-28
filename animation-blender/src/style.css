@@ -114,6 +114,8 @@
   .imph { font-size: 13px; margin: 14px 0 6px; }
   .improw { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line, rgba(128,128,128,.2)); font-size: 12px; }
   .improw .tn { flex: 1; }
+  .impspd { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--ink-2); }
+  .impspd input { width: 58px; }
   .imptag { font-size: 10px; padding: 1px 6px; border-radius: 8px; }
   .imptag.cache { background: rgba(255,170,60,.18); color: #e0a040; }
   .imptag.proj { background: rgba(80,200,120,.18); color: #50c878; }
@@ -314,3 +316,6 @@
 
   .tlsec { padding: 6px 10px 3px; font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: #5cc8ff; border-top: 1px solid rgba(92,200,255,.35); background: rgba(92,200,255,.05); }
   .iktag.cust { background: rgba(92,200,255,.18); color: #5cc8ff; }
+  #tplDlg .box { width: min(600px, 100%); grid-template-rows: auto 1fr auto; max-height: 90vh; }
+  #tplDlg .bakebody { overflow: auto; }
+  .tplgrid input { width: 70px; }

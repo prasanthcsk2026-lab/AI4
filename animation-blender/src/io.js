@@ -9,12 +9,14 @@ $('btnLoop').onclick = () => { S.loop = !S.loop; syncToggles(); };
 // Length or Cycles: one sets the timeline, the other just shows the matching value (the clip's cadence never changes)
 function syncLenInputs() {
   const byLen = S.lenMode === 'length';
-  $('durIn').value = +S.dur.toFixed(3); $('cycIn').value = cur && cur.dur > 0 ? +(S.dur / cur.dur).toFixed(2) : '';
+  $('durIn').value = +S.dur.toFixed(3); $('cycIn').value = cur && cur.dur > 0 ? +realCycles().toFixed(2) : '';
   $('durIn').readOnly = !byLen; $('cycIn').readOnly = byLen;
   $('durIn').classList.toggle('derived', !byLen); $('cycIn').classList.toggle('derived', byLen);
 }
 $('lenMode').onchange = () => { S.lenMode = $('lenMode').value; syncLenInputs(); save(); };
-$('cycIn').onchange = () => { if (S.lenMode !== 'cycles' || !cur) return; const c = clamp(parseFloat($('cycIn').value) || S.dur / cur.dur, 0.25, 400); setLength(c * cur.dur); };
+$('cycIn').onchange = () => { if (S.lenMode !== 'cycles' || !cur) return; const c = clamp(parseFloat($('cycIn').value) || realCycles(), 0.25, 400), rc = realCycles(); setLength(rc > 1e-3 ? S.dur * (c / rc) : c * cur.dur); };
+// cycles the timeline really holds (cycle speed / bar reach / playback speed included)
+function realCycles() { const lut = S.speedLUT; return lut && lut.length && lut.length === Math.max(2, Math.ceil(S.dur * 960) + 1) ? lut[lut.length - 1] / cur.dur : S.dur / cur.dur; }
 $('durIn').onchange = () => { if (S.lenMode !== 'length') return; setLength(parseFloat($('durIn').value) || S.dur); };
 function setLength(dIn) {
   const d = clamp(+(+dIn).toFixed(3), 0.2, 120);
@@ -277,5 +279,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, applySprintToJog, TPL_DEF, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });

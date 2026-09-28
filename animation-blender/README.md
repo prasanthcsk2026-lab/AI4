@@ -202,3 +202,6 @@ Foot landings are coloured vertical lines through the lanes (left purple, right 
 
 ## Custom IK controllers
 Custom controllers have their own section in the IK dialog and on the timeline (tag **IK CUST**), and their handles (blue) show whenever the IK view is on.
+
+## Template: Sprint → Jog (decelerate)
+Master "+" → **Template: Sprint → Jog (decelerate)…** on a loop clip writes cycle speed, foot on ground (with a braking bump), moving speed, leg / arm group weights, Chest rotate X and Hips move Y: full sprint until the start bar, a slowdown to the end bar, then a jog. Defaults: 10 cycles, bars 3 → 8, cadence 72 %, foot on ground +10 % (+15 % braking), knee lift 75 %, arm swing 65 %, chest −8°, hips +3 cm, ground speed 45 %. The Cycles field counts the cycles the timeline really holds. Imported in-place clips take a travel speed (m/s) in the import list or in the template; a file holding one cycle is used whole as the loop.

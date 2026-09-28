@@ -118,6 +118,11 @@ function impCut(fr, a, b) {   // frames a … b−1 (a loop: b is the next landi
 }
 
 // ---------------------------------------------------------------- dialog
+async function impSetSpeed(c, v) {
+  v = clamp(+v || 0, 0, 15); c.rec.speed = v; c.c.speed = v;
+  try { await idbPut(c.rec); } catch { /* the session keeps it */ }
+  if (cur && cur.id === c.id) { moveEndCache = null; rebuildSpeedLUT(); trailDirty = true; }
+}
 function impList() {
   const box = $('impList'); box.textContent = '';
   const mine = clips.filter((c) => c.group === 'Imported');
@@ -140,7 +145,12 @@ function impList() {
       if (cur.id === c.id) selectClip(clips[0].id);
       buildClipSelect(); markBakedClips(); impList(); toast(`Deleted "${c.name}" from this browser${c.rec.where === 'project' ? ' (the project copy stays)' : ''}`);
     };
-    row.append(nm, tag, sv, del); box.append(row);
+    // travel speed: an in-place file has none; type it here (m/s) so the clip travels with "In place" off
+    const sp = document.createElement('label'); sp.className = 'impspd'; sp.title = 'Travel speed of this clip in metres per second (an in-place file has 0)';
+    const si = document.createElement('input'); si.type = 'number'; si.min = '0'; si.max = '15'; si.step = '0.1'; si.value = (+(c.rec.speed || 0)).toFixed(2);
+    si.onchange = () => impSetSpeed(c, +si.value);
+    sp.append(si, ' m/s');
+    row.append(nm, sp, tag, sv, del); box.append(row);
   }
 }
 function openImport() { $('impDlg').hidden = false; $('impNote').textContent = ''; $('impSetup').hidden = !IMP.src; impList(); }
@@ -180,7 +190,7 @@ function impDetect() {   // retarget once, find the loop
   const loop = $('impKind').value === 'loop';
   if (loop && lands.length >= 2) { const mid = Math.max(0, Math.floor(lands.length / 2) - 1); $('impStart').value = lands[mid]; $('impEnd').value = lands[mid + 1]; }
   else { $('impStart').value = 0; $('impEnd').value = IMP.frames.n - 1; }
-  $('impInfo').textContent = `${IMP.frames.n} frames at ${IMP.frames.fps} fps · left-foot landings at frames ${lands.join(', ') || 'none found'}` + (loop && lands.length < 2 ? ' · set the loop start and end by hand' : '');
+  $('impInfo').textContent = `${IMP.frames.n} frames at ${IMP.frames.fps} fps · left-foot landings at frames ${lands.join(', ') || 'none found'}` + (loop && lands.length < 2 ? ' · one cycle in the file: the whole take is the loop (Symmetrize → "Left lands on the bar" makes it left-to-left)' : '');
 }
 async function impDo() {
   if (!IMP.frames) return;
@@ -195,6 +205,7 @@ async function impDo() {
   }
   try { await idbPut(rec); } catch (e) { $('impNote').textContent = 'Could not keep it in this browser: ' + e.message; }
   addImportedClip(rec); buildClipSelect(); markBakedClips(); selectClip(id); impList();
+  if (rec.speed < 0.05) { $('impNote').textContent = `Imported "${name}" (${cut.n} frames). It is an in-place file (no travel): type its travel speed in m/s in the list below.`; return; }
   $('impNote').textContent = `Imported "${name}" (${cut.n} frames, ${loop ? 'loop' : 'one-shot'}). Turn "In place" off in the header to see it travel. It is kept in this browser; "Save to project" stores it in the project.`;
 }
 $('btnImportAnim').onclick = openImport;

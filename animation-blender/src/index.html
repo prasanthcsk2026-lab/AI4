@@ -182,6 +182,22 @@
     <div class="acts"><span class="note" id="impNote"></span><button type="button" id="impClose">Close</button></div>
   </div>
 </div>
+<div class="sheet" id="tplDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="tplTitle">
+    <h2 id="tplTitle">Template: Sprint → Jog (decelerate)</h2>
+    <div class="bakebody">
+      <p>Clip: <b id="tplClip"></b>. Writes cycle speed, foot on ground, moving speed, leg / arm group weights, Chest rotate X and Hips move Y onto the timeline. Everything stays editable; Ctrl+Z undoes it.</p>
+      <div class="impgrid tplgrid">
+        <label>Cycles <span><input type="number" id="tpl_cycles" step="any"> </span></label><label>Slow down from bar <span><input type="number" id="tpl_from" step="any"> </span></label><label>Jog from bar <span><input type="number" id="tpl_to" step="any"> </span></label>
+        <label>Jog cadence <span><input type="number" id="tpl_cad" step="any"> % of sprint</span></label><label>Foot on ground (jog) <span><input type="number" id="tpl_gnd" step="any"> +%</span></label><label>Braking (mid slowdown) <span><input type="number" id="tpl_bump" step="any"> +%</span></label>
+        <label>Knee lift (leg groups) <span><input type="number" id="tpl_legs" step="any"> %</span></label><label>Arm swing (arm groups) <span><input type="number" id="tpl_arms" step="any"> %</span></label><label>Chest lean (rotate X) <span><input type="number" id="tpl_lean" step="any"> ° (− = upright)</span></label>
+        <label>Hips height <span><input type="number" id="tpl_hips" step="any"> cm</span></label><label>Ground speed at jog <span><input type="number" id="tpl_travel" step="any"> % of sprint</span></label><label id="tplSpeedRow">Sprint travel speed <span><input type="number" id="tpl_speed" step="any"> m/s</span></label>
+      </div>
+      <div class="bakebtns"><button type="button" class="primary" id="tplGo">Apply to timeline</button><button type="button" id="tplReset">Default values</button></div>
+    </div>
+    <div class="acts"><span class="note" id="tplNote"></span><button type="button" id="tplClose">Close</button></div>
+  </div>
+</div>
 <div class="sheet" id="boneDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="boneDlgTitle">
     <h2 id="boneDlgTitle">Add a bone</h2>
