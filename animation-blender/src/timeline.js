@@ -68,9 +68,12 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = symLabel(k);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { sy.collapsed = !sy.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); };
-    hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from half a cycle away, mirrored. Weight 100 % = fully symmetric.';
+    hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from the cycle split away (50 % = half a cycle), mirrored. Weight 100 % = fully symmetric. Watch the step times in the viewport.';
     tracksEl.append(hr.el); rows.push(hr);
-    if (!sy.collapsed) addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
+    if (!sy.collapsed) {
+      addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
+      addTrackRow(`s|${k}|offset`, { ...SPEC.whole, range: [0.3, 0.7], ref: 0.5, color: '#c98bd6', snap: 0.005 }, () => sy.offset, (p) => { sy.offset = p; }, 'Cycle split <i>50 % = even steps</i>', { type: 'sym', id: k });
+    }
   }
   // groups (weights multiply into every bone they hold)
   for (const gid of A.groupOrder) {
@@ -491,7 +494,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden; }
+function dialogsOpen() { return !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

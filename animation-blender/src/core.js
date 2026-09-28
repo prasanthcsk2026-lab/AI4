@@ -120,7 +120,7 @@ const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
   selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
-  inPlace: true, follow: true, autoKey: true, travelBase: V3(), unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
+  inPlace: true, follow: true, autoKey: true, travelBase: V3(), limits: true, limitHits: new Set(), lenMode: 'length', unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
@@ -138,6 +138,7 @@ function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
   a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
+  for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
   for (const n of a.order) {
@@ -169,7 +170,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -180,7 +181,7 @@ function pushUndo() { if (suppressUndo || !cur) return; undoStack.push(snapshot(
 function restoreSnapshot(s) {
   const o = JSON.parse(s);
   if (o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
-  A = normalizeAuto(o.A); S.dur = A.dur; $('durIn').value = S.dur; $('cycIn').value = A.cycles; S.t = Math.min(S.t, S.dur);
+  A = normalizeAuto(o.A); S.dur = A.dur; syncLenInputs(); S.t = Math.min(S.t, S.dur);
   selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
@@ -235,9 +236,12 @@ async function boot() {
   if (store.ui && isFinite(store.ui.falloff)) S.falloff = clamp(+store.ui.falloff, 0, 2);
   $('btnMagnet').setAttribute('aria-pressed', S.magnet); $('falloffIn').value = S.falloff;
   if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
+  if (store.ui && ['length', 'cycles'].includes(store.ui.lenMode)) S.lenMode = store.ui.lenMode;
+  if (store.ui && typeof store.ui.limits === 'boolean') S.limits = store.ui.limits;
+  $('lenMode').value = S.lenMode;
   $('unitSel').value = S.unit;
   syncToggles();
-  buildClipSelect(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
+  buildClipSelect(); loadBaked(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
   selectClip(first.id);
   $('loading').hidden = true;
@@ -329,8 +333,8 @@ function renderIKList(q) {
   }
   if (!q || 'custom group ik'.includes(q)) {
     const row = document.createElement('div'); row.className = 'treerow'; row.style.paddingLeft = '16px';
-    row.innerHTML = '<span class="tn" style="color:var(--accent)">+ New custom group IK…</span><span class="note2">pick any hands, feet, hips, spine, head</span>';
-    row.onclick = () => { $('boneDlg').hidden = true; let n = 1; while (EFF_BY_ID['ig:c' + n]) n++; registerIG('ig:c' + n, 'Custom group ' + n); openAddDialog({ type: 'eff', id: 'ig:c' + n }); };
+    row.innerHTML = '<span class="tn" style="color:var(--accent)">+ New IK controller (a point between joints)…</span><span class="note2">e.g. both hands + hips: drag it and they follow</span>';
+    row.onclick = () => { $('boneDlg').hidden = true; let n = 1; while (EFF_BY_ID['ig:c' + n]) n++; registerIG('ig:c' + n, 'Controller ' + n); openAddDialog({ type: 'eff', id: 'ig:c' + n }); };
     root.append(row);
   }
   if (!root.children.length) root.innerHTML = '<div class="empty">No effectors match.</div>';
@@ -378,8 +382,8 @@ function selectClip(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];
-  A = normalizeAuto(saved && saved.speed ? saved : newAuto(10, 5));
-  S.dur = A.dur; $('durIn').value = S.dur; $('cycIn').value = A.cycles;
+  A = normalizeAuto(saved && saved.speed ? saved : newAuto(S.lenMode === 'cycles' ? +(5 * cur.dur).toFixed(3) : 10));
+  S.dur = A.dur; syncLenInputs();
   S.t = 0; S.travelBase.set(0, 0, 0); selPts = new Set(); selRow = null; undoStack = []; redoStack = [];
   moveEndCache = null;
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
@@ -461,11 +465,13 @@ function openAddDialog(target, existingShow) {
     }
     const pl = document.createElement('label'); pl.className = 'igline'; pl.append('Pivot (rotate about)');
     const sel = document.createElement('select');
-    const opts = [...(IG_AUTO_PIVOT[def.id] ? [['auto', 'Auto (' + IG_AUTO_PIVOT[def.id]().name + ')']] : []), ['centroid', 'Centre of the members'], ...MOVABLE.map((id) => [id, EFF_BY_ID[id].label])];
+    const opts = [...(IG_AUTO_PIVOT[def.id] ? [['auto', 'Auto (' + IG_AUTO_PIVOT[def.id]().name + ')']] : []), ['centroid', 'Weighted centre of the members'], ...MOVABLE.map((id) => [id, EFF_BY_ID[id].label])];
     for (const [v, t] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
     sel.value = opts.some(([v]) => v === piv) ? piv : 'centroid'; pl.append(sel); sec.append(pl);
+    const ll = document.createElement('label'); ll.className = 'igline'; ll.append('Head looks at it');
+    const look = document.createElement('input'); look.type = 'checkbox'; look.checked = !!(e && e.look); ll.append(look); sec.append(ll);
     box.append(sec);
-    igUI = () => ({ label: nameIn ? nameIn.value.trim() || def.label : null, pivot: sel.value, members: Object.fromEntries(MOVABLE.map((id) => [id, clamp((+ins[id].value || 0) / 100, 0, 1)]).filter(([, v]) => v > 0)) });
+    igUI = () => ({ look: look.checked, label: nameIn ? nameIn.value.trim() || def.label : null, pivot: sel.value, members: Object.fromEntries(MOVABLE.map((id) => [id, clamp((+ins[id].value || 0) / 100, 0, 1)]).filter(([, v]) => v > 0)) });
   }
   const ok = $('addDlgOk'), cancel = $('addDlgCancel');
   ok.textContent = existingShow ? 'Apply' : 'Add';
@@ -504,7 +510,7 @@ function ensureGroup(gid) {
 function commitAddEff(id, show, mirror, ig) {
   pushUndo();
   const e = ensureEff(id); e.show = show;
-  if (ig) { e.members = ig.members; e.pivot = ig.pivot; if (ig.label) { e.label = ig.label; registerIG(id, ig.label); } }
+  if (ig) { e.members = ig.members; e.pivot = ig.pivot; e.look = !!ig.look; if (ig.label) { e.label = ig.label; registerIG(id, ig.label); } }
   setMirrorLink('eff', id, mirror);
   selectEff(id); save();
   const r = document.querySelector(`[data-eff="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });

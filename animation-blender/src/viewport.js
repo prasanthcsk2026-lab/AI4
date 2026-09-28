@@ -233,7 +233,7 @@ function buildSkeleton() {
   };
   skel = { joints, fjoints, pairs, lines: mk('#9aa7a0', 0.8), ghost: mk('#f08a1c', 0.6), pts: mkPts(joints, 8), fpts: mkPts(fjoints, 5), gQ: new Float32Array(B * 4), gH: V3() };
 }
-const cSel = new THREE.Color('#ff4fa3'), cIn = new THREE.Color('#f08a1c'), cBase = new THREE.Color('#dfe6e1'), cGrp = new THREE.Color(COL.group);
+const cLim = new THREE.Color('#ff3b3b'), cSel = new THREE.Color('#ff4fa3'), cIn = new THREE.Color('#f08a1c'), cBase = new THREE.Color('#dfe6e1'), cGrp = new THREE.Color(COL.group);
 function updateSkeleton(t) {
   const { joints, fjoints, pairs, lines, ghost, pts, fpts } = skel;
   lines.visible = pts.visible = fpts.visible = S.bones; ghost.visible = S.ghost;
@@ -243,7 +243,7 @@ function updateSkeleton(t) {
     const gm = S.selGroup ? groupMembers(S.selGroup) : null;
     for (const [P, list] of [[pts, joints], [fpts, fjoints]]) {
       const pp = P.geometry.attributes.position.array, pc = P.geometry.attributes.color.array;
-      list.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = b.name === S.selected ? cSel : gm && gm.has(b.name) ? cGrp : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
+      list.forEach((b, i) => { worldP(b, vv); pp.set([vv.x, vv.y, vv.z], i * 3); const c = S.limits && S.limitHits.has(b.name) ? cLim : b.name === S.selected ? cSel : gm && gm.has(b.name) ? cGrp : A.bones[b.name] ? cIn : cBase; pc.set([c.r, c.g, c.b], i * 3); });
       P.geometry.attributes.position.needsUpdate = true; P.geometry.attributes.color.needsUpdate = true;
     }
   }
@@ -451,11 +451,12 @@ $('btnFrame').onclick = () => frameCamera(false);
 function syncToggles() {
   const set = (id, v) => $(id).setAttribute('aria-pressed', v);
   set('btnBones', S.bones); set('btnGhost', S.ghost); set('btnIK', S.showIK); set('btnTrail', S.trail);
-  set('btnInPlace', S.inPlace); set('btnFollow', S.follow); set('btnAutoKey', S.autoKey); set('btnLoop', S.loop);
+  set('btnLimits', S.limits); set('btnInPlace', S.inPlace); set('btnFollow', S.follow); set('btnAutoKey', S.autoKey); set('btnLoop', S.loop);
 }
 $('btnBones').onclick = () => { S.bones = !S.bones; syncToggles(); };
 $('btnGhost').onclick = () => { S.ghost = !S.ghost; syncToggles(); };
 $('btnIK').onclick = () => { S.showIK = !S.showIK; syncToggles(); save(); };
 $('btnTrail').onclick = () => { S.trail = !S.trail; trailDirty = true; syncToggles(); };
 $('btnInPlace').onclick = () => { S.inPlace = !S.inPlace; S.travelBase.set(0, 0, 0); trailDirty = true; holdCache.clear(); syncToggles(); save(); };
+$('btnLimits').onclick = () => { S.limits = !S.limits; S.limitHits = new Set(); editVersion++; trailDirty = true; syncToggles(); save(); };
 $('btnFollow').onclick = () => { S.follow = !S.follow; syncToggles(); save(); };

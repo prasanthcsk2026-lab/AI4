@@ -87,10 +87,15 @@
   .hudchip b { color: var(--ink); font-weight: 500; }
   .hudchip .warn { color: #ffb74a; }
   #status { font: 500 12px var(--mono); color: var(--muted); }
+  #bakeDlg .box { width: min(520px, 100%); grid-template-rows: auto 1fr auto; }
+  .bakebody p { margin: 0 0 10px; color: var(--ink-2); font-size: 13px; }
+  .bakebtns { display: flex; flex-wrap: wrap; gap: 8px; }
   .symtag { font: 700 10px var(--display); letter-spacing: .1em; color: #1a0f18; background: #e58ad6; border-radius: 3px; padding: 1px 4px; }
   .row.sym { background: #1a1419; }
   .row.sym .h { background: #1a1419; }
   #cycIn { width: 56px; }
+  .unitlbl { font: 500 11px var(--mono); color: var(--muted); margin-left: -2px; }
+  input.derived { color: var(--muted); border-style: dashed; background: transparent; }
   #loading { position: absolute; inset: 0; display: grid; place-items: center; font: 600 14px var(--display); letter-spacing: .15em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
   .grip { cursor: row-resize; background: var(--line); }
   .grip:hover { background: var(--accent); }

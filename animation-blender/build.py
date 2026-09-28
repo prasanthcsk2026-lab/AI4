@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SRC, ASSETS, DIST = ROOT / 'src', ROOT / 'assets', ROOT / 'dist'
 # module order matters only for top-level statements; every file shares one module scope
-JS = ['engine.js', 'core.js', 'axes.js', 'pose.js', 'mirror.js', 'timeline.js', 'viewport.js', 'io.js']
+JS = ['engine.js', 'core.js', 'axes.js', 'pose.js', 'mirror.js', 'timeline.js', 'viewport.js', 'bake.js', 'io.js']
 ASSET_FILES = ['character.glb.txt', 'motionlib.json', 'getups.json']
 
 

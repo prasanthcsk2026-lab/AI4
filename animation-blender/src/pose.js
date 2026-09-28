@@ -70,7 +70,7 @@ const MOVABLE = ['hips', 'spine', 'spine1', 'chest', 'neck', 'head', 'Lhand', 'R
 const IG_AUTO_PIVOT = { 'ig:Larm': () => rig.side.L.upper, 'ig:Rarm': () => rig.side.R.upper, 'ig:Lleg': () => rig.side.L.thigh, 'ig:Rleg': () => rig.side.R.thigh, 'ig:upper': () => rig.b.spine, 'ig:body': () => rig.b.hips };
 function registerIG(id, label) {   // a custom group IK (id "ig:c<n>")
   if (EFF_BY_ID[id]) { if (label) EFF_BY_ID[id].label = label; return EFF_BY_ID[id]; }
-  const d = { id, label: label || 'Custom group', group: 'Group IK', kind: 'igroup', custom: true, members: {}, pivot: 'centroid', poles: [], tracks: ['blend', 'px', 'py', 'pz', 'rx', 'ry', 'rz'], defaultShow: ['px', 'py', 'pz'], what: 'your own set of effectors' };
+  const d = { id, label: label || 'Controller', group: 'Group IK', kind: 'igroup', custom: true, members: {}, pivot: 'centroid', poles: [], tracks: ['blend', 'px', 'py', 'pz', 'rx', 'ry', 'rz'], defaultShow: ['px', 'py', 'pz'], what: 'your own set of effectors' };
   EFFECTORS.push(d); EFF_BY_ID[id] = d; return d;
 }
 function igMembers(gid) { const e = A && A.ik[gid]; return (e && e.members) || EFF_BY_ID[gid].members; }
@@ -78,9 +78,10 @@ function igPivotPos(gid) {
   const e = A && A.ik[gid], pv = (e && e.pivot) || EFF_BY_ID[gid].pivot;
   if (pv === 'auto' && IG_AUTO_PIVOT[gid]) return worldP(IG_AUTO_PIVOT[gid]());
   if (pv !== 'centroid' && EFF_BY_ID[pv]) return effPos(EFF_BY_ID[pv]);
-  const ids = Object.keys(igMembers(gid)).filter((k) => igMembers(gid)[k] > 0 && EFF_BY_ID[k]);
+  const m = igMembers(gid), ids = Object.keys(m).filter((k) => m[k] > 0 && EFF_BY_ID[k]);   // weighted centre of the members
   if (!ids.length) return worldP(rig.b.hips);
-  return ids.reduce((acc, k) => acc.add(effPos(EFF_BY_ID[k])), V3()).divideScalar(ids.length);
+  const wsum = ids.reduce((a, k) => a + m[k], 0);
+  return ids.reduce((acc, k) => acc.addScaledVector(effPos(EFF_BY_ID[k]), m[k] / wsum), V3());
 }
 function newEffAuto(id, dur) {
   const d = EFF_BY_ID[id], tr = {};
@@ -189,7 +190,7 @@ function groupFactor(name, gw, gt) {
 // ---------------------------------------------------------------- clip time + root travel
 // the timeline holds A.cycles cycles of the clip in S.dur seconds: that sets the base cadence; the playback-speed
 // track multiplies on top of it. Clip time at each timeline time = rate × ∫ speed.
-function cycleRate() { return cur && A && A.cycles > 0 && cur.dur > 0 ? (A.cycles * cur.dur) / S.dur : 1; }
+function cycleRate() { return 1; }   // the clip always plays at its own cadence; Length / Cycles only set how long the timeline is
 function rebuildSpeedLUT() {
   const n = Math.max(2, Math.ceil(S.dur * 240) + 1), lut = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
   for (let i = 1; i < n; i++) { const t0 = (i - 1) * dt, t1 = i * dt; lut[i] = lut[i - 1] + 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * dt * k; }
@@ -246,6 +247,7 @@ const qI = new THREE.Quaternion(), qC = new THREE.Quaternion(), qD = new THREE.Q
 const logQ = (q, out) => { let { x, y, z, w } = q; if (w < 0) { x = -x; y = -y; z = -z; w = -w; } const s = Math.hypot(x, y, z); if (s < 1e-9) return out.set(0, 0, 0); const a = 2 * Math.atan2(s, w); return out.set(x / s * a, y / s * a, z / s * a); };
 const expV = (x, y, z, out) => { const a = Math.hypot(x, y, z); if (a < 1e-9) return out.set(0, 0, 0, 1); const s = Math.sin(a / 2) / a; return out.set(x * s, y * s, z * s, Math.cos(a / 2)); };
 function sampleClip(tau, Q, H) {   // the untouched clip at clip time tau (s), laid facing +z, in place
+  const bk = BAKED[cur.id]; if (bk) { sampleBaked(bk, tau, Q, H); return; }   // a baked clip plays its baked frames
   const c = cur.c;
   if (cur.kind === 'loop') {
     lib.sample(c, mod1(tau / cur.dur), Q, H);
@@ -328,16 +330,18 @@ function symChain(region, Sd) {
   }
   return symChains[region][Sd];
 }
-function newSymAuto(dur) { return { collapsed: false, show: { weight: true }, weight: flat(1, dur) }; }
+function newSymAuto(dur) { return { collapsed: false, show: { weight: true, offset: true }, weight: flat(1, dur), offset: flat(0.5, dur) }; }
 function applySymmetrize(t, Qout, Hout) {
   const act = A.symOrder.filter((k) => A.sym[k] && evalPts(A.sym[k].weight, t) > 1e-4);
   if (!act.length) return;
   if (!symFK.a) { symFK.a = new VirtualFK(rig); symFK.b = new VirtualFK(rig); symFK.Q = new Float32Array(B * 4); symFK.H = V3(); }
   const F = symFK.a, G = symFK.b;
-  sampleClip(clipTime(t) + (cur.kind === 'loop' ? cur.dur / 2 : 0), symFK.Q, symFK.H);   // the source: half a cycle away
-  F.run(symFK.Q, symFK.H, 0);
   const q = new THREE.Quaternion(), cl = new THREE.Quaternion();
   for (const key of act) {
+    // the source: `offset` of a cycle away (50 % = an even split; move it when one step is longer than the other)
+    const off = A.sym[key].offset ? evalPts(A.sym[key].offset, t) : 0.5;
+    sampleClip(clipTime(t) + (cur.kind === 'loop' ? cur.dur * off : 0), symFK.Q, symFK.H);
+    F.run(symFK.Q, symFK.H, 0);
     G.run(Qout, Hout, 0);   // the pose so far (an earlier item may have changed it)
     const [region, dir] = key.split(':'), w = clamp(evalPts(A.sym[key].weight, t), 0, 1), tgt = dir === 'RL' ? 'L' : 'R';
     const ai = boneIdx.get((region === 'arm' ? rig.b.spine2 : rig.b.hips).name);
@@ -454,6 +458,69 @@ function holdTarget(bone, pts, t) {   // world spot the effector had (FK) when t
 }
 
 // ---------------------------------------------------------------- full-body IK solve
+// ---------------------------------------------------------------- anatomical limits
+// swing / twist cones (degrees, from the bind pose) for spine, neck, wrists, ankles, toes, collarbones, elbows and
+// knees; the hip and the shoulder get anatomical ranges in the pelvis / chest frame instead of a cone
+let limDefs = null;
+function limitDefs() {
+  if (limDefs) return limDefs;
+  const b = rig.b, L = [];
+  const axisOf = (bone) => { const c = bone.children.find((x) => x.isBone), v = c ? rig.bind.get(c).lp.clone() : V3(0, 1, 0); return v.lengthSq() > 1e-10 ? v.normalize() : V3(0, 1, 0); };
+  const st = (bone, swing, twist) => bone && L.push({ bone, kind: 'st', swing: swing * DEG, twist: twist * DEG, axis: axisOf(bone), lq: rig.bind.get(bone).lq.clone() });
+  st(b.spine, 35, 25); st(b.spine1, 35, 25); st(b.spine2, 30, 25); st(b.neck, 45, 50); st(b.head, 40, 45);
+  for (const Sd of ['L', 'R']) {
+    const sd = rig.side[Sd];
+    st(sd.clav, 30, 15);
+    L.push({ bone: sd.upper, kind: 'shoulder', side: sd.s, anchor: b.spine2, rest: rig.bp(sd.fore).sub(rig.bp(sd.upper)).normalize() });
+    st(sd.fore, 155, 95); st(sd.hand, 80, 45);
+  }
+  for (const Sd of ['L', 'R']) {
+    const sd = rig.side[Sd];
+    L.push({ bone: sd.thigh, kind: 'hip', side: sd.s, anchor: b.hips, rest: rig.bp(sd.shin).sub(rig.bp(sd.thigh)).normalize() });
+    st(sd.shin, 155, 35); st(sd.foot, 55, 30); st(sd.toe, 65, 15);
+  }
+  limDefs = L;
+  return L;
+}
+const qAng = (q) => 2 * Math.acos(clamp(Math.abs(q.w), 0, 1));
+function clampSwingTwist(L) {
+  const q = L.bone.quaternion, d = L.lq.clone().invert().multiply(q), a = L.axis;
+  const pr = d.x * a.x + d.y * a.y + d.z * a.z;
+  let tw = new THREE.Quaternion(a.x * pr, a.y * pr, a.z * pr, d.w);
+  if (tw.lengthSq() < 1e-12) tw.set(0, 0, 0, 1); tw.normalize();
+  let sw = d.clone().multiply(tw.clone().invert()), hit = false;
+  const ta = qAng(tw), sa = qAng(sw);
+  if (ta > L.twist) { tw = IDQ.clone().slerp(tw, L.twist / ta); hit = true; }
+  if (sa > L.swing) { sw = IDQ.clone().slerp(sw, L.swing / sa); hit = true; }
+  if (hit) { q.copy(L.lq).multiply(sw).multiply(tw); L.bone.updateMatrixWorld(true); }
+  return hit;
+}
+function clampLimbDir(L) {   // hip / shoulder: the limb's direction in the pelvis / chest frame
+  const dA = rig.delta(L.anchor), D = dA.clone().invert().multiply(rig.delta(L.bone));
+  const v = L.rest.clone().applyQuaternion(D), s = L.side;
+  let v2 = null;
+  if (L.kind === 'hip') {   // flexion −30…125°, abduction −25…45°
+    const flex = Math.atan2(v.z, -v.y), abd = Math.asin(clamp(v.x * s, -1, 1));
+    const f2 = clamp(flex, -30 * DEG, 125 * DEG), a2 = clamp(abd, -25 * DEG, 45 * DEG);
+    if (f2 !== flex || a2 !== abd) v2 = V3(s * Math.sin(a2), -Math.cos(a2) * Math.cos(f2), Math.cos(a2) * Math.sin(f2));
+  } else {                   // the arm swings at most 55° behind the side line and 140° across the front
+    const r = Math.hypot(v.x, v.z); if (r < 0.2) return false;
+    const az = Math.atan2(v.z, v.x * s), a2 = clamp(az, -55 * DEG, 140 * DEG);
+    if (a2 !== az) v2 = V3(s * r * Math.cos(a2), v.y, r * Math.sin(a2));
+  }
+  if (!v2) return false;
+  rotateBoneWorld(L.bone, new THREE.Quaternion().setFromUnitVectors(v.applyQuaternion(dA).normalize(), v2.normalize().applyQuaternion(dA)));
+  return true;
+}
+function applyLimits(before) {
+  const hits = new Set();
+  limitDefs().forEach((L, i) => {
+    if (L.bone.quaternion.angleTo(before[i]) < 0.2 * DEG) return;   // untouched by the IK
+    if (L.kind === 'st' ? clampSwingTwist(L) : clampLimbDir(L)) hits.add(L.bone.name);
+  });
+  S.limitHits = hits;
+}
+
 // which active group IKs hold an effector, and how much of the group's move it takes
 const CARRIERS = { spine: ['hips'], spine1: ['spine', 'hips'], chest: ['spine1', 'spine', 'hips'], neck: ['chest', 'spine1', 'spine', 'hips'], head: ['neck', 'chest', 'spine1', 'spine', 'hips'], Lhand: ['chest', 'spine1', 'spine', 'hips'], Rhand: ['chest', 'spine1', 'spine', 'hips'], Lfoot: ['hips'], Rfoot: ['hips'] };
 function makeGroupCtx(t, pend) {
@@ -475,7 +542,10 @@ function makeGroupCtx(t, pend) {
       const parts = [];
       for (const g of ids) {
         const mw = igMembers(g)[id] || 0; if (mw <= 0) continue;
-        const w = effVal(g, 'blend', t) * mw * (1 - this.carried(id, g)); if (w < 1e-4) continue;
+        // a member carried by another member of the group (a hand on the moving hips) already gets that member's share;
+        // it takes only what is left of its own
+        const m = igMembers(g), cw = Math.max(0, ...(CARRIERS[id] || []).map((c) => m[c] || 0));
+        const w = effVal(g, 'blend', t) * Math.max(0, mw - cw * this.carried(id, g)); if (w < 1e-4) continue;
         if (!pivots.has(g)) pivots.set(g, igPivotPos(g));
         parts.push({ pivot: pivots.get(g), q: effRotQ(g, t, pend, w), dp: effPosOff(g, t, pend, w) });
       }
@@ -492,6 +562,7 @@ function solveIK(t, pend) {
   const active = A.ikOrder.length || (pend && pend.kind === 'eff');
   if (!active) return;
   const GX = makeGroupCtx(t, pend);
+  const before = S.limits ? limitDefs().map((L) => L.bone.quaternion.clone()) : null;   // FK pose, to find what the IK changed
   const on = (id) => effActive(id, pend) || GX.has(id);
   const b = rig.b;
   // FK reference, before any effector moves the body
@@ -610,7 +681,18 @@ function solveIK(t, pend) {
       rotateBoneWorld(sd.toe, effRotQ(Sd + 'toes', t, pend));
     }
   }
-  // 7. fingers (local, on top of the clip's hand), then their shared rotate
+  // 9. anatomical limits, on the joints the IK changed (the clip's own pose is left alone)
+  if (before) applyLimits(before);
+  // 7. look-at: a controller can turn the head (neck + head, ≤ 70°) toward itself
+  for (const g of GX.ids) {
+    const e = A.ik[g]; if (!e || !e.look) continue;
+    const w = effVal(g, 'blend', t), hp = worldP(b.head), to = igPivotPos(g).sub(hp);
+    if (to.lengthSq() < 1e-6 || w < 1e-3) continue;
+    const fwd = V3(0, 0, 1).applyQuaternion(rig.delta(b.head)).normalize(), q = new THREE.Quaternion().setFromUnitVectors(fwd, to.normalize());
+    const ang = 2 * Math.acos(clamp(Math.abs(q.w), 0, 1)), lim = 70 * DEG;
+    spreadOver([b.neck, b.head], new THREE.Quaternion().slerp(q, w * (ang > lim ? lim / ang : 1)));
+  }
+  // 8. fingers (local, on top of the clip's hand), then their shared rotate
   for (const Sd of ['L', 'R']) {
     const id = Sd + 'fingers'; if (!on(id)) continue;
     const sd = rig.side[Sd], curl = effVal(id, 'curl', t), spread = effVal(id, 'spread', t), thumb = effVal(id, 'thumb', t);

@@ -22,8 +22,9 @@
   <header class="bar">
     <div class="brand"><b>Anim<span>/</span>Blender</b></div>
     <div class="field"><label for="clipSel">Clip</label><select id="clipSel"></select></div>
-    <div class="field"><label for="durIn">Length s</label><input id="durIn" type="number" min="0.5" max="120" step="0.5" value="10"></div>
-    <div class="field"><label for="cycIn">Cycles</label><input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="How many cycles of the clip fit in the length (sets the cadence; the playback-speed track multiplies on top)"></div>
+    <div class="field"><label for="lenMode">Set by</label><select id="lenMode" title="Set the timeline by its length in seconds, or by how many clip cycles it holds (the other one follows; the clip's speed does not change)"><option value="length">Length</option><option value="cycles">Cycles</option></select>
+      <input id="durIn" type="number" min="0.2" max="120" step="0.5" value="10" title="Length in seconds"><span class="unitlbl">s</span>
+      <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Clip cycles (at 100 % playback speed)"><span class="unitlbl">cycles</span></div>
     <div class="transport">
       <button type="button" id="btnHome" title="Back to the start and the origin (Home)">⏮</button>
       <button type="button" class="primary" id="btnPlay" title="Play / pause (Space)">Play</button>
@@ -35,7 +36,9 @@
     </select><button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Magnet</button></div>
     <div class="spacer"></div>
     <div class="io">
+      <button type="button" id="btnSym" title="Make left and right match: mirror one side onto the other, half a cycle apart">Symmetrize</button>
       <button type="button" id="btnFootLock" title="Write foot hold (world lock) tracks from the clip's foot contacts">Auto foot-lock</button>
+      <button type="button" id="btnBake" title="Bake the result into the clip (replace it), save it to the project, or download it">Bake / Project…</button>
       <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export</button>
       <button type="button" id="btnImport" title="Load automation JSON">Import</button>
       <button type="button" id="btnReset" title="Clear all automation for this clip">Reset clip</button>
@@ -61,6 +64,7 @@
         <button type="button" id="btnIK" aria-pressed="true" title="Show the IK handles">IK</button>
         <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline · drag its dots to reshape it">Trail</button>
         <label class="falloff" title="Trail edits: how far in time (±s) a dragged dot pulls its neighbours">±<input id="falloffIn" type="number" min="0" max="2" step="0.05" value="0.15">s</label>
+        <button type="button" id="btnLimits" aria-pressed="true" title="Human joint limits on the IK (joints at a limit turn red)">Limits</button>
         <button type="button" id="btnGhost" aria-pressed="false" title="Show the untouched clip as a ghost">Ghost</button>
       </div>
       <div class="btngroup" role="group" aria-label="World">
@@ -69,7 +73,7 @@
         <button type="button" id="btnFrame" title="Put the camera back on the character (F)">Frame</button>
       </div>
     </div>
-    <div class="hud"><div class="chip hudchip" id="unitChip" hidden></div><div class="chip hudchip" id="reachChip" hidden title="How far forward of the hips each hand gets at its peak, over the timeline"></div><div id="status"></div></div>
+    <div class="hud"><div class="chip hudchip" id="unitChip" hidden></div><div class="chip hudchip" id="reachChip" hidden title="How far forward of the hips each hand gets at its peak, over the timeline"></div><div class="chip hudchip" id="stepChip" hidden title="Step times measured from the feet as they are now: left foot down → right foot down, and back"></div><div id="status"></div></div>
     <div id="loading">Loading character and clips…</div>
   </section>
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
@@ -88,6 +92,18 @@
     <h2 id="sheetTitle">Export</h2>
     <textarea id="sheetText" spellcheck="false" aria-label="Automation JSON"></textarea>
     <div class="acts"><span class="note" id="sheetNote"></span><button type="button" id="sheetB4" hidden>Save for Claude</button><button type="button" id="sheetB5" hidden>Download glTF (.zip)</button><button type="button" id="sheetB1">Copy</button><button type="button" id="sheetB2">Download</button><button type="button" class="primary" id="sheetB3">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="bakeDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="bakeTitle">
+    <h2 id="bakeTitle">Bake / Project</h2>
+    <div class="bakebody">
+      <p id="bakeState"></p>
+      <p><b>Bake &amp; replace</b> turns everything you did (automation, groups, symmetrize, IK) into the clip's own frames. The clip keeps playing the baked motion and the timeline starts clean. It is kept in this browser; <b>Revert</b> brings the original back.</p>
+      <p><b>Save to project</b> stores the baked clip in this artifact's database. Then ask Claude to apply it, and it is written into the project files (it replaces the clip there).</p>
+      <div class="bakebtns"><button type="button" class="primary" id="bakeGo">Bake &amp; replace</button><button type="button" id="bakeRevert">Revert to original</button><button type="button" id="bakeSave">Save to project</button><button type="button" id="bakeDl">Download baked clip (.json)</button></div>
+    </div>
+    <div class="acts"><span class="note" id="bakeNote"></span><button type="button" id="bakeClose">Close</button></div>
   </div>
 </div>
 <div class="sheet" id="boneDlg" hidden>

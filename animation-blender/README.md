@@ -26,15 +26,16 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
     sideways moves, turns, rolls and swivels flip sign.
   - A gizmo change made on the other side's joint is mirrored back.
   - Turn "Both sides" off (right-click) to split them into two editable rows.
-- **Length + Cycles** (header): the timeline holds *Cycles* cycles of the clip in *Length* seconds.
-  This sets the base cadence, and the playback-speed track multiplies on top of it. New clips start at
-  10 s / 5 cycles; older saves keep their natural cadence.
+- **Length or Cycles** (header, "Set by"): set the timeline either by its length in seconds or by how
+  many clip cycles it holds; the other value follows. The clip's cadence never changes; only the
+  playback-speed track changes speed. New clips start at 10 s in Length mode, or 5 cycles in Cycles mode.
 - **Symmetrize** (Group… → Symmetrize): arms or legs, right → left or left → right.
   - The target side takes the other side's clip motion from half a cycle away, mirrored across the
     body's mid-plane.
   - It is measured relative to the chest (arms) or pelvis (legs), and blended by a weight track
-    (100 % = fully symmetric).
-  - A viewport readout shows each hand's peak reach forward of the hips (R / L / Δ cm) to check it.
+    (100 % = fully symmetric). A cycle split track (50 % = even) evens out unequal steps.
+  - Viewport readouts show each hand's peak reach forward of the hips (R / L / Δ cm) and the step times
+    measured from the feet as they are (L→R / R→L / Δ s).
 - **Moving speed** (master track): scales the ground the character covers without changing the cadence.
   Playback speed changes the cadence. Both can be automated; travel integrates moving speed over time.
 - **Grid units** (Grid in the header): Seconds, Frames (30 fps), Cycles (bars of the clip loop), or Foot
@@ -75,6 +76,17 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - Members already carried by another member of the same group take no extra share, so nothing moves
     twice. An unpinned hand on a moving chest is one example.
   - Arm / leg groups mirror as both sides.
+- **IK controller (a point between joints):** IK… → "+ New IK controller…".
+  - Link any hands, feet, hips, spine or head, each with its own share. The point sits at their weighted centre.
+  - Drag it and they follow: for example, both hands 100 % reach for a ball while the hips travel 40 %.
+  - The head can look at it.
+- **Anatomical limits** (Limits button, on by default): cones for spine, neck, head, collarbones,
+  elbows, wrists, knees, ankles and toes; hip flexion −30…125° and abduction −25…45°; shoulder swing
+  at most 55° behind and 140° across. They act only on joints the IK changed; a joint at a limit turns red.
+- **Bake / Project…:**
+  - Bake & replace turns the result into the clip's own frames; Revert brings the original back.
+  - Save to project stores it in the artifact database for Claude to write into the project files.
+  - Download gives the baked clip as .json.
 - **Gizmo:**
   - Rotate (R) and Move (W) drive bones and effectors, with a live preview.
   - Auto-key writes the change at the playhead when you let go. Otherwise use Key / Cancel.
@@ -118,6 +130,7 @@ src/pose.js      root travel, FK composition, IK effectors + full-body solve, fo
 src/mirror.js    both-sides mirror (sync after edits, side-less names, gizmo redirect)
 src/timeline.js  track rows (height, zoom, exact values), editing, menus, keys, ruler
 src/viewport.js  gizmo + keying, IK handles, skeleton, picking, trail, camera follow, toggles
+src/bake.js      bake & replace, save to project, baked clip export
 src/io.js        transport, JSON / glTF export + import, frame loop
 assets/          character (base64 glb) and motion data
 build.py         bundles everything into dist/animation-blender.html
