@@ -13,6 +13,7 @@ function stOpts() {
     arms: $('stArms').value, legs: $('stLegs').value, w: clamp(+$('stW').value / 100, 0, 1),
     split: clamp(+$('stSplit').value / 100, 0.3, 0.7), retime: $('stRetime').checked, start: $('stStart').value,
     center: $('stCenter').checked, swing: $('stSwing').checked, mode: $('stMode').value,
+    ease: clamp(+$('stEase').value / 100, -0.8, 1), zone: clamp(+$('stZone').value / 100, 0.02, 0.45),
   };
 }
 // contacts in a cyclic list of foot heights: the main { on, off } of that foot, as phases (0…1)
@@ -112,6 +113,40 @@ function stResample(Q0, H0, M, warp, Qo, Ho, n) {   // Qo / Ho[j] = the source a
     for (let c = 0; c < 3; c++) Ho[j * 3 + c] = lerp(H0[i0 * 3 + c], H0[i1 * 3 + c], u);
   }
 }
+// Swing ease, for the whole body at once: the hands' and feet's forward swing (relative to the hips) gives one
+// speed profile; the cycle is re-timed so that motion is spread more evenly (+) or hangs longer at the ends (−).
+// Each half cycle is warped on its own, so the feet still land at 0 % and 50 %; every bone shares the same warp,
+// so shoulders, arms, thighs and legs stay in step.
+function stLimbZ(Q, H, M) {
+  const ids = [rig.side.L.hand, rig.side.R.hand, rig.side.L.foot, rig.side.R.foot].map((b) => boneIdx.get(b.name)), hi = boneIdx.get(rig.b.hips.name), z = ids.map(() => []);
+  for (let k = 0; k < M; k++) { ST.fk.run(Q.subarray(k * B * 4, (k + 1) * B * 4), V3(H[k * 3], H[k * 3 + 1], H[k * 3 + 2]), 0); ids.forEach((bi, j) => z[j].push(ST.fk.P[bi].z - ST.fk.P[hi].z)); }
+  return z.map((zs) => { const lo = Math.min(...zs), hi2 = Math.max(...zs), r = (hi2 - lo) / 2 || 1, c = (hi2 + lo) / 2; return zs.map((v) => (v - c) / r); });   // −1 … 1
+}
+const stEndsShare = (n, zone) => { let a = 0, t = 0; for (const s of n) for (const v of s) { t++; if (Math.abs(v) > 1 - 2 * zone) a++; } return a / Math.max(1, t); };
+function stEase(Q, H, M, e, zone, set) {
+  const n0 = stLimbZ(Q, H, M), hands0 = stEndsShare(n0.slice(0, 2), zone), feet0 = stEndsShare(n0.slice(2), zone);
+  if (Math.abs(e) < 1e-3) return { hands: [hands0, hands0], feet: [feet0, feet0], zone };
+  const sp = new Float32Array(M);   // how much the limbs move from frame k to k+1
+  for (let k = 0; k < M; k++) { let v = 0; for (const s of n0) v += Math.abs(s[(k + 1) % M] - s[k]); sp[k] = v + 1e-4; }
+  const half = M / 2, cum = new Float32Array(M + 1); for (let k = 0; k < M; k++) cum[k + 1] = cum[k] + sp[k];
+  const arcInv = (h, w) => {   // phase in half h where the swing has covered fraction w of that half
+    const a = cum[h * half], b = cum[(h + 1) * half], target = a + w * (b - a);
+    let lo = h * half, hi = (h + 1) * half; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] < target) lo = mid; else hi = mid; }
+    const f = (target - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]); return (lo + f) / M;
+  };
+  let prev = -1;
+  const map = new Float32Array(M + 1);
+  for (let j = 0; j <= M; j++) {
+    const u = j / M, h = u < 0.5 || j === M ? (j === M ? 1 : 0) : 1, w = (u - h * 0.5) / 0.5;
+    let p = u + e * (arcInv(h, clamp(w, 0, 1)) - u);
+    p = Math.max(p, prev + 1e-6); prev = p; map[j] = p;   // stays monotone
+  }
+  const warpE = (u) => { const f = mod1(u) * M, i = Math.floor(f); return lerp(map[i], map[Math.min(M, i + 1)], f - i); };
+  const Q2 = new Float32Array(M * B * 4), H2 = new Float32Array(M * 3);
+  stResample(Q, H, M, warpE, Q2, H2, M); set(Q2, H2);
+  const n1 = stLimbZ(Q2, H2, M);
+  return { hands: [hands0, stEndsShare(n1.slice(0, 2), zone)], feet: [feet0, stEndsShare(n1.slice(2), zone)], zone };
+}
 function stMeasure(Qs, Hs, M) {   // foot heights and forward offsets from the hips, per frame
   const fi = { L: boneIdx.get(rig.side.L.foot.name), R: boneIdx.get(rig.side.R.foot.name) }, hi = boneIdx.get(rig.b.hips.name);
   const ys = { L: [], R: [] }, zs = { L: [], R: [] };
@@ -165,12 +200,28 @@ function stProcess() {
     warp = (u) => a + sp(u);
   }
   const n = 64, q = new Float32Array(n * B * 4), hp = new Float32Array(n * 3);
-  if (o.mode === 'avg') {   // retimed at full resolution, then averaged with its mirror half a cycle away, then 64 frames
-    const Qw = new Float32Array(M * B * 4), Hw = new Float32Array(M * 3);
-    stResample(Qs, Hs, M, warp, Qw, Hw, M);
+  // the finished cycle at full resolution: retimed; average mode then averages it with its mirror
+  let Qw = new Float32Array(M * B * 4), Hw = new Float32Array(M * 3);
+  stResample(Qs, Hs, M, warp, Qw, Hw, M);
+  if (o.mode === 'avg') {
     stMirrorAverage(Qw, Hw, M, o.w);
-    stResample(Qw, Hw, M, (u) => u, q, hp, n);
-  } else stResample(Qs, Hs, M, warp, q, hp, n);
+  }
+  // even the swing out (again) after averaging / easing moved it; landings stay at 0 / 50 %
+  const evenSwing = () => {
+    const m2 = stMeasure(Qw, Hw, M), keys = [{ u: 0, r: 0 }, { u: 0.5, r: 0.5 }];
+    for (const Sd of ['L', 'R']) {
+      const sw = m2.swing[Sd]; if (!sw || !(mod1(sw.pass - sw.back) < mod1(sw.front - sw.back))) continue;
+      const ub = sw.back, uf = ub + mod1(sw.front - ub);
+      keys.push({ u: mod1(ub), r: mod1(ub) }, { u: mod1((ub + uf) / 2), r: sw.pass }, { u: mod1(uf), r: mod1(uf) });
+    }
+    keys.sort((x, y) => x.u - y.u);
+    const ok = []; for (const k of keys) { const l = ok[ok.length - 1]; if (!l || (k.r > l.r + 1e-4 && k.u - l.u > 0.015)) ok.push(k); }
+    if (ok.length > 2) { const sp = stSpline(ok), Q2 = new Float32Array(M * B * 4), H2 = new Float32Array(M * 3); stResample(Qw, Hw, M, sp, Q2, H2, M); Qw = Q2; Hw = H2; }
+  };
+  if (o.mode === 'avg' && o.retime && o.swing) evenSwing();
+  const easeInfo = stEase(Qw, Hw, M, o.ease, o.zone, (Q2, H2) => { Qw = Q2; Hw = H2; });
+  // (swing ease comes last and wins: a time warp that evens the hands' speed also moves the feet's back → front timing)
+  stResample(Qw, Hw, M, (u) => u, q, hp, n);
   // measure the result (at a finer resampling of the output) and check the loop seam
   const after = stMeasure(q, hp, n);
   const win = {};
@@ -178,7 +229,7 @@ function stProcess() {
   const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), steps = [];
   for (let j = 0; j < n; j++) { let m = 0; for (let bI = 0; bI < B; bI++) { qa.fromArray(q, (j * B + bI) * 4); qb.fromArray(q, (((j + 1) % n) * B + bI) * 4); m = Math.max(m, qa.angleTo(qb)); } steps.push(m); }
   const seam = steps[n - 1], typical = steps.slice(0, n - 1).sort((x, y) => x - y)[Math.floor((n - 1) / 2)];
-  ST.res = { bk: { n, loop: true, fps: n / dur, q, hp, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, seam: seam / Math.max(typical, 1e-6), start: S0 };
+  ST.res = { ease: easeInfo, bk: { n, loop: true, fps: n / dur, q, hp, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, seam: seam / Math.max(typical, 1e-6), start: S0 };
   return ST.res;
 }
 const stSteps = (c, dur) => (c.L && c.R ? { LR: mod1(c.R.on - c.L.on) * dur, RL: mod1(c.L.on - c.R.on) * dur } : null);
@@ -208,6 +259,8 @@ function stDraw() {
   const seamOk = r.seam < 2.2;
   $('stInfo').innerHTML = `Steps before: <b>${f(sb)}</b><br>Steps after: <b>${f(sa)}</b> · cycle ${r.dur.toFixed(3)} s<br>`
     + `${r.start} swing before: <b>${sw(r.swingBefore)}</b><br>${r.start} swing after: <b>${sw(r.swingAfter)}</b><br>`
+    + (r.ease ? `Time in the outer ${Math.round(r.ease.zone * 100)} % of the swing — hands: <b>${Math.round(r.ease.hands[0] * 100)} % → ${Math.round(r.ease.hands[1] * 100)} %</b> · feet: <b>${Math.round(r.ease.feet[0] * 100)} % → ${Math.round(r.ease.feet[1] * 100)} %</b><br>` : '')
+    + (r.ease && Math.abs(stOpts().ease) > 1e-3 ? '<span class="dim">Swing ease is applied last, so the even swing above is what is left after it (ease 0 = exact even swing).</span><br>' : '')
     + `Loop seam: <b class="${seamOk ? 'ok' : 'warn'}">${seamOk ? 'smooth ✓' : 'jump ×' + r.seam.toFixed(1) + ' — check the clip'}</b> (last → first frame vs a typical frame)`;
 }
 function stRun() {   // process + live preview on the character
@@ -307,14 +360,16 @@ function openSymTool() {
 }
 $('btnSym').onclick = openSymTool;
 $('stClip').onchange = () => stLoad($('stClip').value);
-for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing']) $(id).onchange = stRun;
+for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing', 'stZone']) $(id).onchange = stRun;
+$('stEase').oninput = () => { $('stEasev').textContent = (+$('stEase').value > 0 ? '+' : '') + $('stEase').value; };
+$('stEase').onchange = stRun;
 $('stMode').onchange = () => { stModeUI(); stRun(); };
 function stModeUI() { const avg = $('stMode').value === 'avg'; for (const el of document.querySelectorAll('.copyonly')) el.hidden = avg; }
 $('stW').oninput = () => { $('stWv').textContent = $('stW').value + '%'; };
 $('stW').onchange = stRun;
 $('stSave').onclick = stSave;
 $('stRestore').onclick = () => stRestore($('stVer').value);
-$('stRevert').onclick = () => stRestore('orig');
+$('stRevert').onclick = () => confirmDelete(`Put the original "${ST.clip.name}" back? (Saved versions stay in the list.)`, () => stRestore('orig'), 'Revert');
 $('stSaveProj').onclick = async () => {
   stSave();
   try { await caps.db.doc('baked/' + ST.clip.id.replace(/[^A-Za-z0-9_.~:@+-]/g, '_')).set({ ...bakedDoc(), savedAt: Date.now() }); $('stNote').textContent += ' Also saved to the project store: ask Claude to apply it.'; }

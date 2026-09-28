@@ -23,6 +23,9 @@
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
     --hdr: 232px;            /* track header width */
   }
+  /* section colours: muted, one per kind of track (the stripe on the left of every header) */
+  :root { --c-master: #b58cff; --c-group: #7fb7ff; --c-bone: #f08a1c; --c-ik: #5fd3a8; --c-sym: #e58ad6;
+    --bar-bg: #1a211d; --view-edge: #243029; --tl-head: #161c19; }
   [hidden] { display: none !important; }
   html, body { height: 100%; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.35 var(--ui); overflow: hidden; }
@@ -113,13 +116,16 @@
   .stgrid input[type=number] { width: 64px; }
   .stw { display: flex; align-items: center; gap: 8px; } .stw input { flex: 1; accent-color: #e58ad6; }
   #stStrip { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-  .stinfo { font: 500 12px var(--mono); color: var(--ink-2); } .stinfo b { color: var(--ink); font-weight: 500; } .stinfo .ok { color: #7ddc6a; } .stinfo .warn { color: #ffb74a; }
+  .stinfo { font: 500 12px var(--mono); color: var(--ink-2); } .stinfo b { color: var(--ink); font-weight: 500; } .stinfo .ok { color: #7ddc6a; } .stinfo .warn { color: #ffb74a; } .stinfo .dim { color: var(--muted); font-family: var(--ui); }
   .stver { display: flex; gap: 6px; } .stver select { flex: 1; min-width: 0; }
   .stbtns { display: flex; flex-wrap: wrap; gap: 8px; }
   .toolpanel .note { margin: 0; font-size: 12px; color: var(--muted); }
   #helpDlg .box { width: min(620px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; max-height: calc(100vh - 32px); }
   .helpbody { overflow: auto; } .helpbody p { margin: 0 0 10px; font-size: 13px; color: var(--ink-2); }
   .helpbtn { font: 700 13px Georgia, serif !important; font-style: italic !important; width: 26px; padding: 3px 0 !important; border-radius: 50% !important; }
+  #confirmDlg { z-index: 60; } #confirmDlg .box { width: min(420px, 100%); grid-template-rows: auto auto auto; }
+  #confirmDlg p { margin: 0; color: var(--ink-2); font-size: 14px; }
+  button.danger { background: #c9402f; border-color: #c9402f; color: #fff; font-weight: 700; } button.danger:hover { background: #e04b37; }
   .symtag { font: 700 10px var(--display); letter-spacing: .1em; color: #1a0f18; background: #e58ad6; border-radius: 3px; padding: 1px 4px; }
   .row.sym { background: #1a1419; }
   .row.sym .h { background: #1a1419; }
@@ -259,3 +265,33 @@
     .addbar button { padding: 4px 6px; font-size: 12px; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ---- colour pass ---- */
+  .bar { background: linear-gradient(180deg, #1c2420, var(--bar-bg)); border-bottom-color: var(--view-edge); }
+  .brand b { color: #eef3ef; }
+  .tl-head { background: var(--tl-head); }
+  .addbar { background: var(--tl-head); }
+  #ruler { background: var(--tl-head); }
+  .row .h { position: relative; }
+  .row.track .h::before, .row.bone .h::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--stripe, transparent); opacity: .9; }
+  .row.t-master { --stripe: var(--c-master); } .row.t-master .h { background: #1b1822; }
+  .row.bars { --stripe: var(--c-master); } .row.bars .h { background: #1b1822; }
+  .row.t-group, .row.grp { --stripe: var(--c-group); }
+  .row.t-bone, .row.bone:not(.grp):not(.eff):not(.sym) { --stripe: var(--c-bone); }
+  .row.t-eff, .row.eff { --stripe: var(--c-ik); }
+  .row.t-sym, .row.sym { --stripe: var(--c-sym); }
+  .row.track .h { background: #171d1a; }
+  .row.t-group .h { background: #161b21; } .row.t-eff .h { background: #151d1b; } .row.t-sym .h { background: #1c171c; } .row.t-bone .h { background: #1d1a16; }
+  .row.bone:not(.grp):not(.eff):not(.sym) { background: #1f1b15; } .row.bone:not(.grp):not(.eff):not(.sym) .h { background: #1f1b15; }
+  .row.bone .name { color: #f1f4f2; }
+  .addbar #btnAddGroup { border-color: rgba(127,183,255,.45); } .addbar #btnAddBone { border-color: rgba(240,138,28,.45); } .addbar #btnAddIK { border-color: rgba(95,211,168,.45); } .addbar #btnAddMaster { border-color: rgba(181,140,255,.5); color: #d9c7ff; }
+  button[aria-pressed="true"] { background: var(--accent-dim); }
+  .btngroup button[aria-pressed="true"], .worldbtns button[aria-pressed="true"] { background: var(--accent-dim); }
+  button.primary:hover { background: #ff9a33; }
+  .io button { background: #202824; }
+  #btnSym { border-color: rgba(229,138,214,.55); color: #f5d6ff; } #btnBake { border-color: rgba(181,140,255,.5); }
+  .toolbar { background: rgba(20,26,23,.9); border-color: var(--view-edge); }
+  .chip { background: rgba(18,24,21,.86); border-color: var(--view-edge); }
+  .hbar, .hbarh { background: var(--tl-head); }
+  .sheet .box { background: #1a201d; border-color: #33403a; }
+  .toolpanel { background: #1b1a1f; }

@@ -394,7 +394,21 @@ function selectClip(id) {
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
 // removing a linked source removes its twin too; removing a twin just ends the link
+// every delete asks first: a small dialog, Enter = Delete, Esc = Cancel
+function confirmDelete(message, run, okLabel = 'Delete') {
+  const dlg = $('confirmDlg'); $('confirmMsg').textContent = message; $('confirmOk').textContent = okLabel; dlg.hidden = false;
+  const close = () => { dlg.hidden = true; dlg.onkeydown = null; };
+  $('confirmOk').onclick = () => { close(); run(); };
+  $('confirmCancel').onclick = close;
+  dlg.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); close(); } if (e.key === 'Enter') { e.preventDefault(); close(); run(); } e.stopPropagation(); };
+  $('confirmOk').focus();
+}
+function itemLabel(type, key) { return type === 'eff' ? EFF_BY_ID[key].label : type === 'group' ? groupLabel(key) : key; }
 function removeLinked(type, map, orderKey, key) {
+  const it = map[key], to = partnerOf(type, key), both = it && it.mirror && to && map[to] && map[to].mirrorOf === key;
+  confirmDelete(`Remove ${both ? sideless(itemLabel(type, key)) + ' (both sides)' : itemLabel(type, key)} and all its tracks from the timeline?`, () => removeLinkedNow(type, map, orderKey, key));
+}
+function removeLinkedNow(type, map, orderKey, key) {
   pushUndo();
   const it = map[key], to = partnerOf(type, key);
   const gone = [key]; if (it && it.mirror && to && map[to] && map[to].mirrorOf === key) gone.push(to);

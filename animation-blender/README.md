@@ -36,6 +36,12 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
     and the hips position likewise. Both sides keep half of their own motion and the result is symmetric.
   - Mode **Copy**: one side's arms and/or legs replace the other's (right → left or left → right), with a cycle split.
   - Strength scales either mode.
+  - **Swing ease** (−100…+100):
+    - The hands' and feet's forward swing gives one speed profile, and the whole cycle is retimed with it.
+      Plus spreads the motion more evenly (less time hanging at the ends); minus makes it hang longer at the ends.
+    - Each half cycle is warped separately, so the feet stay on the bars and every bone keeps in step.
+    - A readout shows the time spent in the outer "ends zone" % of the swing, before → after.
+    - Swing ease is applied last, so it wins over Even swing.
   - Feet on bars retimes the cycle so the chosen foot lands at 0 % and the other at 50 %. Before / after contacts and step times are shown.
   - The mirrored side gets the whole cycle of the source side, half a cycle away, so none of its old motion is left.
   - Even swing retimes back-most → passing under the hips = passing → front-most for both feet.
@@ -56,7 +62,7 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
 - **Master tracks are optional** ("+" beside Group… / Bone… / IK…): playback speed, moving speed, and cycle speed + bar reach. Hidden ones keep their values.
 - **Bar reach:** click a quarter-bar segment to make it v % faster (speed × (1 + v/100)) or slower. A change carries on into later segments until changed again, and changes multiply (10 then 10 = × 1.21). Each cell shows its value and the running factor.
 - **Cycle speed** (automation, speed %): 100 = neutral, 150 = 1.5 × as fast (older saves are converted). It eases between points and multiplies with bar reach.
-- **Realtime bars** (header checkbox): bar lines where the bars really fall after bar reach / cycle speed; off keeps them evenly spaced.
+- **Realtime bars** (header checkbox): on, the timeline is in real seconds and the bars move with cycle speed / bar reach. Off, the timeline is in bar space: every bar is the same width, and feet, curves and the playhead follow the bars.
 - **Timeline zoom:** the scroll bar under the tracks (drag to scroll, drag its ends to zoom), Ctrl + wheel to zoom at the cursor, Shift + wheel to scroll, Fit for the whole length. It follows the playhead while playing. Alt + wheel zooms a track's values.
 - **Viewport layout:**
   - Left toolbar: Select (Q), Move (W), Rotate (E), Auto-key.
@@ -123,6 +129,8 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - The ground is infinite: a shader grid drawn from world coordinates that follows the camera.
   - "In place" off: the character travels with the clip's root motion and keeps going across loops.
   - Follow keeps the camera on the character. Frame (F) re-centres it.
+- **Every delete asks first** (tracks, items, points, bar reach, Reset clip, Revert): Enter = Delete, Esc = Cancel.
+- **Colours:** each kind of track has a muted stripe and tint: master violet, groups blue, bones orange, IK teal, symmetrize pink.
 - **Delete a track:** the × on a track header (shown on hover) or right-click → Delete track. Its automation is cleared and it leaves the timeline. An item with no tracks left is removed. Ctrl+Z brings it back.
 - **Precision:**
   - Drag a track's bottom edge to set its height.

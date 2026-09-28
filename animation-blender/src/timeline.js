@@ -35,7 +35,7 @@ function mkRow(cls, key) {
 }
 function rowHeight(r) { return r.key ? (A.heights[r.key] || LANE_H) : LANE_H; }
 function addTrackRow(key, spec, get, set, labelHTML, owner) {
-  const r = mkRow('track', key);
+  const r = mkRow('track t-' + (owner ? owner.type : 'master'), key);
   Object.assign(r, spec, { kind: 'track', get, set, owner });
   r.h.innerHTML = `<span class="sw" style="background:${spec.color}"></span><span class="name">${labelHTML}</span><button type="button" class="val" title="Click to type a value at the playhead"></button><button type="button" class="tdel" title="Delete this track (its automation is cleared)">×</button><div class="rz" title="Drag to set this track's height · double-click for the default"></div>`;
   r.h.title = 'Double-click the name to reset · right-click the lane for track options';
@@ -74,7 +74,7 @@ function rebuildRows() {
     hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!sy.collapsed}">${sy.collapsed ? '▸' : '▾'}</button><span class="symtag">SYM</span><span class="name"></span><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
     hr.h.querySelector('.name').textContent = symLabel(k);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { sy.collapsed = !sy.collapsed; rebuildRows(); save(); };
-    hr.h.querySelector('[data-act="del"]').onclick = () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); };
+    hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove "${symLabel(k)}" and its tracks?`, () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); });
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from the cycle split away (50 % = half a cycle), mirrored. Weight 100 % = fully symmetric. Watch the step times in the viewport.';
     tracksEl.append(hr.el); rows.push(hr);
     sy.show = sy.show || { weight: true, offset: true };
@@ -174,8 +174,8 @@ function addBarsRow() {
   cv.addEventListener('pointerleave', () => tip(null));
   cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const q = segAt(e); openMenu(e.clientX, e.clientY, [
     { label: 'Set this segment…', action: () => openBarEdit(q, e) },
-    { label: 'Reset this segment', disabled: !A.barSpeed[q], action: () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); } },
-    { label: 'Clear all bar speeds', disabled: !Object.keys(A.barSpeed).length, action: () => { pushUndo(); A.barSpeed = {}; barsEdited(); } },
+    { label: 'Reset this segment', disabled: !A.barSpeed[q], action: () => confirmDelete(`Reset bar ${Math.floor(q / 4) + 1} .${q % 4} to 0 %?`, () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); }, 'Reset') },
+    { label: 'Clear all bar speeds', disabled: !Object.keys(A.barSpeed).length, action: () => confirmDelete('Clear every bar reach value?', () => { pushUndo(); A.barSpeed = {}; barsEdited(); }, 'Clear') },
   ]); });
   tracksEl.append(r.el); rows.push(r);
 }
@@ -191,35 +191,36 @@ $('btnAddMaster').onclick = (e) => {
 $('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };
 $('helpClose').onclick = () => { $('helpDlg').hidden = true; };
 $('helpDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('helpDlg').hidden = true; });
-$('realtimeCb').onchange = () => { S.realtime = $('realtimeCb').checked; gridCache = null; layoutLanes(); trailDirty = true; save(); };
+$('realtimeCb').onchange = () => { S.realtime = $('realtimeCb').checked; gridCache = null; setView(0, dispDur()); trailDirty = true; save(); };
 
 // ---------------------------------------------------------------- horizontal zoom / scroll
 function setView(a, b) {
   const minSpan = Math.min(S.dur, 0.05);
-  let span = clamp(b - a, minSpan, S.dur); a = clamp(a, 0, S.dur - span);
+  const D = dispDur(); let span = clamp(b - a, Math.min(D, minSpan), D); a = clamp(a, 0, D - span);
+  S.viewAll = span >= D - 1e-6;
   S.v0 = a; S.v1 = a + span;
   layoutLanes(); updateHScroll();
 }
 function updateHScroll() {
-  const th = $('hthumb'); th.style.left = (S.v0 / S.dur) * 100 + '%'; th.style.width = Math.max(0.5, (vSpan() / S.dur) * 100) + '%';
+  const D = dispDur(), th = $('hthumb'); th.style.left = (S.v0 / D) * 100 + '%'; th.style.width = Math.max(0.5, (vSpan() / D) * 100) + '%';
 }
 {
   const bar = $('hscroll'); let hd = null;
   bar.addEventListener('pointerdown', (e) => {
     e.preventDefault(); bar.setPointerCapture(e.pointerId);
     const r = bar.getBoundingClientRect(), mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : e.target.id === 'hthumb' ? 'pan' : 'jump';
-    if (mode === 'jump') { const c = ((e.clientX - r.left) / r.width) * S.dur; setView(c - vSpan() / 2, c + vSpan() / 2); }
+    if (mode === 'jump') { const c = ((e.clientX - r.left) / r.width) * dispDur(); setView(c - vSpan() / 2, c + vSpan() / 2); }
     hd = { mode: mode === 'jump' ? 'pan' : mode, x0: e.clientX, a: S.v0, b: S.v1, w: r.width };
   });
   bar.addEventListener('pointermove', (e) => {
     if (!hd) return;
-    const dt = ((e.clientX - hd.x0) / hd.w) * S.dur;
+    const dt = ((e.clientX - hd.x0) / hd.w) * dispDur();
     if (hd.mode === 'pan') setView(hd.a + dt, hd.b + dt);
     else if (hd.mode === 'l') setView(Math.min(hd.a + dt, hd.b - 0.05), hd.b);
     else setView(hd.a, Math.max(hd.b + dt, hd.a + 0.05));
   });
   bar.addEventListener('pointerup', () => { hd = null; });
-  $('btnFit').onclick = () => setView(0, S.dur);
+  $('btnFit').onclick = () => setView(0, dispDur());
   // Ctrl / ⌘ + wheel: time zoom around the cursor · Shift + wheel: scroll
   document.querySelector('.tl').addEventListener('wheel', (e) => {
     if (e.altKey || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
@@ -231,8 +232,9 @@ function updateHScroll() {
   }, { passive: false });
 }
 function followPlayhead() {   // while playing, keep the playhead in view
-  if (vSpan() >= S.dur - 1e-6) return;
-  if (S.t > S.v1 || S.t < S.v0) { const span = vSpan(); setView(S.t - span * 0.1, S.t - span * 0.1 + span); }
+  if (vSpan() >= dispDur() - 1e-6) return;
+  const d = dispOf(S.t);
+  if (d > S.v1 || d < S.v0) { const span = vSpan(); setView(d - span * 0.1, d - span * 0.1 + span); }
 }
 
 function barsEdited() { rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save(); }
@@ -300,7 +302,7 @@ function lane(r) {
   cv.addEventListener('pointerleave', () => { if (!drag && !boxSel) tip(null); });
   cv.addEventListener('contextmenu', (e) => {
     e.preventDefault(); const hit = hitPoint(r, e);
-    if (hit != null) { pushUndo(); deletePoint(r, hit); } else openLaneMenu(e, r);
+    if (hit != null) deletePoint(r, hit); else openLaneMenu(e, r);
   });
   cv.addEventListener('dblclick', (e) => { const hit = hitPoint(r, e); if (hit != null) openNumEdit(r, hit, e); });
   cv.addEventListener('wheel', (e) => {
@@ -337,9 +339,17 @@ const viewOf = (r) => A.zoom[r.key] || r.range;
 const dprOf = (r) => r.cv.width / Math.max(1, r.cv.clientWidth || r.lane.clientWidth || 1);
 // the visible time window (horizontal zoom / scroll): S.v0 … S.v1 seconds
 const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
-const xT = (t, w) => ((t - S.v0) / vSpan()) * w;
+// Display axis. Realtime bars on: real seconds. Off: "bar space" — the axis follows the bars, so every bar is the
+// same width however cycle speed / bar reach change the timing, and feet and curves stay lined up with the bars.
+// A display coordinate d is the nominal time (playback speed only) at which the clip reaches the same clip time.
+function barSpace() { return !S.realtime && S.speedLUTNom && S.speedLUT && Math.abs(S.speedLUT[S.speedLUT.length - 1] - S.speedLUTNom[S.speedLUTNom.length - 1]) + Object.keys(A.barSpeed || {}).length > 1e-6; }
+function lutAt(lut, t) { const f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
+function dispOf(t) { return barSpace() ? timeOfClipTime(lutAt(S.speedLUT, t), S.speedLUTNom, true) : t; }
+function tOfDisp(d) { return barSpace() ? timeOfClipTime(lutAt(S.speedLUTNom, d), S.speedLUT) : d; }
+function dispDur() { return barSpace() ? dispOf(S.dur) : S.dur; }
+const xT = (t, w) => ((dispOf(t) - S.v0) / vSpan()) * w;
 function xOf(r, t) { return xT(t, r.cv.width); }
-function tOf(r, x) { return clamp(S.v0 + (x / r.cv.width) * vSpan(), 0, S.dur); }
+function tOf(r, x) { return clamp(tOfDisp(S.v0 + (x / r.cv.width) * vSpan()), 0, S.dur); }
 function yOf(r, v) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return p + (1 - (v - lo) / (hi - lo)) * (h - 2 * p); }
 function vOfRaw(r, y) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return lo + (1 - (y - p) / (h - 2 * p)) * (hi - lo); }
 function vOf(r, y) { return clamp(vOfRaw(r, y), r.range[0], r.range[1]); }
@@ -384,7 +394,7 @@ function drawLane(r) {
 function evXY(r, e) { const b = r.cv.getBoundingClientRect(), k = r.cv.width / b.width; return [(e.clientX - b.left) * k, (e.clientY - b.top) * k, k]; }
 function hitPoint(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); let best = null, bd = 8 * k; pts.forEach((p, i) => { const d = Math.hypot(xOf(r, p.t) - px, yOf(r, p.v) - py); if (d < bd) { bd = d; best = i; } }); return best; }
 function hitRing(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); for (let i = 0; i < pts.length - 1; i++) { const tm = (pts[i].t + pts[i + 1].t) / 2; if (Math.hypot(xOf(r, tm) - px, yOf(r, evalPts(pts, tm)) - py) < 7 * k) return i; } return null; }
-function deletePoint(r, i) { const pts = r.get(); if (pts.length <= 1) return; pts.splice(i, 1); edited(r); }
+function deletePoint(r, i) { const pts = r.get(); if (pts.length <= 1) return; confirmDelete(`Delete this point (${pts[i].t.toFixed(2)} s, ${r.fmt(pts[i].v)}) from ${trackName(r)}?`, () => { pushUndo(); pts.splice(i, 1); edited(r); }); }
 let drag = null, boxSel = null, selRow = null, selPts = new Set();
 function onLaneDown(e, r) {
   if (e.button !== 0) return;
@@ -573,7 +583,12 @@ function openEffMenu(e, id) {
   ]);
 }
 // delete a track: its automation goes back to neutral and it leaves the timeline; an item with no tracks left goes too
+function trackName(r) { const el = r.h.querySelector('.name'); const own = r.owner ? (r.owner.type === 'bone' ? r.owner.name : r.owner.type === 'eff' ? EFF_BY_ID[r.owner.id].label : r.owner.type === 'group' ? groupLabel(r.owner.id) : symLabel(r.owner.id)) : ''; return `"${el ? el.textContent.trim() : r.key}"${own ? ' of ' + own : ''}`; }
 function deleteTrack(r) {
+  const o = r.owner, last = (o && o.type === 'bone' && Object.values(A.bones[o.name].show).filter(Boolean).length === 1) || (o && o.type === 'eff' && Object.values(A.ik[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'group' && Object.values(A.groups[o.id].show).filter(Boolean).length === 1);
+  confirmDelete(`Delete the track ${trackName(r)}? Its automation is cleared.${last ? ' It is the last track, so the item leaves the timeline too.' : ''}`, () => deleteTrackNow(r));
+}
+function deleteTrackNow(r) {
   pushUndo();
   r.set(flat(r.ref, S.dur));
   const part = r.key.split('|'), last = part[part.length - 1], o = r.owner;
@@ -610,7 +625,7 @@ function openLaneMenu(e, r) {
     { label: 'Reset value zoom', disabled: !A.zoom[r.key], action: () => setZoom(r, r.range) },
     ...HEIGHT_PRESETS.map(([n, v]) => ({ label: 'Height: ' + n, checked: h === v, action: () => setRowHeight(r, v, true) })),
     { sep: true },
-    { label: 'Reset track', action: () => { pushUndo(); r.set(flat(r.ref, S.dur)); edited(r); } },
+    { label: 'Reset track', action: () => confirmDelete(`Reset ${trackName(r)}? All its points go.`, () => { pushUndo(); r.set(flat(r.ref, S.dur)); edited(r); }, 'Reset') },
   ]);
 }
 
@@ -626,6 +641,11 @@ function pasteSelection() {
 function deleteSelection() {
   if (!selRow || !selPts.size) return;
   const pts = selRow.get(); if (pts.length - selPts.size < 1) return;
+  confirmDelete(`Delete ${selPts.size} point${selPts.size > 1 ? 's' : ''} from ${trackName(selRow)}?`, deleteSelectionNow);
+}
+function deleteSelectionNow() {
+  if (!selRow || !selPts.size) return;
+  const pts = selRow.get();
   pushUndo();
   const keep = pts.filter((_, i) => !selPts.has(i));
   selRow.set(keep.length ? keep : flat(selRow.ref, S.dur));
@@ -642,7 +662,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }
@@ -669,8 +689,13 @@ window.addEventListener('keydown', (e) => {
 
 // ruler + playhead
 const ruler = $('ruler'); let rulerDrag = false;
-function timeOfClipTime(ct, lut = S.speedLUT) { if (!lut || lut.length < 2) return 0;
-  if (ct <= lut[0]) return 0; if (ct >= lut[lut.length - 1]) return S.dur;
+function timeOfClipTime(ct, lut = S.speedLUT, extend = false) { if (!lut || lut.length < 2) return 0;
+  if (ct <= lut[0]) return 0;
+  if (ct >= lut[lut.length - 1]) {   // past the end: carry on at the last rate (display axis only)
+    if (!extend) return S.dur;
+    const n = lut.length - 1, rate = (lut[n] - lut[n - 1]) / (S.dur / n);
+    return S.dur + (rate > 1e-9 ? (ct - lut[n]) / rate : 0);
+  }
   let lo = 0, hi = lut.length - 1;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (lut[mid] < ct) lo = mid; else hi = mid; }
   const t0 = lo / (lut.length - 1) * S.dur, t1 = hi / (lut.length - 1) * S.dur;
@@ -751,7 +776,7 @@ function timeGrid() {
     for (let f = 0; f <= Math.round(S.dur * FPS); f++) lines.push({ t: f / FPS, level: f % FPS === 0 ? 2 : f % 5 === 0 ? 1 : 0, label: f % 5 === 0 ? f + 'f' : '' });
   } else if (S.unit === 'cycle' && cur && S.speedLUT) {
     // realtime: bar lines where the bars really fall (after bar reach / cycle speed); otherwise evenly spaced
-    const lutG = S.realtime ? S.speedLUT : S.speedLUTNom, total = lutG[lutG.length - 1];
+    const lutG = S.speedLUT, total = lutG[lutG.length - 1];
     for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? 'bar ' + (q / 8 + 1) : q % 2 === 0 ? '.' + (q % 8) / 2 : '' });
   } else if (S.unit === 'step' && spans.length) {
     const n = { L: 0, R: 0 };
@@ -785,11 +810,11 @@ function unitReadout(t) {
 $('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); trailDirty = true; save(); };
 $('btnMagnet').onclick = () => { S.magnet = !S.magnet; $('btnMagnet').setAttribute('aria-pressed', S.magnet); trailDirty = true; save(); };
 
-function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp(S.v0 + clamp((e.clientX - b.left) / b.width, 0, 1) * vSpan(), 0, S.dur); }
+function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp(tOfDisp(S.v0 + clamp((e.clientX - b.left) / b.width, 0, 1) * vSpan()), 0, S.dur); }
 ruler.addEventListener('pointerdown', (e) => { rulerDrag = true; ruler.setPointerCapture(e.pointerId); scrub(e); });
 function placePlayhead() {
   const tl = document.querySelector('.tl').getBoundingClientRect(), rb = ruler.getBoundingClientRect();
-  const f = (S.t - S.v0) / vSpan();
+  const f = (dispOf(S.t) - S.v0) / vSpan();
   playhead.hidden = f < -0.001 || f > 1.001;
   playhead.style.left = (rb.left - tl.left + f * rb.width - 1) + 'px';
 }

@@ -211,7 +211,9 @@ function rebuildSpeedLUT() {
   }
   S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;
-  rebuildTravelLUT(); gridCache = null; drawRuler();
+  rebuildTravelLUT(); gridCache = null;
+  if (S.viewAll !== false) { S.v0 = 0; S.v1 = dispDur(); } else { const D = dispDur(); S.v1 = Math.min(S.v1, D); S.v0 = Math.min(S.v0, Math.max(0, S.v1 - 0.05)); }
+  updateHScroll(); drawRuler();
 }
 function clipTime(t) { const lut = S.speedLUT, f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
 let moveEndCache = null;

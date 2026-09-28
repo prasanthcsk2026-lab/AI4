@@ -33,7 +33,7 @@
     </div>
     <div class="field"><label for="unitSel">Grid</label><select id="unitSel" title="Timeline unit: grid lines, ruler and Ctrl-snap">
       <option value="sec">Seconds</option><option value="frame">Frames (30 fps)</option><option value="cycle">Cycles (bars)</option><option value="step">Foot steps (locks)</option>
-    </select><label class="cb" title="Bar lines where the bars really fall after bar reach / cycle speed (off: evenly spaced)"><input type="checkbox" id="realtimeCb"> Realtime bars</label><button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Magnet</button></div>
+    </select><label class="cb" title="On: the timeline in real seconds (bars move with cycle speed / bar reach). Off: bar space — every bar the same width, feet and curves stay on the bars."><input type="checkbox" id="realtimeCb"> Realtime bars</label><button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Magnet</button></div>
     <div class="spacer"></div>
     <div class="io">
       <button type="button" id="btnSym" title="Make left and right match: mirror one side onto the other, half a cycle apart">Symmetrize</button>
@@ -109,6 +109,8 @@
     <label>Strength</label><span class="stw"><input type="range" id="stW" min="0" max="100" value="100"><b id="stWv">100%</b></span>
     <label class="copyonly">Cycle split</label><span class="copyonly"><input type="number" id="stSplit" min="30" max="70" step="0.5" value="50"> %</span>
     <label>Feet on bars</label><span><input type="checkbox" id="stRetime" checked> <select id="stStart"><option value="L">Left lands on the bar</option><option value="R">Right lands on the bar</option></select></span>
+    <label>Swing ease</label><span class="stw"><input type="range" id="stEase" min="-100" max="100" step="5" value="0" title="+ spreads the swing speed evenly (less time hanging at the ends), − hangs longer at the ends; the whole body together, feet stay on the bars"><b id="stEasev">0</b></span>
+    <label>Ends zone</label><span><input type="number" id="stZone" min="2" max="45" step="1" value="20"> % of the swing at each end (readout)</span>
     <label>Even swing</label><span><input type="checkbox" id="stSwing" checked> back → centre = centre → front</span>
     <label class="copyonly">Centre</label><span class="copyonly"><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
   </div>
@@ -120,6 +122,13 @@
   <div class="stbtns"><button type="button" id="stFbx">Export FBX</button><button type="button" id="stGlb">Export glTF</button><button type="button" id="stClose">Close</button></div>
   <p class="note" id="stNote"></p>
 </aside>
+<div class="sheet" id="confirmDlg" hidden>
+  <div class="box confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMsg">
+    <h2 id="confirmTitle">Are you sure?</h2>
+    <p id="confirmMsg"></p>
+    <div class="acts"><button type="button" id="confirmCancel">Cancel</button><button type="button" class="danger" id="confirmOk">Delete</button></div>
+  </div>
+</div>
 <div class="sheet" id="helpDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <h2 id="helpTitle">How the timeline works</h2>

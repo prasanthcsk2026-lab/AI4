@@ -30,9 +30,7 @@ function setLength(dIn) {
   S.dur = A.dur = d; S.t = Math.min(S.t, d); S.v0 = 0; S.v1 = d; syncLenInputs(); updateHScroll(); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 }
 $('btnReset').onclick = () => {
-  const b = $('btnReset');
-  if (b.dataset.armed) { delete b.dataset.armed; b.textContent = 'Reset clip'; pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); return; }
-  b.dataset.armed = '1'; b.textContent = 'Click again to clear'; setTimeout(() => { delete b.dataset.armed; b.textContent = 'Reset clip'; }, 2500);
+  confirmDelete(`Clear all automation for "${cur.name}"? Every group, bone, IK and master track goes.`, () => { pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); }, 'Clear all');
 };
 $('btnFootLock').onclick = () => { const msg = autoFootLock(); flash(msg); };
 let flashTimer = 0;
