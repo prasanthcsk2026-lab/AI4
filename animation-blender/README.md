@@ -184,3 +184,12 @@ python3 -m http.server -d animation-blender/dist 8000
 ```
 
 `dist/` is not committed; rebuild it after editing `src/`. three.js and the fonts load from CDNs.
+
+## Import FBX (Character Creator)
+**Import FBX…** reads a CC / iClone FBX (`CC_Base_` bones, auto-mapped; the mapping can be changed), picks a take, finds the left-foot landings and cuts one loop (or a one-shot), in place by default. Imported clips live in this browser's cache (IndexedDB) until **Save to project** stores them in the artifact database; cache clips can be deleted from the dialog.
+
+## Deleting
+Deletes happen at once with a **Deleted · Undo** toast. Right double-click deletes whatever is under the cursor; a single right-click opens the menu. Reset clip and Revert still ask first.
+
+## Symmetrize
+One cycle from left-foot landing to left-foot landing; each half is stretched uniformly so the right foot lands at the middle. Output keeps the clip's own frame count with no repeated frames. **Even swing** is optional (off by default).

@@ -246,7 +246,7 @@ async function boot() {
   $('lenMode').value = S.lenMode;
   $('unitSel').value = S.unit;
   syncToggles();
-  buildClipSelect(); loadBaked(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
+  buildClipSelect(); loadBaked(); loadImported(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
   selectClip(first.id);
   $('loading').hidden = true;
@@ -257,7 +257,7 @@ async function boot() {
 // ---------------------------------------------------------------- UI: clip + bones
 function buildClipSelect() {
   const sel = $('clipSel'); sel.textContent = '';
-  for (const grp of ['Loops', 'One-shot moves']) {
+  for (const grp of ['Loops', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) sel.append(og);
@@ -394,8 +394,25 @@ function selectClip(id) {
   rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
 }
 // removing a linked source removes its twin too; removing a twin just ends the link
-// every delete asks first: a small dialog, Enter = Delete, Esc = Cancel
+// Deletes happen at once, with an "Undo" toast (Ctrl+Z works too). Only clearing a whole clip still asks first.
 function confirmDelete(message, run, okLabel = 'Delete') {
+  if (okLabel !== 'Clear all' && okLabel !== 'Revert') { run(); toast(message.replace(/\?.*$/, '').replace(/^Delete /, 'Deleted ').replace(/^Remove /, 'Removed ').replace(/^Reset /, 'Reset ').replace(/^Clear /, 'Cleared ')); return; }
+  askConfirm(message, run, okLabel);
+}
+let toastTimer = 0;
+function toast(text) {
+  const el = $('toast'); $('toastMsg').textContent = text; el.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 4500);
+}
+// a second right-click on the same thing within 0.4 s: that thing is deleted
+let lastRight = null;
+function rightDouble(key) {
+  const now = performance.now(), hit = lastRight && lastRight.key === key && now - lastRight.t < 400;
+  lastRight = hit ? null : { key, t: now };
+  if (hit) menuEl.hidden = true;
+  return hit;
+}
+function askConfirm(message, run, okLabel) {
   const dlg = $('confirmDlg'); $('confirmMsg').textContent = message; $('confirmOk').textContent = okLabel; dlg.hidden = false;
   const close = () => { dlg.hidden = true; dlg.onkeydown = null; };
   $('confirmOk').onclick = () => { close(); run(); };

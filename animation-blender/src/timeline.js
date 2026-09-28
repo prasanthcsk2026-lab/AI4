@@ -43,6 +43,7 @@ function addTrackRow(key, spec, get, set, labelHTML, owner) {
   r.valEl = r.h.querySelector('.val');
   r.valEl.onclick = (e) => openNumEdit(r, null, e);
   r.h.querySelector('.tdel').onclick = () => deleteTrack(r);
+  r.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('h|' + r.key)) deleteTrack(r); else openMenu(e.clientX, e.clientY, [{ label: 'Delete track (or right double-click)', action: () => deleteTrack(r) }]); };
   const rz = r.h.querySelector('.rz');
   rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
   rz.ondblclick = () => setRowHeight(r, LANE_H, true);
@@ -75,6 +76,7 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = symLabel(k);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { sy.collapsed = !sy.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove "${symLabel(k)}" and its tracks?`, () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); });
+    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('s|' + k)) hr.h.querySelector('[data-act="del"]').click(); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from the cycle split away (50 % = half a cycle), mirrored. Weight 100 % = fully symmetric. Watch the step times in the viewport.';
     tracksEl.append(hr.el); rows.push(hr);
     sy.show = sy.show || { weight: true, offset: true };
@@ -95,7 +97,7 @@ function rebuildRows() {
     hr.h.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeGroup(gid);
     hr.h.querySelector('.name').onclick = () => selectGroup(gid);
-    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); openGroupMenu(ev, gid); };
+    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('g|' + gid)) removeGroup(gid); else openGroupMenu(ev, gid); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = groupSummary(gid);
     tracksEl.append(hr.el); rows.push(hr);
     if (g.collapsed) continue;
@@ -117,7 +119,7 @@ function rebuildRows() {
     hr.h.querySelector('[data-act="fold"]').onclick = () => { ba.collapsed = !ba.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeBone(name);
     hr.h.querySelector('.name').onclick = () => selectBone(name);
-    hr.h.oncontextmenu = (e) => { e.preventDefault(); openBoneMenu(e, name); };
+    hr.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('b|' + name)) removeBone(name); else openBoneMenu(e, name); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = boneSummary(ba);
     tracksEl.append(hr.el); rows.push(hr);
     if (ba.collapsed) continue;
@@ -140,7 +142,7 @@ function rebuildRows() {
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
     hr.h.querySelector('.name').onclick = () => selectEff(id);
-    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); openEffMenu(ev, id); };
+    hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('e|' + id)) removeEff(id); else openEffMenu(ev, id); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = effSummary(id);
     tracksEl.append(hr.el); rows.push(hr);
     if (e.collapsed) continue;
@@ -172,7 +174,7 @@ function addBarsRow() {
   cv.addEventListener('click', (e) => openBarEdit(segAt(e), e));
   cv.addEventListener('pointermove', (e) => { const q = segAt(e), v = A.barSpeed[q] || 0; tip(e, `bar ${Math.floor(q / 4) + 1} · .${q % 4}→${q % 4 === 3 ? 'next bar' : '.' + (q % 4 + 1)}: ${v >= 0 ? '+' : ''}${v}% · speed ×${segMulTable(q)[q].toFixed(3)}`); });
   cv.addEventListener('pointerleave', () => tip(null));
-  cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const q = segAt(e); openMenu(e.clientX, e.clientY, [
+  cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const q = segAt(e); if (rightDouble('bars#' + q)) { if (A.barSpeed[q]) confirmDelete(`Reset bar ${Math.floor(q / 4) + 1} .${q % 4} to 0 %?`, () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); }, 'Reset'); return; } openMenu(e.clientX, e.clientY, [
     { label: 'Set this segment…', action: () => openBarEdit(q, e) },
     { label: 'Reset this segment', disabled: !A.barSpeed[q], action: () => confirmDelete(`Reset bar ${Math.floor(q / 4) + 1} .${q % 4} to 0 %?`, () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); }, 'Reset') },
     { label: 'Clear all bar speeds', disabled: !Object.keys(A.barSpeed).length, action: () => confirmDelete('Clear every bar reach value?', () => { pushUndo(); A.barSpeed = {}; barsEdited(); }, 'Clear') },
@@ -300,9 +302,11 @@ function lane(r) {
   cv.addEventListener('pointerdown', (e) => onLaneDown(e, r));
   cv.addEventListener('pointermove', (e) => onLaneHover(e, r));
   cv.addEventListener('pointerleave', () => { if (!drag && !boxSel) tip(null); });
-  cv.addEventListener('contextmenu', (e) => {
+  cv.addEventListener('contextmenu', (e) => {   // right-click: menu · right double-click: delete the point / the track
     e.preventDefault(); const hit = hitPoint(r, e);
-    if (hit != null) deletePoint(r, hit); else openLaneMenu(e, r);
+    if (rightDouble(r.key + (hit != null ? '#' + hit : ''))) { if (hit != null) deletePoint(r, hit); else deleteTrack(r); return; }
+    if (hit != null) openMenu(e.clientX, e.clientY, [{ label: 'Delete point (or right double-click)', action: () => deletePoint(r, hit) }, { label: 'Type its value…', action: () => openNumEdit(r, hit, e) }]);
+    else openLaneMenu(e, r);
   });
   cv.addEventListener('dblclick', (e) => { const hit = hitPoint(r, e); if (hit != null) openNumEdit(r, hit, e); });
   cv.addEventListener('wheel', (e) => {
@@ -707,7 +711,7 @@ function drawFootMarks(x, W, H, dpr) {
   const totalCt = S.speedLUT[S.speedLUT.length - 1];
   try {
     const marks = [];
-    const win = (BAKED[cur.id] && BAKED[cur.id].win) || cur.c.win;   // a symmetrized clip: its measured contacts
+    const win = ((BAKED[cur.id] || cur.c.origBk || {}).win) || cur.c.win;   // a symmetrized clip: its measured contacts
     if (cur.kind === 'loop' && win) {
       for (const Sd of ['L', 'R']) {
         if (!win[Sd]) continue;

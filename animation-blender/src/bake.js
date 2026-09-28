@@ -63,7 +63,7 @@ function loadBaked() {
   markBakedClips();
 }
 function markBakedClips() {
-  for (const o of $('clipSel').querySelectorAll('option')) { const c = clips.find((x) => x.id === o.value); if (c) o.textContent = c.label + (BAKED[c.id] ? ' · baked' : ''); }
+  for (const o of $('clipSel').querySelectorAll('option')) { const c = clips.find((x) => x.id === o.value); if (c) o.textContent = c.label + (BAKED[c.id] && !c.c.imported ? ' · baked' : ''); }
 }
 function bakedDoc() {   // the baked clip in a plain, documented form
   const bk = BAKED[cur.id] || bakeFrames();

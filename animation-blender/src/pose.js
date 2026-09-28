@@ -248,7 +248,7 @@ function rawTravel(t, out = V3()) {   // the clip's own root travel at timeline 
   out.set(0, 0, 0);
   if (!cur) return out;
   const ct = clipTime(t), c = cur.c;
-  if (cur.kind === 'loop') {
+  if (cur.kind === 'loop' || c.imported) {
     const d = (c.speed || 0) * ct, dir = c.dir || 0;
     return out.set(Math.sin(dir) * d, 0, Math.cos(dir) * d);
   }
@@ -265,7 +265,7 @@ const qI = new THREE.Quaternion(), qC = new THREE.Quaternion(), qD = new THREE.Q
 const logQ = (q, out) => { let { x, y, z, w } = q; if (w < 0) { x = -x; y = -y; z = -z; w = -w; } const s = Math.hypot(x, y, z); if (s < 1e-9) return out.set(0, 0, 0); const a = 2 * Math.atan2(s, w); return out.set(x / s * a, y / s * a, z / s * a); };
 const expV = (x, y, z, out) => { const a = Math.hypot(x, y, z); if (a < 1e-9) return out.set(0, 0, 0, 1); const s = Math.sin(a / 2) / a; return out.set(x * s, y * s, z * s, Math.cos(a / 2)); };
 function sampleClip(tau, Q, H) {   // the untouched clip at clip time tau (s), laid facing +z, in place
-  const bk = BAKED[cur.id]; if (bk) { sampleBaked(bk, tau, Q, H); return; }   // a baked clip plays its baked frames
+  const bk = BAKED[cur.id] || cur.c.origBk; if (bk) { sampleBaked(bk, tau, Q, H); return; }   // a baked clip plays its baked frames
   const c = cur.c;
   if (cur.kind === 'loop') {
     lib.sample(c, mod1(tau / cur.dur), Q, H);
@@ -741,7 +741,7 @@ function evaluate(t, pend) {
 
 // ---------------------------------------------------------------- auto foot-lock from the clip's contacts
 function footContact(Sd, t) {
-  const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id];
+  const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk;
   if (bk && bk.win && cur.kind === 'loop') return bk.win[Sd] ? inWin(mod1(ct / cur.dur), bk.win[Sd]) : null;   // a processed clip: its measured contacts
   if (cur.kind === 'loop') return c.win && c.win[Sd] ? inWin(mod1(ct / cur.dur), c.win[Sd]) : null;
   const arr = Sd === 'L' ? c.cL : c.cR, fps = (gl && gl.fps) || 30;

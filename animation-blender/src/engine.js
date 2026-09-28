@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 // ============================================================================
 //  RIG + ANATOMICAL FULL-BODY IK
 //  Everything is solved in world space. Each bone's pose is written as a

@@ -50,103 +50,12 @@ function stSpline(keys) {
     return (2 * t3 - 3 * t2 + 1) * a.r + (t3 - 2 * t2 + t) * h * ma + (-2 * t3 + 3 * t2) * b.r + (t3 - t2) * h * mb;
   };
 }
-// hips / spine / neck / head: average each frame with the mirror of the frame half a cycle away, so the body sways alike both ways
-function stCenterSym(Qs, Hs, M) {
-  const b = rig.b, chain = [b.hips, b.spine, b.spine1, b.spine2, b.neck, b.head].map((x) => boneIdx.get(x.name)), F = ST.fk;
-  const D = chain.map(() => []), rootQ = [], mx = (() => { let s = 0; for (let k = 0; k < M; k++) s += Hs[k * 3]; return s / M; })();
-  for (let k = 0; k < M; k++) {   // each link's rotation relative to its parent, in world (bind) axes
-    F.run(Qs.subarray(k * B * 4, (k + 1) * B * 4), V3(Hs[k * 3], Hs[k * 3 + 1], Hs[k * 3 + 2]), 0);
-    chain.forEach((bi, c) => { const p = F.parent[bi]; D[c].push(F.delta(p).invert().multiply(F.delta(bi))); });
-    rootQ.push(F.Q[F.parent[chain[0]]].clone());
-  }
-  const half = M / 2, mir = (q) => new THREE.Quaternion(q.x, -q.y, -q.z, q.w), out = new THREE.Quaternion();
-  const Hn = Hs.slice();
-  for (let k = 0; k < M; k++) {
-    const k2 = (k + half) % M;
-    let pWorld = rootQ[k], pDelta = pWorld.clone().multiply(F.bqInv[F.parent[chain[0]]]);
-    chain.forEach((bi, c) => {
-      const d = D[c][k].clone().slerp(mir(D[c][k2]), 0.5), delta = pDelta.clone().multiply(d), world = delta.clone().multiply(F.bq[bi]);
-      out.copy(pWorld).invert().multiply(world).toArray(Qs, (k * B + bi) * 4);
-      pDelta = delta; pWorld = world;
-    });
-    Hn[k * 3] = mx + ((Hs[k * 3] - mx) - (Hs[k2 * 3] - mx)) / 2; Hn[k * 3 + 1] = (Hs[k * 3 + 1] + Hs[k2 * 3 + 1]) / 2; Hn[k * 3 + 2] = (Hs[k * 3 + 2] + Hs[k2 * 3 + 2]) / 2;
-  }
-  Hs.set(Hn);
-}
-// Average mode: every bone takes the average of itself and the mirror of its other-side twin half a cycle away
-// (centre bones: of their own mirror half a cycle away). Rotations are averaged relative to the parent, in world
-// axes, with a 50 % slerp (× strength); the hips position is averaged the same way. The result is symmetric.
-function stMirrorAverage(Qs, Hs, M, strength) {
-  const F = ST.fk, bones = rig.bones, twin = bones.map((b) => { const m = mirrorName(b.name); return m != null && boneIdx.has(m) ? boneIdx.get(m) : bones.indexOf(b); });
-  const D = bones.map(() => new Array(M)), rootQ = [], half = M / 2;
-  const mx = (() => { let s = 0; for (let k = 0; k < M; k++) s += Hs[k * 3]; return s / M; })();
-  for (let k = 0; k < M; k++) {
-    F.run(Qs.subarray(k * B * 4, (k + 1) * B * 4), V3(Hs[k * 3], Hs[k * 3 + 1], Hs[k * 3 + 2]), 0);
-    for (let i = 0; i < B; i++) { const p = F.parent[i]; D[i][k] = p < 0 ? F.delta(i) : F.delta(p).invert().multiply(F.delta(i)); }
-    rootQ.push(F.Q[0].clone());
-  }
-  const mir = (q) => new THREE.Quaternion(q.x, -q.y, -q.z, q.w), f = 0.5 * strength;
-  const Hn = Hs.slice(), dW = new Array(B), wW = new Array(B), tmp = new THREE.Quaternion();
-  for (let k = 0; k < M; k++) {
-    const k2 = (k + half) % M;
-    for (let i = 0; i < B; i++) {
-      const p = F.parent[i];
-      if (p < 0) { dW[i] = rootQ[k].clone().multiply(F.bqInv[i]); wW[i] = rootQ[k].clone(); continue; }   // the root stays
-      const d = D[i][k].clone().slerp(mir(D[twin[i]][k2]), f);
-      dW[i] = dW[p].clone().multiply(d); wW[i] = dW[i].clone().multiply(F.bq[i]);
-      tmp.copy(wW[p]).invert().multiply(wW[i]).toArray(Qs, (k * B + i) * 4);
-    }
-    Hn[k * 3] = mx + lerp(Hs[k * 3] - mx, -(Hs[k2 * 3] - mx), f); Hn[k * 3 + 1] = lerp(Hs[k * 3 + 1], Hs[k2 * 3 + 1], f); Hn[k * 3 + 2] = lerp(Hs[k * 3 + 2], Hs[k2 * 3 + 2], f);
-  }
-  Hs.set(Hn);
-}
-function stResample(Q0, H0, M, warp, Qo, Ho, n) {   // Qo / Ho[j] = the source at phase warp(j / n)
-  for (let j = 0; j < n; j++) {
-    const f = mod1(warp(j / n)) * M, i0 = Math.floor(f) % M, i1 = (i0 + 1) % M, u = f - Math.floor(f);
-    for (let bI = 0; bI < B; bI++) {
-      const o0 = (i0 * B + bI) * 4, o1 = (i1 * B + bI) * 4, d = (j * B + bI) * 4;
-      let x1 = Q0[o1], y1 = Q0[o1 + 1], z1 = Q0[o1 + 2], w1 = Q0[o1 + 3];
-      if (Q0[o0] * x1 + Q0[o0 + 1] * y1 + Q0[o0 + 2] * z1 + Q0[o0 + 3] * w1 < 0) { x1 = -x1; y1 = -y1; z1 = -z1; w1 = -w1; }
-      const x = lerp(Q0[o0], x1, u), y = lerp(Q0[o0 + 1], y1, u), z = lerp(Q0[o0 + 2], z1, u), w = lerp(Q0[o0 + 3], w1, u), l = Math.hypot(x, y, z, w) || 1;
-      Qo[d] = x / l; Qo[d + 1] = y / l; Qo[d + 2] = z / l; Qo[d + 3] = w / l;
-    }
-    for (let c = 0; c < 3; c++) Ho[j * 3 + c] = lerp(H0[i0 * 3 + c], H0[i1 * 3 + c], u);
-  }
-}
-// Swing ease, for the whole body at once: the hands' and feet's forward swing (relative to the hips) gives one
-// speed profile; the cycle is re-timed so that motion is spread more evenly (+) or hangs longer at the ends (−).
-// Each half cycle is warped on its own, so the feet still land at 0 % and 50 %; every bone shares the same warp,
-// so shoulders, arms, thighs and legs stay in step.
 function stLimbZ(Q, H, M) {
   const ids = [rig.side.L.hand, rig.side.R.hand, rig.side.L.foot, rig.side.R.foot].map((b) => boneIdx.get(b.name)), hi = boneIdx.get(rig.b.hips.name), z = ids.map(() => []);
   for (let k = 0; k < M; k++) { ST.fk.run(Q.subarray(k * B * 4, (k + 1) * B * 4), V3(H[k * 3], H[k * 3 + 1], H[k * 3 + 2]), 0); ids.forEach((bi, j) => z[j].push(ST.fk.P[bi].z - ST.fk.P[hi].z)); }
   return z.map((zs) => { const lo = Math.min(...zs), hi2 = Math.max(...zs), r = (hi2 - lo) / 2 || 1, c = (hi2 + lo) / 2; return zs.map((v) => (v - c) / r); });   // −1 … 1
 }
 const stEndsShare = (n, zone) => { let a = 0, t = 0; for (const s of n) for (const v of s) { t++; if (Math.abs(v) > 1 - 2 * zone) a++; } return a / Math.max(1, t); };
-function stEase(Q, H, M, e, zone, set) {
-  const n0 = stLimbZ(Q, H, M), hands0 = stEndsShare(n0.slice(0, 2), zone), feet0 = stEndsShare(n0.slice(2), zone);
-  if (Math.abs(e) < 1e-3) return { hands: [hands0, hands0], feet: [feet0, feet0], zone };
-  const sp = new Float32Array(M);   // how much the limbs move from frame k to k+1
-  for (let k = 0; k < M; k++) { let v = 0; for (const s of n0) v += Math.abs(s[(k + 1) % M] - s[k]); sp[k] = v + 1e-4; }
-  const half = M / 2, cum = new Float32Array(M + 1); for (let k = 0; k < M; k++) cum[k + 1] = cum[k] + sp[k];
-  const arcInv = (h, w) => {   // phase in half h where the swing has covered fraction w of that half
-    const a = cum[h * half], b = cum[(h + 1) * half], target = a + w * (b - a);
-    let lo = h * half, hi = (h + 1) * half; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] < target) lo = mid; else hi = mid; }
-    const f = (target - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo]); return (lo + f) / M;
-  };
-  let prev = -1;
-  const map = new Float32Array(M + 1);
-  for (let j = 0; j <= M; j++) {
-    const u = j / M, h = u < 0.5 || j === M ? (j === M ? 1 : 0) : 1, w = (u - h * 0.5) / 0.5;
-    let p = u + e * (arcInv(h, clamp(w, 0, 1)) - u);
-    p = Math.max(p, prev + 1e-6); prev = p; map[j] = p;   // stays monotone
-  }
-  const warpE = (u) => { const f = mod1(u) * M, i = Math.floor(f); return lerp(map[i], map[Math.min(M, i + 1)], f - i); };
-  const Q2 = new Float32Array(M * B * 4), H2 = new Float32Array(M * 3);
-  stResample(Q, H, M, warpE, Q2, H2, M); set(Q2, H2);
-  const n1 = stLimbZ(Q2, H2, M);
-  return { hands: [hands0, stEndsShare(n1.slice(0, 2), zone)], feet: [feet0, stEndsShare(n1.slice(2), zone)], zone };
-}
 function stMeasure(Qs, Hs, M) {   // foot heights and forward offsets from the hips, per frame
   const fi = { L: boneIdx.get(rig.side.L.foot.name), R: boneIdx.get(rig.side.R.foot.name) }, hi = boneIdx.get(rig.b.hips.name);
   const ys = { L: [], R: [] }, zs = { L: [], R: [] };
@@ -156,80 +65,101 @@ function stMeasure(Qs, Hs, M) {   // foot heights and forward offsets from the h
   }
   return { contact: { L: stContacts(ys.L), R: stContacts(ys.R) }, swing: { L: stSwingOf(zs.L), R: stSwingOf(zs.R) } };
 }
+// Average (and Centre): each frame is averaged with the mirror of its partner frame (the same cycle half a cycle
+// later, given as its own buffer). Rotations relative to the parent, in world axes, 50 % slerp × strength; side
+// bones pair with their twin, centre bones with themselves. centreOnly: side bones keep their own motion.
+function stMirrorAverageAB(Qa, Ha, Qb, Hb, N, strength, centreOnly = false) {
+  const F = ST.fk, bones = rig.bones, twin = bones.map((b, i) => { const m = mirrorName(b.name); return m != null && boneIdx.has(m) ? boneIdx.get(m) : i; });
+  const rel = (Q, H, k) => { F.run(Q.subarray(k * B * 4, (k + 1) * B * 4), V3(H[k * 3], H[k * 3 + 1], H[k * 3 + 2]), 0); const out = []; for (let i = 0; i < B; i++) { const p = F.parent[i]; out.push(p < 0 ? F.delta(i) : F.delta(p).invert().multiply(F.delta(i))); } return { D: out, root: F.Q[0].clone() }; };
+  let mx = 0; for (let k = 0; k < N; k++) mx += Ha[k * 3]; mx /= N;
+  const mir = (q) => new THREE.Quaternion(q.x, -q.y, -q.z, q.w), f = 0.5 * strength, tmp = new THREE.Quaternion();
+  const out = new Float32Array(Qa.length), Ho = Ha.slice();
+  for (let k = 0; k < N; k++) {
+    const A = rel(Qa, Ha, k), Bp = rel(Qb, Hb, k), dW = new Array(B), wW = new Array(B);
+    for (let i = 0; i < B; i++) {
+      const p = F.parent[i];
+      if (p < 0) { dW[i] = A.root.clone().multiply(F.bqInv[i]); wW[i] = A.root.clone(); Qa.subarray((k * B + i) * 4, (k * B + i) * 4 + 4).forEach((v, c) => { out[(k * B + i) * 4 + c] = v; }); continue; }
+      const side = twin[i] !== i, d = centreOnly && side ? A.D[i].clone() : A.D[i].clone().slerp(mir(Bp.D[twin[i]]), f);
+      dW[i] = dW[p].clone().multiply(d); wW[i] = dW[i].clone().multiply(F.bq[i]);
+      tmp.copy(wW[p]).invert().multiply(wW[i]).toArray(out, (k * B + i) * 4);
+    }
+    Ho[k * 3] = mx + lerp(Ha[k * 3] - mx, -(Hb[k * 3] - mx), f); Ho[k * 3 + 1] = lerp(Ha[k * 3 + 1], Hb[k * 3 + 1], f); Ho[k * 3 + 2] = lerp(Ha[k * 3 + 2], Hb[k * 3 + 2], f);
+  }
+  Qa.set(out); Ha.set(Ho);
+}
+// ---------------------------------------------------------------- processing
+// 1. one full cycle of the loaded clip, from a left-foot landing to the next (landings found to a fraction of a frame)
+// 2. the right-foot landing splits it in two halves; each half is stretched uniformly to exactly half of the output,
+//    so the right foot lands on the middle frame. Output frames = the clip's own frames per cycle, same cycle time.
+//    A uniform stretch never lands two output frames on the same moment, so no frame repeats.
+// 3. optional: even swing / swing ease (extra re-timing, each step kept ≥ half a normal frame step), then
+//    Average (or Copy) for symmetry, frame by frame against the frame half a cycle away.
 function stProcess() {
   const clip = ST.clip, o = stOpts(), keepCur = cur, keepBk = BAKED[clip.id];
   if (!ST.fk) ST.fk = new VirtualFK(rig);
   cur = clip; if (ST.src) BAKED[clip.id] = ST.src; else delete BAKED[clip.id];   // sample the loaded clip, not the preview
-  const M = ST_M, dur = clip.dur, Q0 = new Float32Array(M * B * 4), H0 = new Float32Array(M * 3), Qs = new Float32Array(M * B * 4), Hs = new Float32Array(M * 3);
-  const Q = new Float32Array(B * 4), Qx = new Float32Array(B * 4), H = V3(), Hx = V3();
-  try {
-    for (let k = 0; k < M; k++) {
-      const tau = (k / M) * dur;
-      sampleClip(tau, Q, H); Q0.set(Q, k * B * 4); H.toArray(H0, k * 3);
-      for (const [region, dir] of [['arm', o.arms], ['leg', o.legs]]) {
-        if (!dir) continue;
-        sampleClip(tau + o.split * dur, Qx, Hx);   // the whole cycle of the other side, half a cycle away: no old data is left
-        symMirrorInto(Q, H, region + ':' + dir, o.w, Qx, Hx);
-      }
-      Qs.set(Q, k * B * 4); H.toArray(Hs, k * 3);
+  const dur = clip.dur, N = Math.max(8, ST.src ? ST.src.n : clip.c.n || Math.round(dur * 30)), M = ST_M;
+  const Qx = new Float32Array(B * 4), Hx = V3();
+  const sample = (p, Q, H) => {   // the clip at cycle phase p (with the Copy-mode mirror)
+    sampleClip(mod1(p) * dur, Q, H);
+    if (o.mode === 'copy') for (const [region, dir] of [['arm', o.arms], ['leg', o.legs]]) {
+      if (!dir) continue;
+      sampleClip(mod1(p + o.split) * dur, Qx, Hx); symMirrorInto(Q, H, region + ':' + dir, o.w, Qx, Hx);
     }
-  } finally { cur = keepCur; if (keepBk) BAKED[clip.id] = keepBk; else delete BAKED[clip.id]; }
-  if (o.mode === 'avg') { Qs.set(Q0); Hs.set(H0); }   // average: start from the clip itself (retime first, average after)
-  else if (o.center) stCenterSym(Qs, Hs, M);
-  const before = stMeasure(Q0, H0, M), mid = stMeasure(Qs, Hs, M);
-  // retime keys (output phase u ← source phase r, all relative to the start foot's landing)
-  let warp = (u) => u;
-  const S0 = o.start, S1 = S0 === 'L' ? 'R' : 'L';
-  if (o.retime && mid.contact[S0] && mid.contact[S1]) {
-    const a = mid.contact[S0].on, rel = (p) => mod1(p - a), d1 = rel(mid.contact[S1].on) || 0.5;
-    const keys = [{ u: 0, r: 0 }, { u: 0.5, r: d1 }];
-    const lin = (r) => (r < d1 ? (r / d1) * 0.5 : 0.5 + ((r - d1) / (1 - d1)) * 0.5);   // landings-only map, for placing the swing keys
-    if (o.swing) {   // back → passing = passing → front, for the start foot, and half a cycle later for the other one
-      for (const Sd of [S0, S1]) {
-        const sw = mid.swing[Sd]; if (!sw) continue;
-        const rb = rel(sw.back), rp = rel(sw.pass), rf = rel(sw.front);
-        if (!(mod1(rp - rb) < mod1(rf - rb))) continue;
-        const ub = lin(rb), uf = ub + mod1(lin(rf) - ub), up = mod1((ub + uf) / 2);
-        keys.push({ u: mod1(ub), r: rb }, { u: mod1(up), r: rp }, { u: mod1(uf), r: rf });   // back, passing, front pinned
-      }
-    }
-    keys.sort((x, y) => x.u - y.u);
-    const ok = [];   // keep the keys that stay in order (source and output both increasing, a little apart)
-    for (const k of keys) { const last = ok[ok.length - 1]; if (!last || (k.r > last.r + 1e-4 && k.u - last.u > 0.015)) ok.push(k); }
-    const sp = stSpline(ok);
-    warp = (u) => a + sp(u);
-  }
-  const n = 64, q = new Float32Array(n * B * 4), hp = new Float32Array(n * 3);
-  // the finished cycle at full resolution: retimed; average mode then averages it with its mirror
-  let Qw = new Float32Array(M * B * 4), Hw = new Float32Array(M * 3);
-  stResample(Qs, Hs, M, warp, Qw, Hw, M);
-  if (o.mode === 'avg') {
-    stMirrorAverage(Qw, Hw, M, o.w);
-  }
-  // even the swing out (again) after averaging / easing moved it; landings stay at 0 / 50 %
-  const evenSwing = () => {
-    const m2 = stMeasure(Qw, Hw, M), keys = [{ u: 0, r: 0 }, { u: 0.5, r: 0.5 }];
-    for (const Sd of ['L', 'R']) {
-      const sw = m2.swing[Sd]; if (!sw || !(mod1(sw.pass - sw.back) < mod1(sw.front - sw.back))) continue;
-      const ub = sw.back, uf = ub + mod1(sw.front - ub);
-      keys.push({ u: mod1(ub), r: mod1(ub) }, { u: mod1((ub + uf) / 2), r: sw.pass }, { u: mod1(uf), r: mod1(uf) });
-    }
-    keys.sort((x, y) => x.u - y.u);
-    const ok = []; for (const k of keys) { const l = ok[ok.length - 1]; if (!l || (k.r > l.r + 1e-4 && k.u - l.u > 0.015)) ok.push(k); }
-    if (ok.length > 2) { const sp = stSpline(ok), Q2 = new Float32Array(M * B * 4), H2 = new Float32Array(M * 3); stResample(Qw, Hw, M, sp, Q2, H2, M); Qw = Q2; Hw = H2; }
   };
-  if (o.mode === 'avg' && o.retime && o.swing) evenSwing();
-  const easeInfo = stEase(Qw, Hw, M, o.ease, o.zone, (Q2, H2) => { Qw = Q2; Hw = H2; });
-  // (swing ease comes last and wins: a time warp that evens the hands' speed also moves the feet's back → front timing)
-  stResample(Qw, Hw, M, (u) => u, q, hp, n);
-  // measure the result (at a finer resampling of the output) and check the loop seam
-  const after = stMeasure(q, hp, n);
-  const win = {};
-  for (const Sd of ['L', 'R']) if (after.contact[Sd]) { const c = after.contact[Sd]; win[Sd] = [c.on, c.on + mod1(c.off - c.on)]; }
-  const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), steps = [];
-  for (let j = 0; j < n; j++) { let m = 0; for (let bI = 0; bI < B; bI++) { qa.fromArray(q, (j * B + bI) * 4); qb.fromArray(q, (((j + 1) % n) * B + bI) * 4); m = Math.max(m, qa.angleTo(qb)); } steps.push(m); }
-  const seam = steps[n - 1], typical = steps.slice(0, n - 1).sort((x, y) => x - y)[Math.floor((n - 1) / 2)];
-  ST.res = { ease: easeInfo, bk: { n, loop: true, fps: n / dur, q, hp, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, seam: seam / Math.max(typical, 1e-6), start: S0 };
+  const fill = (map, n) => { const Q = new Float32Array(n * B * 4), H = new Float32Array(n * 3), q = new Float32Array(B * 4), h = V3(); for (let j = 0; j < n; j++) { sample(map(j / n), q, h); Q.set(q, j * B * 4); h.toArray(H, j * 3); } return [Q, H]; };
+  try {
+    const [Qf0, Hf0] = fill((u) => u, M), before = stMeasure(Qf0, Hf0, M);
+    const S0 = o.start, S1 = S0 === 'L' ? 'R' : 'L';
+    let base = (u) => u, retimed = false;
+    if (o.retime && before.contact[S0] && before.contact[S1]) {
+      const a = before.contact[S0].on, d1 = mod1(before.contact[S1].on - a) || 0.5;
+      base = (u) => a + (u < 0.5 ? (u / 0.5) * d1 : d1 + ((u - 0.5) / 0.5) * (1 - d1));   // uniform in each half
+      retimed = true;
+    }
+    // optional extra re-timing on top (u → u'), measured on the uniformly retimed cycle
+    let remap = (u) => u;
+    if (retimed && o.swing) {
+      const [Qb, Hb] = fill(base, M), m = stMeasure(Qb, Hb, M), keys = [{ u: 0, r: 0 }, { u: 0.5, r: 0.5 }];
+      for (const Sd of [S0, S1]) {
+        const sw = m.swing[Sd]; if (!sw || !(mod1(sw.pass - sw.back) < mod1(sw.front - sw.back))) continue;
+        const ub = sw.back, uf = ub + mod1(sw.front - ub);
+        keys.push({ u: mod1(ub), r: mod1(ub) }, { u: mod1((ub + uf) / 2), r: sw.pass }, { u: mod1(uf), r: mod1(uf) });
+      }
+      keys.sort((x, y) => x.u - y.u);
+      const ok = []; for (const k of keys) { const l = ok[ok.length - 1]; if (!l || (k.r > l.r + 1e-4 && k.u - l.u > 0.015)) ok.push(k); }
+      if (ok.length > 2) remap = stSpline(ok);
+    }
+    let easeInfo = null;
+    if (Math.abs(o.ease) > 1e-3) {
+      const r1 = remap, [Qe, He] = fill((u) => base(r1(u)), M), nz = stLimbZ(Qe, He, M);
+      const sp = new Float32Array(M); for (let k = 0; k < M; k++) { let v = 0; for (const z of nz) v += Math.abs(z[(k + 1) % M] - z[k]); sp[k] = v + 1e-4; }
+      const half = M / 2, cum = new Float32Array(M + 1); for (let k = 0; k < M; k++) cum[k + 1] = cum[k] + sp[k];
+      const arcInv = (h, w) => { const a = cum[h * half], b = cum[(h + 1) * half], tg = a + w * (b - a); let lo = h * half, hi = (h + 1) * half; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] < tg) lo = mid; else hi = mid; } return (lo + (tg - cum[lo]) / Math.max(1e-9, cum[hi] - cum[lo])) / M; };
+      const r2 = (u) => { u = clamp(u, 0, 1); const h = u >= 0.5 ? 1 : 0, w = (u - h * 0.5) / 0.5; return u + o.ease * (arcInv(Math.min(h, 1), clamp(w, 0, 1)) - u); };
+      remap = (u) => r1(r2(u));
+      easeInfo = { zone: o.zone, hands: [stEndsShare(nz.slice(0, 2), o.zone)], feet: [stEndsShare(nz.slice(2), o.zone)] };
+    }
+    // output nodes: no step smaller than half a normal frame step (so no frame nearly repeats), ends pinned
+    const c = new Float64Array(N + 1); for (let j = 0; j <= N; j++) c[j] = remap(j / N);
+    c[0] = 0; c[N] = 1;
+    const minStep = 0.5 / N, st = []; for (let j = 0; j < N; j++) st.push(Math.max(minStep, c[j + 1] - c[j]));
+    const ex = st.reduce((a, x) => a + (x - minStep), 0), room = 1 - minStep * N;
+    for (let j = 0, acc = 0; j < N; j++) { acc += minStep + (ex > 0 ? ((st[j] - minStep) * room) / ex : room / N); c[j + 1] = acc; }
+    const cAt = (u) => { const f = mod1(u) * N, i = Math.floor(f); return lerp(c[i], c[Math.min(N, i + 1)], f - i); };
+    const [Qo, Ho] = fill((u) => base(cAt(u)), N);
+    if (o.mode === 'avg') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w); }
+    else if (o.center) { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, 1, true); }
+    const after = stMeasure(Qo, Ho, N);
+    if (easeInfo) { const nz = stLimbZ(Qo, Ho, N); easeInfo.hands.push(stEndsShare(nz.slice(0, 2), o.zone)); easeInfo.feet.push(stEndsShare(nz.slice(2), o.zone)); }
+    const win = {};
+    for (const Sd of ['L', 'R']) if (after.contact[Sd]) { const cc = after.contact[Sd]; win[Sd] = [cc.on, cc.on + mod1(cc.off - cc.on)]; }
+    // frame steps: the smallest against a typical one (a repeated frame shows up as ~0 %)
+    const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), steps = [];
+    for (let j = 0; j < N; j++) { let mm = 0; for (let bI = 0; bI < B; bI++) { qa.fromArray(Qo, (j * B + bI) * 4); qb.fromArray(Qo, (((j + 1) % N) * B + bI) * 4); mm = Math.max(mm, qa.angleTo(qb)); } steps.push(mm); }
+    const sorted = steps.slice().sort((x, y) => x - y), typical = sorted[Math.floor(N / 2)] || 1e-6;
+    ST.res = { ease: easeInfo, frames: N, minStep: sorted[0] / typical, seam: steps[N - 1] / typical, bk: { n: N, loop: true, fps: N / dur, q: Qo, hp: Ho, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, start: S0 };
+  } finally { cur = keepCur; if (keepBk) BAKED[clip.id] = keepBk; else delete BAKED[clip.id]; }
   return ST.res;
 }
 const stSteps = (c, dur) => (c.L && c.R ? { LR: mod1(c.R.on - c.L.on) * dur, RL: mod1(c.L.on - c.R.on) * dur } : null);
@@ -261,6 +191,7 @@ function stDraw() {
     + `${r.start} swing before: <b>${sw(r.swingBefore)}</b><br>${r.start} swing after: <b>${sw(r.swingAfter)}</b><br>`
     + (r.ease ? `Time in the outer ${Math.round(r.ease.zone * 100)} % of the swing — hands: <b>${Math.round(r.ease.hands[0] * 100)} % → ${Math.round(r.ease.hands[1] * 100)} %</b> · feet: <b>${Math.round(r.ease.feet[0] * 100)} % → ${Math.round(r.ease.feet[1] * 100)} %</b><br>` : '')
     + (r.ease && Math.abs(stOpts().ease) > 1e-3 ? '<span class="dim">Swing ease is applied last, so the even swing above is what is left after it (ease 0 = exact even swing).</span><br>' : '')
+    + `Frames: <b>${r.frames}</b> per cycle (the clip's own) · smallest frame step <b class="${r.minStep > 0.3 ? 'ok' : 'warn'}">${Math.round(r.minStep * 100)} %</b> of a typical one ${r.minStep > 0.3 ? '· no repeated frames ✓' : '· a frame barely moves'}<br>`
     + `Loop seam: <b class="${seamOk ? 'ok' : 'warn'}">${seamOk ? 'smooth ✓' : 'jump ×' + r.seam.toFixed(1) + ' — check the clip'}</b> (last → first frame vs a typical frame)`;
 }
 function stRun() {   // process + live preview on the character
@@ -278,7 +209,7 @@ function stLoad(id) {
   stDiscard();
   const c = clips.find((x) => x.id === id); if (!c) return;
   if (cur.id !== c.id) selectClip(c.id);
-  ST.clip = c; ST.src = BAKED[c.id]; ST.saved = true;
+  ST.clip = c; ST.src = BAKED[c.id] || c.c.origBk; ST.saved = true;
   stFillVersions();
   stRun();
 }

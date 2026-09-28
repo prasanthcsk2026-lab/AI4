@@ -40,6 +40,7 @@
       <button type="button" id="btnFootLock" title="Write foot hold (world lock) tracks from the clip's foot contacts">Auto foot-lock</button>
       <button type="button" id="btnBake" title="Bake the result into the clip (replace it), save it to the project, or download it">Bake / Project…</button>
       <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export</button>
+      <button type="button" id="btnImportAnim" title="Import an FBX animation (Character Creator CC_Base_ bones)">Import FBX…</button>
       <button type="button" id="btnImport" title="Load automation JSON">Import</button>
       <button type="button" id="btnReset" title="Clear all automation for this clip">Reset clip</button>
     </div>
@@ -91,6 +92,7 @@
   </section>
 </div>
 <div id="playhead"></div>
+<div id="toast" hidden role="status"><span id="toastMsg"></span><button type="button" id="toastUndo">Undo</button></div>
 <div id="tip" hidden></div>
 <div class="sheet" id="sheet" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -111,7 +113,7 @@
     <label>Feet on bars</label><span><input type="checkbox" id="stRetime" checked> <select id="stStart"><option value="L">Left lands on the bar</option><option value="R">Right lands on the bar</option></select></span>
     <label>Swing ease</label><span class="stw"><input type="range" id="stEase" min="-100" max="100" step="5" value="0" title="+ spreads the swing speed evenly (less time hanging at the ends), − hangs longer at the ends; the whole body together, feet stay on the bars"><b id="stEasev">0</b></span>
     <label>Ends zone</label><span><input type="number" id="stZone" min="2" max="45" step="1" value="20"> % of the swing at each end (readout)</span>
-    <label>Even swing</label><span><input type="checkbox" id="stSwing" checked> back → centre = centre → front</span>
+    <label title="Extra re-timing: the time from the foot's back-most point to passing under the hips equals passing → front-most. Off by default.">Even swing</label><span><input type="checkbox" id="stSwing"> back → centre = centre → front</span>
     <label class="copyonly">Centre</label><span class="copyonly"><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
   </div>
   <canvas id="stStrip"></canvas>
@@ -154,6 +156,31 @@
       <div class="bakebtns"><button type="button" class="primary" id="bakeGo">Bake &amp; replace</button><button type="button" id="bakeRevert">Revert to original</button><button type="button" id="bakeSave">Save to project</button><button type="button" id="bakeDl">Download baked clip (.json)</button></div>
     </div>
     <div class="acts"><span class="note" id="bakeNote"></span><button type="button" id="bakeClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="impDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="impTitle">
+    <h2 id="impTitle">Import animation (FBX)</h2>
+    <div class="bakebody">
+      <p>Character Creator / iClone FBX (CC_Base_ bones). The clip is kept in this browser (cache) until you press <b>Save to project</b>.</p>
+      <input type="file" id="impFile" accept=".fbx">
+      <div id="impSetup" hidden>
+        <div class="impgrid">
+          <label>Name <input type="text" id="impName" spellcheck="false"></label>
+          <label>Take <select id="impTake"></select></label>
+          <label>Kind <select id="impKind"><option value="loop">Loop (cycle)</option><option value="move">One-shot</option></select></label>
+          <label>Start frame <input type="number" id="impStart" min="0" step="1"></label>
+          <label>End frame <input type="number" id="impEnd" min="1" step="1"></label>
+          <label class="cb"><input type="checkbox" id="impInPlace" checked> In place</label>
+        </div>
+        <p class="note" id="impInfo"></p>
+        <details><summary id="impMap"></summary><div id="impMapTable"></div></details>
+        <div class="bakebtns"><button type="button" class="primary" id="impGo">Import clip</button></div>
+      </div>
+      <h3 class="imph">Imported clips</h3>
+      <div id="impList"></div>
+    </div>
+    <div class="acts"><span class="note" id="impNote"></span><button type="button" id="impClose">Close</button></div>
   </div>
 </div>
 <div class="sheet" id="boneDlg" hidden>
