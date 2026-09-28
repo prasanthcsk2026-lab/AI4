@@ -112,14 +112,17 @@ function impLandings(fr) {
 function impCut(fr, a, b) {   // frames a … b−1 (a loop: b is the next landing); the travel is taken out of the hips and kept as speed + direction
   const n = Math.max(2, b - a), q = fr.q.slice(a * B * 4, (a + n) * B * 4), hp = fr.hp.slice(a * 3, (a + n) * 3);
   const end = Math.min(fr.n - 1, a + n), T = (end - a) / fr.fps, vx = (fr.hp[end * 3] - fr.hp[a * 3]) / T, vz = (fr.hp[end * 3 + 2] - fr.hp[a * 3 + 2]) / T;
-  const speed = Math.hypot(vx, vz), dir = Math.atan2(vx, vz);
+  let speed = Math.hypot(vx, vz), dir = Math.atan2(vx, vz);
+  if (speed < 0.03) { speed = 0; dir = 0; }   // in place: noise in an almost-still hips path gives a meaningless direction
   for (let f = 0; f < n; f++) { const t = f / fr.fps; hp[f * 3] -= vx * t + (fr.hp[a * 3] - rig.bp(rig.b.hips).x); hp[f * 3 + 2] -= vz * t + (fr.hp[a * 3 + 2] - rig.bp(rig.b.hips).z); }
   return { n, fps: fr.fps, q, hp, speed, dir };
 }
 
 // ---------------------------------------------------------------- dialog
 async function impSetSpeed(c, v) {
-  v = clamp(+v || 0, 0, 15); c.rec.speed = v; c.c.speed = v;
+  v = clamp(+v || 0, 0, 15);
+  if ((c.rec.speed || 0) < 0.03) { c.rec.dir = 0; c.c.dir = 0; }   // was in place: a clip imported earlier may hold a leftover, meaningless direction
+  c.rec.speed = v; c.c.speed = v;
   try { await idbPut(c.rec); } catch { /* the session keeps it */ }
   if (cur && cur.id === c.id) { moveEndCache = null; rebuildSpeedLUT(); trailDirty = true; }
 }

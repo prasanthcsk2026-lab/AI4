@@ -7,11 +7,11 @@
 //  (Chest rotate X) and the hips rise a little (Hips move Y); from the end bar on it holds the jog. The ground
 //  covered drops to the chosen share of the sprint (moving speed). Every value stays editable afterwards.
 // ============================================================================
-const TPL_DEF = { cycles: 10, from: 3, to: 8, cad: 72, gnd: 10, bump: 15, legs: 75, arms: 65, lean: -8, hips: 3, travel: 45, speed: 7 };
+const TPL_DEF = { cycles: 10, from: 3, to: 8, cad: 72, gnd: 10, bump: 15, legs: 75, arms: 65, torso: 55, lean: -6, hips: 3, travel: 45, speed: 7 };
 function tplVals() {
   const v = {}; for (const k of Object.keys(TPL_DEF)) v[k] = +$('tpl_' + k).value;
   v.cycles = clamp(Math.round(v.cycles), 2, 200); v.from = clamp(Math.round(v.from), 1, v.cycles - 1); v.to = clamp(Math.round(v.to), v.from + 1, v.cycles);
-  v.cad = clamp(v.cad, 25, 100); v.gnd = clamp(v.gnd, 0, GND_MAX); v.bump = clamp(v.bump, 0, GND_MAX); v.legs = clamp(v.legs, 0, 200); v.arms = clamp(v.arms, 0, 200);
+  v.cad = clamp(v.cad, 25, 100); v.gnd = clamp(v.gnd, 0, GND_MAX); v.bump = clamp(v.bump, 0, GND_MAX); v.legs = clamp(v.legs, 0, 200); v.arms = clamp(v.arms, 0, 200); v.torso = clamp(v.torso, 0, 200);
   v.travel = clamp(v.travel, 5, 100); v.speed = clamp(v.speed, 0, 15);
   return v;
 }
@@ -40,8 +40,10 @@ function applySprintToJog(v) {
   // 3. ground covered: the travel falls to `travel` % of the sprint; cadence already gives cad %, moving speed the rest
   A.move = ramp(1, clamp(v.travel / v.cad, 0.05, 3));
   A.showMaster.cycle = true; A.showMaster.gnd = true; A.showMaster.move = true;
-  // 4. pose: knee lift and arm swing (group weights), chest straightens, hips rise
-  for (const [gid, w] of [['g:Lleg', v.legs], ['g:Rleg', v.legs], ['g:Larm', v.arms], ['g:Rarm', v.arms]]) { const g = ensureGroup(gid); g.weight = ramp(1, w / 100); g.timing = flat(0, S.dur); g.show = { weight: true }; }
+  // 4. pose: knee lift and arm swing (group weights). The sprint's own forward lean is baked into the spine motion,
+  // so straightening it takes the same trick as the legs and arms: turn down how much of that motion plays (the
+  // "g:spine" group), not just a small extra tilt (Chest rotate X, kept for a bit of fine control).
+  for (const [gid, w] of [['g:Lleg', v.legs], ['g:Rleg', v.legs], ['g:Larm', v.arms], ['g:Rarm', v.arms], ['g:spine', v.torso]]) { const g = ensureGroup(gid); g.weight = ramp(1, w / 100); g.timing = flat(0, S.dur); g.show = { weight: true }; }
   const ch = ensureEff('chest'); for (const k of Object.keys(ch.tr)) ch.tr[k] = flat(TRK[k].ref, S.dur); ch.tr.rx = ramp(0, v.lean); ch.show = { rx: true };
   const hp = ensureEff('hips'); for (const k of Object.keys(hp.tr)) hp.tr[k] = flat(TRK[k].ref, S.dur); hp.tr.py = ramp(0, v.hips); hp.show = { py: true };
   S.lenMode = 'cycles'; $('lenMode').value = 'cycles';
