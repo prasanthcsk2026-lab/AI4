@@ -246,7 +246,7 @@ function followPlayhead() {   // while playing, keep the playhead in view
   if (d > S.v1 || d < S.v0) { const span = vSpan(); setView(d - span * 0.1, d - span * 0.1 + span); }
 }
 
-function barsEdited() { pinPointsToBar(null); layoutLanes(); trailDirty = true; save(); }
+function barsEdited() { pinPointsToBar(); layoutLanes(); trailDirty = true; save(); }
 function drawBars(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
   x.clearRect(0, 0, w, h); x.fillStyle = '#1d1a20'; x.fillRect(0, 0, w, h);
@@ -369,16 +369,52 @@ function allPointArrays() {
   for (const k of A.symOrder) { const sy = A.sym[k]; out.push(sy.weight, sy.offset); }
   return out;
 }
-function pinPointsToBar(exceptArr) {
+// the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
+let pinDrag = null;
+// clip time reached at real time t1, carrying on from clip time c0 at t0, straight from the current speed tracks
+// (the LUT's own sum, without building the table)
+function clipTimeFrom(t0, c0, t1, cum, sl, maxSeg) {
+  if (t1 <= t0) return c0;
+  const n = Math.max(1, Math.ceil((t1 - t0) * 480)), dt = (t1 - t0) / n, k = cycleRate(), loop = cur.kind === 'loop';
+  let c = c0;
+  for (let i = 0; i < n; i++) {
+    const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
+    const q = Math.min(maxSeg, Math.floor(c / sl)), cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
+    c += play * (loop ? cum[q] : 1) * (cyc / 100) * dt;
+  }
+  return c;
+}
+function pinPointsToBar() {
   if (!cur || !S.speedLUT) { rebuildSpeedLUT(); return; }
-  const arrs = allPointArrays().filter((a) => a !== exceptArr);
-  // a point sitting exactly at the track's end is its end anchor (every track's last point sits at S.dur by
-  // convention), not "placed on a bar" — it stays at S.dur rather than following a clip time that may now fall
-  // short of (or past) the timeline's own length
-  const snap = arrs.map((pts) => pts.map((p) => (p.t >= S.dur - 1e-6 ? null : clipTime(p.t))));
+  const arrs = allPointArrays();
+  // each point's bar (clip time) under the timing as it was; a point exactly at the track's end is its end anchor
+  // (every track's last point sits at S.dur), not "placed on a bar", so it stays at the end
+  const snap = arrs.map((pts) => pts.map((p) => (pinDrag && p === pinDrag.p ? pinDrag.ct : p.t >= S.dur - 1e-6 ? null : clipTime(p.t))));
+  // the speed tracks' own points shape the timing that places them: each is solved (bisection) for the real time
+  // at which the timing reaches its bar, in bar order; a couple of passes settle the two tracks against each other
+  const sl = segLen(), maxSeg = Math.ceil((S.dur * SPEED_MAX * 8) / sl) + 8, cum = segMulTable(maxSeg);
+  const drv = [];
+  arrs.forEach((pts, i) => { if (pts === A.speed || pts === A.cyc) pts.forEach((p, j) => { if (snap[i][j] != null && snap[i][j] > 1e-9) drv.push({ p, ct: snap[i][j] }); }); });
+  drv.sort((a, b) => a.ct - b.ct);
+  // before a point's own track neighbour nothing depends on where the point goes: sum up to there once
+  const both = A.speed.length > 2 && A.cyc.length > 2;
+  for (let pass = 0; pass < (both ? 3 : 1); pass++) {
+    let lo0 = 0;
+    for (const d of drv) {
+      const own = A.speed.includes(d.p) ? A.speed : A.cyc, prev = own[own.indexOf(d.p) - 1], ts = prev ? Math.min(prev.t, lo0) : 0;
+      const cs = clipTimeFrom(0, 0, ts, cum, sl, maxSeg), at = (t) => { d.p.t = t; return clipTimeFrom(ts, cs, t, cum, sl, maxSeg); };
+      let lo = lo0, hi = S.dur;
+      if (at(hi) <= d.ct) { lo0 = hi; continue; }
+      // bracket from the point's current place first: a small edit stays a short search
+      for (let it = 0; it < 24 && hi - lo > 1e-5; it++) { const mid = (lo + hi) / 2; if (at(mid) < d.ct) lo = mid; else hi = mid; }
+      d.p.t = (lo + hi) / 2; lo0 = d.p.t;
+    }
+  }
+  for (const pts of [A.speed, A.cyc]) pts.sort((a, b) => a.t - b.t);
   rebuildSpeedLUT();
   arrs.forEach((pts, i) => {
-    pts.forEach((p, j) => { p.t = snap[i][j] == null ? S.dur : clamp(timeOfClipTime(snap[i][j]), 0, S.dur); });
+    if (pts === A.speed || pts === A.cyc) { pts.forEach((p, j) => { if (snap[i][j] == null) p.t = S.dur; }); return; }
+    pts.forEach((p, j) => { const c = snap[i][j]; p.t = c == null ? S.dur : clamp(timeOfClipTime(c), 0, S.dur); });
     pts.sort((a, b) => a.t - b.t);
   });
 }
@@ -462,7 +498,7 @@ function onLaneDown(e, r) {
     return;
   }
   pushUndo();
-  drag = { r, i };
+  { const [px, py] = evXY(r, e), q = pts[i]; drag = { r, i, dx: xOf(r, q.t) - px, dy: yOf(r, q.v) - py, x0: px }; }   // grab offset: the point doesn't jump to the pixel under the cursor
   onDrag(e);
 }
 function onDrag(e) {
@@ -473,13 +509,21 @@ function onDrag(e) {
     a.k = clamp(drag.k0 + dir * (e.clientY - drag.y0) / 60, -1, 1);
     edited(r, true); tip(e, `curve ${a.k.toFixed(2)}`); return;
   }
-  const [px, py] = evXY(r, e), p = pts[drag.i];
-  let t = tOf(r, px), v = vOf(r, py);
-  if (S.magnet || e.ctrlKey || e.metaKey) t = snapTime(t, r.cv.width, dprOf(r));   // magnet: stick to the unit's lines
+  const [px0, py0, kk] = evXY(r, e), p = pts[drag.i], px = px0 + (drag.dx || 0), py = py0 + (drag.dy || 0);
+  const sideways = drag.x0 == null || Math.abs(px0 - drag.x0) > 3 * kk;   // a straight up / down drag keeps its time
+  let t = sideways ? tOf(r, px) : p.t, v = vOf(r, py);
+  if (sideways && (S.magnet || e.ctrlKey || e.metaKey)) t = snapTime(t, r.cv.width, dprOf(r));   // magnet: stick to the unit's lines
   if (e.ctrlKey || e.metaKey) v = Math.round(v / r.snap) * r.snap;
   if (r.flag) v = v >= 0.5 ? 1 : 0;
   const lo = drag.i > 0 ? pts[drag.i - 1].t : 0, hi = drag.i < pts.length - 1 ? pts[drag.i + 1].t : S.dur;
   p.t = clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
+  // a playback / cycle speed point: it goes to the bar under the cursor (as the frozen ruler shows it), and stays
+  // on that bar however its own value re-times the bars before it
+  if (BAR_DRIVERS.has(r.key)) {
+    const ctLo = drag.i > 0 ? clipTime(pts[drag.i - 1].t) : 0, ctHi = drag.i < pts.length - 1 && pts[drag.i + 1].t < S.dur - 1e-6 ? clipTime(pts[drag.i + 1].t) : Infinity;
+    if (drag.ct0 == null) drag.ct0 = clipTime(p.t);   // its bar when grabbed
+    pinDrag = { p, ct: clamp(sideways ? lutAt(vLut(), p.t) : drag.ct0, ctLo, ctHi) };
+  }
   edited(r, true); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}`);
 }
 function finalizeBoxSelect() {
@@ -496,7 +540,7 @@ window.addEventListener('pointermove', (e) => {
   if (rulerDrag) scrub(e); if (gripDrag) resizeTimeline(e);
 });
 window.addEventListener('pointerup', () => {
-  if (drag) { const r = drag.r; drag = null; tip(null); edited(r); }
+  if (drag) { const r = drag.r; drag = null; pinDrag = null; tip(null); edited(r); }
   if (boxSel) { finalizeBoxSelect(); boxSel = null; }
   if (rowDrag) { rowDrag = null; save(); }
   rulerDrag = false; gripDrag = false;
@@ -511,8 +555,8 @@ function edited(r, live = false) {
   if (live) syncMirrors();
   if (TIMING_KEYS.has(r.key)) {
     const bar = BAR_DRIVERS.has(r.key);
-    if (live) { freezeView(); if (bar) pinPointsToBar(r.get()); else rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
-    else { viewFreeze = null; if (bar) pinPointsToBar(r.get()); else rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
+    if (live) { freezeView(); if (bar) pinPointsToBar(); else rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
+    else { viewFreeze = null; if (bar) pinPointsToBar(); else rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
   } else drawLane(r);
   refreshSummary(r);
   editVersion++; trailDirty = true;
