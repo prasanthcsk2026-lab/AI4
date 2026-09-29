@@ -149,8 +149,8 @@ const GROUP_DEFS = [];
 (function defineGroups() {
   const sub = (b) => { const out = []; b.traverse((o) => o.isBone && out.push(o)); return out; };
   const add = (g) => GROUP_DEFS.push(g);
+  add({ id: 'g:upper', label: 'Upper body (no hips)', note: 'spine and everything above it', cat: 'Body', bones: () => sub(rig.b.spine) });
   add({ id: 'g:body', label: 'Whole body', cat: 'Body', bones: () => sub(rig.b.hips) });
-  add({ id: 'g:upper', label: 'Upper body', cat: 'Body', bones: () => sub(rig.b.spine) });
   add({ id: 'g:lower', label: 'Lower body', note: 'hips + legs', cat: 'Body', bones: () => [rig.b.hips, ...sub(rig.side.L.thigh), ...sub(rig.side.R.thigh)] });
   add({ id: 'g:spine', label: 'Spine', note: 'Spine, Spine1, Spine2', cat: 'Body', bones: () => [rig.b.spine, rig.b.spine1, rig.b.spine2] });
   add({ id: 'g:headneck', label: 'Head & neck', cat: 'Body', bones: () => sub(rig.b.neck) });

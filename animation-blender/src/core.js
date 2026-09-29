@@ -38,7 +38,11 @@ function evalPts(pts, t) {
   if (t <= pts[0].t) return pts[0].v;
   for (let i = 0; i < pts.length - 1; i++) {
     const a = pts[i], b = pts[i + 1];
-    if (t <= b.t) { const u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1; return lerp(a.v, b.v, shapeU(u, a.k)); }
+    if (t <= b.t) {
+      if (a.e === 'step') return t < b.t ? a.v : b.v;   // hold until the next point
+      const u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
+      return lerp(a.v, b.v, a.e === 'inout' ? u * u * (3 - 2 * u) : shapeU(u, a.k));
+    }
   }
   return pts[pts.length - 1].v;
 }

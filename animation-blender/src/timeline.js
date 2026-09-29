@@ -372,7 +372,7 @@ function lane(r) {
   cv.addEventListener('contextmenu', (e) => {   // right-click: menu · right double-click: delete the point / the track
     e.preventDefault(); const hit = hitPoint(r, e);
     if (rightDouble(r.key + (hit != null ? '#' + hit : ''))) { if (hit != null) deletePoint(r, hit); else deleteTrack(r); return; }
-    if (hit != null) openMenu(e.clientX, e.clientY, [{ label: 'Delete point (or right double-click)', action: () => deletePoint(r, hit) }, { label: 'Type its value…', action: () => openNumEdit(r, hit, e) }]);
+    if (hit != null) openMenu(e.clientX, e.clientY, [{ label: 'Delete point (or right double-click)', action: () => deletePoint(r, hit) }, { label: 'Type its value…', action: () => openNumEdit(r, hit, e) }, { sep: true }, ...curveItems(r, hit)]);
     else openLaneMenu(e, r);
   });
   cv.addEventListener('dblclick', (e) => { const hit = hitPoint(r, e); if (hit != null) openNumEdit(r, hit, e); });
@@ -643,6 +643,8 @@ $('ruler').addEventListener('contextmenu', (e) => {
   openMenu(e.clientX, e.clientY, [
     { label: atEnd ? 'Add 1 bar at the end' : `Insert 1 bar after bar ${k}`, action: () => addBars(1, atEnd ? null : ctB) },
     { label: atEnd ? 'Add bars at the end…' : `Insert bars after bar ${k}…`, action: () => openBarsDlg(atEnd ? null : ctB) },
+    { sep: true },
+    ...barClipItems(k),
   ]);
 });
 const vLut = () => (viewFreeze ? viewFreeze.lut : S.speedLUT), vNom = () => (viewFreeze ? viewFreeze.nom : S.speedLUTNom);
@@ -1035,7 +1037,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

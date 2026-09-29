@@ -17,6 +17,7 @@ const MENUS = {
     { label: 'Bake / save to project…', action: clickId('btnBake') },
     { sep: true },
     { label: 'Export (JSON, glTF)…', action: clickId('btnExport') },
+    { label: 'Export FBX (whole timeline)…', action: () => openTimelineFbx() },
     { label: 'Export FBX (Symmetrize tool)…', action: clickId('btnSym') },
   ],
   edit: () => [

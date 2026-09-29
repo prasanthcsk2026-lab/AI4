@@ -42,7 +42,7 @@ const FBX_SEC = 46186158000;   // FBX time ticks per second
 function fbxName(n, cls) { const a = new TextEncoder().encode(n), b = new TextEncoder().encode(cls), o = new Uint8Array(a.length + 2 + b.length); o.set(a); o.set([0, 1], a.length); o.set(b, a.length + 2); return o; }
 const P70 = (name, type, label, flags, ...vals) => ['P', [['S', name], ['S', type], ['S', label], ['S', flags], ...vals], null];
 // frames: { n, fps, q: Float32Array(n × bones × 4) local rotations, hp: Float32Array(n × 3) hips world (m) }
-function buildFbx(frames, takeName) {
+function buildFbx(frames, takeName, nameOf = (n) => n) {   // nameOf: bone name in the file (e.g. Character Creator names)
   const bones = rig.bones, s = new THREE.Vector3(); bones[0].parent.getWorldScale(s);
   const unit = s.x * 100;   // bone local units → cm
   const armParent = bones[0].parent, apPos = worldP(armParent).multiplyScalar(100), apQ = worldQ(armParent);
@@ -88,7 +88,7 @@ function buildFbx(frames, takeName) {
       if (i === hipsI) { hipLocal.set(frames.hp[k * 3], frames.hp[k * 3 + 1], frames.hp[k * 3 + 2]); b.parent.worldToLocal(hipLocal); tx.push(hipLocal.x * unit); ty.push(hipLocal.y * unit); tz.push(hipLocal.z * unit); }
     }
     const lp = rig.bind.get(b).lp, t0 = i === hipsI ? [tx[0], ty[0], tz[0]] : [lp.x * unit, lp.y * unit, lp.z * unit];
-    objects.push(attr(aid, b.name), modelNode(mid, b.name, t0, [rx[0], ry[0], rz[0]], 1));
+    objects.push(attr(aid, nameOf(b.name)), modelNode(mid, nameOf(b.name), t0, [rx[0], ry[0], rz[0]], 1));
     conns.push(['OO', aid, mid], ['OO', mid, b.parent && ids.has(b.parent) ? ids.get(b.parent) : armId]);
     const rn = id(); objects.push(curveNode(rn, 'R', [rx[0], ry[0], rz[0]])); conns.push(['OO', rn, layerId], ['OP', rn, mid, 'Lcl Rotation']);
     for (const [ax, vals] of [['d|X', rx], ['d|Y', ry], ['d|Z', rz]]) { const cid = id(); objects.push(curve(cid, vals)); conns.push(['OP', cid, rn, ax]); }

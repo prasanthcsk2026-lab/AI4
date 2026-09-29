@@ -80,6 +80,7 @@
       </details>
       <details class="dsec" open data-sec="read"><summary>Readouts</summary>
         <div class="readouts"><div class="chip hudchip" id="gaitChip" title="At the playhead: cadence (steps per minute), step length and ground speed"></div><div class="chip hudchip" id="unitChip" hidden></div><div class="chip hudchip" id="stepChip" hidden title="Step times measured from the feet as they are now: left foot down → right foot down, and back"></div><div class="chip hudchip" id="reachChip" hidden title="How far forward of the hips each hand gets at its peak, over the timeline"></div></div>
+        <div class="spdwrap"><span class="spdlab">Moving speed over the timeline</span><canvas id="spdGraph" aria-label="Moving speed over the whole timeline: hover to read, click to move the playhead"></canvas></div>
       </details>
       <details class="dsec" open data-sec="tools"><summary>Tools</summary>
         <div class="io dgrid">
@@ -102,6 +103,7 @@
     <div class="dockgrip" id="dockGrip" role="separator" aria-orientation="vertical" aria-label="Resize the options panel" tabindex="0"></div>
     <section class="view" id="view" aria-label="Character viewport">
       <div id="loading">Loading character and clips…</div>
+      <div class="speedhud" title="Moving speed of the character over the ground at the playhead"><div><b id="shSpeed">0.00</b> m/s</div><span id="shKmh"></span><span id="shMove"></span></div>
     </section>
   </div>
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
@@ -271,6 +273,22 @@
     <input type="text" id="boneSearch" placeholder="Search the skeleton…" spellcheck="false">
     <div id="boneTree"></div>
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="barCopyDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="bcT">
+    <h2 id="bcT">Copy bars</h2>
+    <div class="barsform"><label>From bar <input type="number" id="bcFrom" min="1" step="1" value="1"></label><label>To bar <input type="number" id="bcTo" min="1" step="1" value="2"></label></div>
+    <div class="acts"><span class="note">Copies every track's points in these bars (and their bar reach). Paste with right-click on the ruler, or Ctrl+Shift+V at the playhead's bar.</span><button type="button" id="bcCancel">Cancel</button><button type="button" class="primary" id="bcOk">Copy</button></div>
+  </div>
+</div>
+<div class="sheet" id="tfDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="tfT">
+    <h2 id="tfT">Export FBX — whole timeline</h2>
+    <div class="barsform"><label>Frame rate <select id="tfFps"><option value="30">30 fps</option><option value="60">60 fps</option></select></label>
+      <label>Bone names <select id="tfNames"><option value="mixamo">Mixamo</option><option value="cc">Character Creator (CC_Base_)</option></select></label>
+      <label class="cb"><input type="checkbox" id="tfTravel" checked> With travel (off: in place)</label></div>
+    <div class="acts"><span class="note" id="tfNote"></span><button type="button" id="tfClose">Close</button><button type="button" class="primary" id="tfGo">Export .fbx (zip)</button></div>
   </div>
 </div>
 <div class="sheet" id="barsDlg" hidden>

@@ -235,3 +235,10 @@ Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reach
 ## In-place FBX travel, ruler numbers
 - Importing an in-place FBX (no travel in the file) shows a **Travel speed** field, pre-filled with an estimate from the feet (while a foot is down it sweeps back under the hips as far as the body moves); the clip then moves with In place off. The Clip panel has a **Travel (m/s)** field for imported clips, and turning In place off on a clip without travel says why nothing moves.
 - The ruler shows bar numbers **1, 2, 3…** large and quarters **1.1, 1.2, 1.3** small; the end reads "10 |". The big time display reads the same way (3, 3.2).
+
+## Moving speed, bar copy / paste, curves, whole-timeline FBX
+- **Speed readout**: the viewport's top-right shows the character's moving speed at the playhead (m/s, km/h, moving %, and "in place" when the view is pinned). Readouts has a speed graph over the whole timeline: bar marks, the playhead, hover to read, click to seek.
+- **Upper body (no hips)**: the first bone group (spine and everything above it). It has no IK controller.
+- **Bar copy / paste**: right-click the ruler for Copy bar / Copy bars… and Paste (replace or insert). Ctrl+Shift+C / V copy or paste the playhead's bar. Every track's points and the bar reach of those bars are copied.
+- **Curve presets**: right-click a point for Linear, Ease in, Ease out, Ease in-out, or Step (hold). A preset applies to every selected point.
+- **Export FBX (whole timeline)** (File menu): bakes every frame of the timeline with all automation. Options: 30 or 60 fps, travel or in place, and Mixamo or Character Creator (CC_Base_) bone names. The file downloads as a zip.
