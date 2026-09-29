@@ -234,6 +234,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
+    { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);
 };
 $('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };

@@ -69,7 +69,10 @@ function applySprintToJog(v) {
 //   · legs: less knee lift and heel kick (knee weight); arms: shorter swing at the shoulder only (upper-arm
 //     weights), the elbow bend stays
 // ============================================================================
-const DECEL_DEF = { cycles: 10, from: 3, to: 8, target: 2, jogCad: 165, lean: 6, brake: -20, dip: -4, rise: 1.5, legs: 70, arms: 60 };
+const DECEL_DEF = { name: 'Sprint → Jog (braking)', cycles: 10, from: 3, to: 8, target: 2, jogCad: 165, spineW: 0.4, lean: 6, brake: -20, headK: 0.3, dip: -4, rise: 1.5, legs: 70, arms: 60 };
+// the same, aimed at a reference braking run (Run_Deccelarate, measured): ~189 steps/min, trunk tipped back ~3°,
+// hips ~3.5 cm lower with the knees well bent in stance, 2.1 m/s; the arms keep the sprint's swing, shortened
+const DECEL_REF = { ...DECEL_DEF, name: 'Sprint → Decel (braking run)', target: 2.1, jogCad: 189, spineW: 0.2, lean: 22, brake: -26, headK: 0.6, dip: -4.5, rise: -3.5, legs: 60, arms: 45 };
 function applyDecelTemplate(o = {}) {
   const v = { ...DECEL_DEF, ...o };
   if (!cur || cur.kind !== 'loop') return 'Pick a loop clip (the sprint) first.';
@@ -104,11 +107,11 @@ function applyDecelTemplate(o = {}) {
   for (const id of ['Lfoot', 'Rfoot']) if (A.ik[id]) { delete A.ik[id]; A.ikOrder = A.ikOrder.filter((n) => n !== id); if (A.rowOrder) A.rowOrder = A.rowOrder.filter((k) => k !== 'eff:' + id); }
   // 4. trunk: forward lean out, a backward tip while braking, then an upright jog; head counters it
   const g = (gid, pts) => { const gr = ensureGroup(gid); gr.weight = pts; gr.timing = flat(0, S.dur); gr.show = { weight: true }; };
-  g('g:spine', track([[0, 1, io], [0.5, 0.4], [1, 0.4]]));   // the sprint's lean goes early (braking), then stays out
+  g('g:spine', track([[0, 1, io], [0.5, v.spineW], [1, v.spineW]]));   // the sprint's lean goes early (braking), then stays out
   const eff = (id, key, pts) => { const e = ensureEff(id); e.tr[key] = pts; e.show = { ...e.show, [key]: true }; return e; };
   const effReset = (id) => { const e = ensureEff(id); for (const k of Object.keys(e.tr)) e.tr[k] = flat(TRK[k].ref, S.dur); e.show = {}; return e; };
   effReset('chest'); eff('chest', 'rx', track([[0, 0, io], [0.45, v.brake, io], [1, -v.lean]]));
-  effReset('head'); eff('head', 'rx', track([[0, 0, io], [0.45, -v.brake * 0.45, io], [1, v.lean * 0.3]]));
+  effReset('head'); eff('head', 'rx', track([[0, 0, io], [0.45, -v.brake * 0.45, io], [1, v.lean * v.headK]]));
   // 5. hips: dip while braking (feet stay: the knees bend), rise for the jog
   effReset('hips'); eff('hips', 'py', track([[0, 0, io], [0.45, v.dip, io], [1, v.rise]]));
   // 6. legs: less knee lift / heel kick; arms: shorter swing at the shoulder only
@@ -121,7 +124,7 @@ function applyDecelTemplate(o = {}) {
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs();
   rebuildRows(); save();
-  return `Sprint → Jog (braking): ${v.cycles} bars, slowing over bars ${v.from}–${v.to - 1}, jog from bar ${v.to}: cadence ${Math.round(sprintCad)} → ${Math.round(sprintCad * cad / 100)} steps/min, stride ${Math.round(stride)} %, ${sp.toFixed(2)} → ${v.target} m/s (no foot lock).`;
+  return `${v.name}: ${v.cycles} bars, slowing over bars ${v.from}–${v.to - 1}, target from bar ${v.to}: cadence ${Math.round(sprintCad)} → ${Math.round(sprintCad * cad / 100)} steps/min, stride ${Math.round(stride)} %, ${sp.toFixed(2)} → ${v.target} m/s (no foot lock).`;
 }
 function openTemplate() {
   const dlg = $('tplDlg'); dlg.hidden = false; $('tplNote').textContent = '';

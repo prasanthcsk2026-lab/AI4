@@ -40,6 +40,7 @@ const MENUS = {
     { label: 'Templates…', action: () => openTplLib() },
     { label: 'Template: Sprint → Jog…', action: () => openTemplate() },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
+    { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
     { label: 'Bake / Project…', action: clickId('btnBake') },
   ],
   view: () => [

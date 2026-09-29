@@ -256,3 +256,17 @@ The Bar reach % row is gone. Timing comes from playback speed and cycle speed on
 - Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk lean 20° → 2° (braking) → 8.5° (jog), foot slip 3.6–6 cm per bar (the sprint clip itself: 6.5).
 
 Fix: Stride length now also applies while the Hips IK keeps the feet planted. Before, it was cancelled.
+
+## Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)
+"+" menu or Tools menu. Same layout as the jog template (10 bars, slowdown over bars 3–7, target from bar 8), aimed at a measured reference braking run (Run_Deccelarate FBX): ~189 steps/min, trunk tipped back ~3°, hips ~3.5 cm lower with the knees well bent in stance, 2.1 m/s. The arms keep the sprint's swing, shortened at the shoulder (upper-arm weight 45 %). No foot lock.
+
+| Measured on Sprint.fbx, bars 8–10 | Template | Reference |
+|---|---|---|
+| Cadence | 189 steps/min | ~189 |
+| Trunk lean | −2.4 to −2.7° | −1.5 to −6° |
+| Hip height | 83.6 cm | ~83.5 cm |
+| Stance knee (most bent) | 111–114° | 110–112° |
+| Swing knee (most bent) | 82° | 79–82° |
+| Speed | 2.10 m/s | 2.13 m/s (import estimate) |
+
+Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.1 s). A longer contact without a foot lock slides, so the template leaves it.
