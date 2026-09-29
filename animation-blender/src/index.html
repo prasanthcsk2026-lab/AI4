@@ -275,6 +275,14 @@
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
   </div>
 </div>
+<div class="sheet" id="stdDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="stdT">
+    <h2 id="stdT">Steadiness settings</h2>
+    <div><div id="stdGrid" class="stsgrid stdgrid"></div>
+      <p><label class="cb" title="The legs are IK-solved so the feet keep their spots when the hips are steadied"><input type="checkbox" id="stdFeet" checked> Feet stay planted (when the hips are steadied)</label></p></div>
+    <div class="acts"><span class="note">Ticked tracks show on the timeline. World: the bone holds still in the world (the bones below compensate) · Local: only its own rotation calms. P / T / L: pitch, turn, tilt.</span><button type="button" class="primary" id="stdClose">Close</button></div>
+  </div>
+</div>
 <div class="sheet" id="barCopyDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="bcT">
     <h2 id="bcT">Copy bars</h2>

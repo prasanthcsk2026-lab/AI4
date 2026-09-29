@@ -27,6 +27,7 @@ function pointArrayMap(a) {   // stable name → point array, for every track in
   for (const g of a.groupOrder) { const gr = a.groups[g]; if (!gr) continue; m[`g|${g}|weight`] = gr.weight; m[`g|${g}|timing`] = gr.timing; }
   for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; for (const k in e.tr) m[`e|${id}|${k}`] = e.tr[k]; }
   for (const k of a.symOrder) { const sy = a.sym[k]; if (!sy) continue; m[`s|${k}|weight`] = sy.weight; m[`s|${k}|offset`] = sy.offset; }
+  if (a.steady && a.steady.tr) for (const k of STD_KEYS) m[`q|${k}`] = a.steady.tr[k];
   for (const k of Object.keys(m)) if (!m[k]) delete m[k];
   return m;
 }

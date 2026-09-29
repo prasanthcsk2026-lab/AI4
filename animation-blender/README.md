@@ -270,3 +270,11 @@ Fix: Stride length now also applies while the Hips IK keeps the feet planted. Be
 | Speed | 2.10 m/s | 2.13 m/s (import estimate) |
 
 Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.1 s). A longer contact without a foot lock slides, so the template leaves it.
+
+## Steadiness tracks (timeline)
+"+" menu → **Steadiness (centre bones)**. It adds a block with an **Amount** track per centre bone (Hips, Spine, Spine1, Chest, Neck, Head) and **Hips bob / sway** tracks. 0 % = as the clip moves; 100 % = still.
+- Motion is measured against the average pose of the bar it is in. Averages are taken per bar and blended between bar centres, so a timeline that changes over the bars (templates, cadence) steadies against its own pose.
+- ⚙ (or right-click the block): which tracks show; **World** (the bone holds still in the world, the bones below compensate) or **Local** (only its own rotation calms); axes **P / T / L** (pitch, turn, tilt); **Feet stay planted** (the legs are re-solved so each foot keeps the spot the unsteadied pose gave it).
+- Order: clip → groups / bones → symmetrize → **steadiness** → IK (Chest / Head / Hips effectors and foot lock act on top).
+- Saved with the project, in undo, JSON export / import, templates, bar copy / paste, and the whole-timeline FBX export. The Symmetrize tool's own Steadiness is unchanged.
+- Measured on Sprint.fbx: Head world 80 % → head pitch range 10.3° → 2.1°; a 0 → 100 % ramp gives 10.1° / 6.0° / 1.9° at bars 1 / 3 / 5; with hips steadied the planted feet stay within 0 cm of their unsteadied spots. With feet planted, Hips bob 50 % only takes the bob from 4.1 to 3.1 cm: the legs cannot reach higher at mid-stance, so the pelvis comes back down.

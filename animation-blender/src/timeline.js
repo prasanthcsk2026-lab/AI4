@@ -201,13 +201,13 @@ function rebuildRows() {
   };
   // every bone / group / IK / symmetrize block in the order it was added (new ones at the end; drag a block's
   // ⋮⋮ grip to move it); A.rowOrder keeps that order, older projects start from the type order
-  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
-  const all = [...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
+  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'std' ? !!A.steady : kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
+  const all = [...(A.steady ? ['std:main'] : []), ...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
   const seen = new Set(); A.rowOrder = (A.rowOrder || []).filter((k) => keyOk(k) && !seen.has(k) && seen.add(k));
   for (const k of all) if (!seen.has(k)) { seen.add(k); A.rowOrder.push(k); }
   for (const key of A.rowOrder) {
     const [kind, ...r] = key.split(':'), id = r.join(':'), n0 = rows.length;
-    if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
+    if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
     const blk = rows.slice(n0); if (!blk.length) continue;
     blk[0].el.dataset.block = key; addBlockGrip(blk[0], key);
     for (const sub of blk.slice(1)) sub.el.classList.add('sub');
@@ -231,6 +231,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
     { label: 'Arm swing follows the stride', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
+    { label: 'Steadiness (centre bones)', checked: !!A.steady, action: () => (A.steady ? confirmDelete('Remove Steadiness and its tracks?', () => { pushUndo(); removeSteadyNow(); }) : addSteady()) },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
@@ -312,6 +313,7 @@ function refreshSummary(r) {
   if (!r.owner) return;
   const o = r.owner;
   if (o.type === 'sym') return;
+  if (o.type === 'steady') { const hr = rows.find((x) => x.kind === 'steady'); if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = steadySummary(); return; }
   const hr = o.type === 'bone' ? rows.find((x) => x.kind === 'bone' && x.bone === o.name) : o.type === 'group' ? rows.find((x) => x.kind === 'group' && x.group === o.id) : rows.find((x) => x.kind === 'eff' && x.eff === o.id);
   if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = o.type === 'bone' ? boneSummary(A.bones[o.name]) : o.type === 'group' ? groupSummary(o.id) : effSummary(o.id);
 }
@@ -379,6 +381,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const gid of a.groupOrder) { const g = a.groups[gid]; out.push(g.weight, g.timing); }
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
+  if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
   return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
@@ -760,6 +763,10 @@ function onLaneHover(e, r) {
   tip(e, `${t.toFixed(2)} s · ${r.fmt(evalPts(r.get(), t))}`);
 }
 function edited(r, live = false) {
+  const stdKeep = r && r.owner && r.owner.type === 'steady' && stdCache && stdCache.key.startsWith(editVersion + '|');
+  try { editedInner(r, live); } finally { if (stdKeep && stdCache) stdCache.key = stdCache.key.replace(/^\d+\|/, editVersion + '|'); }
+}
+function editedInner(r, live = false) {
   if (live) syncMirrors();
   if (TIMING_KEYS.has(r.key)) {
     const bar = BAR_DRIVERS.has(r.key);
@@ -895,9 +902,9 @@ function openEffMenu(e, id) {
   ]);
 }
 // delete a track: its automation goes back to neutral and it leaves the timeline; an item with no tracks left goes too
-function trackName(r) { const el = r.h.querySelector('.name'); const own = r.owner ? (r.owner.type === 'bone' ? r.owner.name : r.owner.type === 'eff' ? EFF_BY_ID[r.owner.id].label : r.owner.type === 'group' ? groupLabel(r.owner.id) : symLabel(r.owner.id)) : ''; return `"${el ? el.textContent.trim() : r.key}"${own ? ' of ' + own : ''}`; }
+function trackName(r) { const el = r.h.querySelector('.name'); const own = r.owner ? (r.owner.type === 'bone' ? r.owner.name : r.owner.type === 'eff' ? EFF_BY_ID[r.owner.id].label : r.owner.type === 'group' ? groupLabel(r.owner.id) : r.owner.type === 'steady' ? 'Steadiness' : symLabel(r.owner.id)) : ''; return `"${el ? el.textContent.trim() : r.key}"${own ? ' of ' + own : ''}`; }
 function deleteTrack(r) {
-  const o = r.owner, last = (o && o.type === 'bone' && Object.values(A.bones[o.name].show).filter(Boolean).length === 1) || (o && o.type === 'eff' && Object.values(A.ik[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'group' && Object.values(A.groups[o.id].show).filter(Boolean).length === 1);
+  const o = r.owner, last = (o && o.type === 'bone' && Object.values(A.bones[o.name].show).filter(Boolean).length === 1) || (o && o.type === 'eff' && Object.values(A.ik[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'group' && Object.values(A.groups[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'steady' && Object.values(A.steady.show).filter(Boolean).length === 1);
   confirmDelete(`Delete the track ${trackName(r)}? Its automation is cleared.${last ? ' It is the last track, so the item leaves the timeline too.' : ''}`, () => deleteTrackNow(r));
 }
 function deleteTrackNow(r) {
@@ -919,6 +926,9 @@ function deleteTrackNow(r) {
   } else if (o.type === 'group') {
     const g = A.groups[o.id]; g.show[last] = false;
     if (!Object.values(g.show).some(Boolean)) { delete A.groups[o.id]; A.groupOrder = A.groupOrder.filter((n) => n !== o.id); }
+  } else if (o.type === 'steady') {
+    A.steady.show[o.k] = false;
+    if (!Object.values(A.steady.show).some(Boolean)) { delete A.steady; A.rowOrder = (A.rowOrder || []).filter((k) => k !== 'std:main'); }
   } else if (o.type === 'sym') {
     const sy = A.sym[o.id]; sy.show = sy.show || {}; sy.show[last] = false;
     if (sy.show.weight === false && sy.show.offset === false) { delete A.sym[o.id]; A.symOrder = A.symOrder.filter((n) => n !== o.id); }
@@ -976,7 +986,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('stdDlg').hidden || !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

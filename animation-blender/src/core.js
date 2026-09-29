@@ -145,6 +145,7 @@ function normalizeAuto(a) {
   if (!a.cycV2) { for (const p of a.cyc) p.v = clamp(10000 / Math.max(1, p.v), 25, 400); a.cycV2 = true; }   // was reach time %, now speed %
   a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
+  if (a.steady) a.steady = normalizeSteady(a.steady, a.dur); else delete a.steady;
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }

@@ -371,6 +371,7 @@ function composePose(t, Qout, Hout, pend) {
   const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
   if (A.symOrder.length) applySymmetrize(t, Qout, Hout);
+  if (A.steady) applySteady(t, Qout, Hout);
 }
 
 // ---------------------------------------------------------------- symmetrize (mirror with a half-cycle offset)
@@ -680,7 +681,8 @@ function makeGroupCtx(t, pend) {
 // ---------------------------------------------------------------- full-body IK solve
 function solveIK(t, pend) {
   const sk = strideK(t), strideOn = Math.abs(sk - 1) > 1e-4;
-  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn;
+  const sf = stdFeet;   // steadiness moved the hips: the feet go back to where the unsteadied pose had them
+  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn || sf;
   if (!active) return;
   const GX = makeGroupCtx(t, pend);
   const before = S.limits ? limitDefs().map((L) => L.bone.quaternion.clone()) : null;   // FK pose, to find what the IK changed
@@ -707,13 +709,14 @@ function solveIK(t, pend) {
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn;
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf;
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
-    const fkFoot = fkRef[Sd].foot.clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
-    let base = carried.clone().lerp(fkFoot, on('hips') ? feetPin : 0);
-    let baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
+    const fkFoot = (sf ? sf[Sd].p : fkRef[Sd].foot).clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
+    const pinW = sf ? 1 : on('hips') ? feetPin : 0;
+    let base = carried.clone().lerp(fkFoot, pinW);
+    let baseQ = carriedQ.clone().slerp(sf ? sf[Sd].q : fkRef[Sd].footQ, pinW);
     const e = A.ik[fId];
     if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
     const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
@@ -721,7 +724,7 @@ function solveIK(t, pend) {
     baseQ = gx.q.clone().multiply(baseQ);
     legT[Sd] = { target, baseQ, w, gx };
   }
-  if (on('hips') || sk > 1.001) {   // lower the pelvis just enough that both planted feet stay reachable (a longer stride too)
+  if (on('hips') || sk > 1.001 || sf) {   // lower the pelvis just enough that both planted feet stay reachable (a longer stride too)
     let drop = 0;
     for (const Sd of ['L', 'R']) {
       if (!legT[Sd]) continue;
