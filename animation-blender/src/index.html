@@ -37,7 +37,7 @@
     <div class="spacer"></div>
     <div class="io">
       <button type="button" id="btnSym" title="Make left and right match: mirror one side onto the other, half a cycle apart">Symmetrize</button>
-      <button type="button" id="btnFootLock" title="Write foot hold (world lock) tracks from the clip's foot contacts">Auto foot-lock</button>
+      <button type="button" id="btnFootLock" title="Foot lock: hold tracks from the clip's foot contacts, soft release, drift check">Foot lock…</button>
       <button type="button" id="btnBake" title="Bake the result into the clip (replace it), save it to the project, or download it">Bake / Project…</button>
       <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export</button>
       <button type="button" id="btnImportAnim" title="Import an FBX animation (Character Creator CC_Base_ bones)">Import FBX…</button>
@@ -196,6 +196,21 @@
       <div class="bakebtns"><button type="button" class="primary" id="tplGo">Apply to timeline</button><button type="button" id="tplReset">Default values</button></div>
     </div>
     <div class="acts"><span class="note" id="tplNote"></span><button type="button" id="tplClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="flDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="flTitle">
+    <h2 id="flTitle">Foot lock</h2>
+    <div class="bakebody">
+      <p>Locks each foot to the ground while the clip says it is down (a Hold track on the Left / Right foot IK). The lock eases in after a landing and out after it lets go, so the foot never snaps.</p>
+      <div class="impgrid">
+        <label>Release blend <span><input type="number" id="flOut" min="0" max="0.5" step="0.01"> s</span></label>
+        <label>Landing blend <span><input type="number" id="flIn" min="0" max="0.3" step="0.01"> s</span></label>
+      </div>
+      <p class="note" id="flSlide"></p>
+      <div class="bakebtns"><button type="button" class="primary" id="flWrite">Write foot-lock tracks</button><button type="button" id="flMatch" title="Scale the moving speed track so the ground travel matches the feet: the lock has nothing left to hide">Match moving speed</button></div>
+    </div>
+    <div class="acts"><span class="note" id="flNote"></span><button type="button" id="flClose">Close</button></div>
   </div>
 </div>
 <div class="sheet" id="boneDlg" hidden>

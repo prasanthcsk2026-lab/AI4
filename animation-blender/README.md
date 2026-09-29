@@ -211,3 +211,6 @@ Playback speed and cycle speed (with bar reach) are what turn clip time into rea
 
 ## Adding a point
 Clicking an empty spot on a track adds a point at that time with the value the curve already had there, so the line doesn't jump — drag (without releasing) to actually set a value.
+
+## Foot lock
+**Foot lock…** writes Hold tracks on the Left / Right foot IK from the clip's contacts. The lock eases in after a landing (landing blend, default 0.03 s) and out after it lets go (release blend, default 0.12 s): the gap between the held spot and the foot's own path at the release is carried on and faded, so the foot never snaps. The dialog reports how far each foot's animation drifts while locked; **Match moving speed** scales the moving speed track so the ground travel matches the feet (the drift that remains comes from the clip's own foot slide within a contact).

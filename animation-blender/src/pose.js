@@ -506,13 +506,68 @@ function holdStart(pts, t) {   // start of the current "hold on" span, on a 1/12
   return Math.max(0, t0);
 }
 const holdCache = new Map();
-function holdTarget(bone, pts, t) {   // world spot the effector had (FK) when the hold began
+function holdTarget(bone, pts, t, tNow = t) {   // world spot the effector had (FK) when the hold (on at t) began
   const t0 = holdStart(pts, t), bi = boneIdx.get(bone.name), key = `${editVersion}|${S.inPlace}|${bi}|${t0.toFixed(4)}|${S.travelBase.x.toFixed(3)},${S.travelBase.z.toFixed(3)}`;
   let p = holdCache.get(key);
   if (!p) { p = fkPositionsAt(t0)[bi].clone(); if (holdCache.size > 64) holdCache.clear(); holdCache.set(key, p); }
   p = p.clone();
-  if (S.inPlace) p.sub(trueTravel(t)).add(trueTravel(t0));   // in place the world slides back under him
+  if (S.inPlace) p.sub(trueTravel(tNow)).add(trueTravel(t0));   // in place the world slides back under him
   return p;
+}
+// Hold with soft edges: the lock blends in after a landing and out after it lets go, so the foot never snaps.
+// → { w, spot }: how much of the held spot to use (0…1) and the spot; w = 0 when no hold is near.
+function holdBlend(bone, pts, t) {
+  const on = evalPts(pts, t) >= 0.5, step = 1 / 120, sm = (u) => u * u * (3 - 2 * u);
+  if (on) {
+    const t0 = holdStart(pts, t), bin = Math.max(0, S.lockIn || 0);
+    return { w: bin > 1e-4 ? sm(clamp((t - t0) / bin, 0, 1)) : 1, spot: holdTarget(bone, pts, t) };
+  }
+  const bout = Math.max(0, S.lockOut ?? 0.12);
+  if (bout < 1e-4) return { w: 0, spot: null };
+  let t1 = Math.round(t / step) * step, n = 0;
+  while (t1 > 1e-6 && evalPts(pts, t1 - step) < 0.5 && n * step < bout) { t1 -= step; n++; }
+  if (t1 <= 1e-6 || evalPts(pts, t1 - step) < 0.5) return { w: 0, spot: null };
+  // let go: the gap between the held spot and the foot's own path AT the release is carried on and faded out,
+  // riding on that path — not a pull back toward the spot, which the swinging foot leaves further behind each frame
+  const bi = boneIdx.get(bone.name), spotAt = holdTarget(bone, pts, t1 - step, t1), k0 = `r|${editVersion}|${S.inPlace}|${bi}|${t1.toFixed(4)}`;
+  let gap = holdCache.get(k0);
+  if (!gap) { gap = spotAt.clone().sub(fkPositionsAt(t1)[bi]); if (holdCache.size > 64) holdCache.clear(); holdCache.set(k0, gap); }
+  const w = 1 - sm(clamp((t - t1) / bout, 0, 1));
+  return { w: 1, spot: fkPositionsAt(t)[bi].clone().addScaledVector(gap, w), fade: w };
+}
+// How far each held foot's own animation (FK) drifts while it is locked: the gap the lock has to hide, which
+// is what the foot jumps by on release without a blend. Also the moving-speed factor that closes it best:
+// the drift = the foot's motion under the hips + the travel over the hold; scaling the travel by k cancels it.
+function footSlideReport() {
+  const keep = S.inPlace; S.inPlace = false;
+  const res = { spans: 0, meanCm: 0, maxCm: 0, k: 1 };
+  let num = 0, den = 0, sum = 0;
+  try {
+    for (const Sd of ['L', 'R']) {
+      const e = A.ik[Sd + 'foot']; if (!e || !e.tr.hold) continue;
+      const pts = e.tr.hold, bi = boneIdx.get(rig.side[Sd].foot.name);
+      const spans = []; let a = null;
+      for (let t = 0; t <= S.dur + 1e-9; t += 1 / 120) { const on = evalPts(pts, t) >= 0.5; if (on && a == null) a = t; if (!on && a != null) { spans.push([a, t]); a = null; } }
+      for (const [t0, t1] of spans) {
+        if (t1 - t0 < 0.02) continue;
+        const f0 = fkPositionsAt(t0)[bi].clone(), f1 = fkPositionsAt(t1)[bi].clone();
+        const T = trueTravel(t1).sub(trueTravel(t0)); T.y = 0;
+        const d = f1.sub(f0); d.y = 0; const rel = d.clone().sub(T);
+        const cm = d.length() * 100; sum += cm; res.maxCm = Math.max(res.maxCm, cm); res.spans++;
+        num += rel.dot(T); den += T.dot(T);
+      }
+    }
+  } finally { S.inPlace = keep; }
+  res.meanCm = res.spans ? sum / res.spans : 0;
+  res.k = den > 1e-9 ? clamp(-num / den, 0.05, 5) : 1;
+  return res;
+}
+function matchMovingSpeed() {
+  const r = footSlideReport(); if (!r.spans) return 'Write the foot-lock tracks first.';
+  pushUndo(); for (const p of A.move) p.v = clamp(p.v * r.k, 0, 3);
+  moveEndCache = null; rebuildSpeedLUT(); holdCache.clear(); rebuildRows(); save();
+  const after = footSlideReport();
+  return `Moving speed ×${r.k.toFixed(2)}: foot drift under the lock ${r.meanCm.toFixed(1)} → ${after.meanCm.toFixed(1)} cm (average).`;
 }
 
 // ---------------------------------------------------------------- full-body IK solve
@@ -649,7 +704,7 @@ function solveIK(t, pend) {
     let base = carried.clone().lerp(fkRef[Sd].foot, on('hips') ? feetPin : 0);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
     const e = A.ik[fId];
-    if (e && evalPts(e.tr.hold, t) >= 0.5) base = holdTarget(sd.foot, e.tr.hold, t);
+    if (e && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
     const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
     const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
     baseQ = gx.q.clone().multiply(baseQ);
@@ -691,7 +746,7 @@ function solveIK(t, pend) {
     let base = carried.clone().lerp(fkRef[Sd].hand, pin);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].handQ, pin);
     const e = A.ik[hId];
-    if (e && evalPts(e.tr.hold, t) >= 0.5) base = holdTarget(sd.hand, e.tr.hold, t);
+    if (e && e.tr.hold) { const hb = holdBlend(sd.hand, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
     const gx = GX.xf(hId, base);
     baseQ = gx.q.clone().multiply(baseQ);
     armT[Sd] = { target: base.clone().add(effPosOff(hId, t, pend, w)).add(gx.dpos), baseQ, w, gx, pull: w ? effVal(hId, 'pull', t) * w : 0 };

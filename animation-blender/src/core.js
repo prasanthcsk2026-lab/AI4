@@ -173,7 +173,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { realtime: S.realtime, lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { realtime: S.realtime, lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff, lockIn: S.lockIn, lockOut: S.lockOut }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -237,6 +237,7 @@ async function boot() {
   }
   if (store.ui) for (const k of ['inPlace', 'follow', 'autoKey', 'showIK', 'mirrorPref', 'magnet']) if (typeof store.ui[k] === 'boolean') S[k] = store.ui[k];
   if (store.ui && isFinite(store.ui.falloff)) S.falloff = clamp(+store.ui.falloff, 0, 2);
+  S.lockIn = store.ui && isFinite(store.ui.lockIn) ? clamp(+store.ui.lockIn, 0, 0.3) : 0.03; S.lockOut = store.ui && isFinite(store.ui.lockOut) ? clamp(+store.ui.lockOut, 0, 0.5) : 0.12;
   $('btnMagnet').setAttribute('aria-pressed', S.magnet); $('falloffIn').value = S.falloff;
   if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
   if (store.ui && ['length', 'cycles'].includes(store.ui.lenMode)) S.lenMode = store.ui.lenMode;

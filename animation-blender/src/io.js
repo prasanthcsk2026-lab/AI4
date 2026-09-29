@@ -35,7 +35,18 @@ $('btnReset').onclick = () => {
   confirmDelete(`Clear all automation for "${cur.name}"? Every group, bone, IK and master track goes.`, () => { pushUndo(); A = newAuto(S.dur); S.selected = null; S.selEff = null; S.selGroup = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); }, 'Clear all');
 };
 $('toastUndo').onclick = () => { undo(); $('toast').hidden = true; };
-$('btnFootLock').onclick = () => { const msg = autoFootLock(); flash(msg); };
+// ---------------------------------------------------------------- foot lock dialog
+function flReport() {
+  const r = footSlideReport();
+  $('flSlide').textContent = r.spans ? `While locked the foot's own animation drifts ${r.meanCm.toFixed(1)} cm on average (at most ${r.maxCm.toFixed(1)} cm) over ${r.spans} contacts. That is what the release blend hides; "Match moving speed" (×${r.k.toFixed(2)}) takes out the part that comes from the travel speed.` : 'No foot-lock tracks yet.';
+}
+$('btnFootLock').onclick = () => { $('flDlg').hidden = false; $('flNote').textContent = ''; $('flOut').value = S.lockOut ?? 0.12; $('flIn').value = S.lockIn ?? 0.03; flReport(); };
+const flBlends = () => { S.lockOut = clamp(+$('flOut').value || 0, 0, 0.5); S.lockIn = clamp(+$('flIn').value || 0, 0, 0.3); holdCache.clear(); editVersion++; trailDirty = true; save(); };
+$('flOut').onchange = flBlends; $('flIn').onchange = flBlends;
+$('flWrite').onclick = () => { $('flNote').textContent = autoFootLock(); flReport(); };
+$('flMatch').onclick = () => { $('flNote').textContent = matchMovingSpeed(); flReport(); };
+$('flClose').onclick = () => { $('flDlg').hidden = true; };
+$('flDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('flDlg').hidden = true; });
 let flashTimer = 0;
 function flash(msg) { const el = $('status'); el.dataset.flash = msg; clearTimeout(flashTimer); flashTimer = setTimeout(() => { delete el.dataset.flash; }, 5000); }
 
@@ -279,5 +290,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, xOfPublic: (r, t) => xOf(r, t), yOfPublic: (r, v) => yOf(r, v), applySprintToJog, TPL_DEF, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
+window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, holdBlend, fkPositionsAt, footSlideReport, matchMovingSpeed, xOfPublic: (r, t) => xOf(r, t), yOfPublic: (r, v) => yOf(r, v), applySprintToJog, TPL_DEF, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });
