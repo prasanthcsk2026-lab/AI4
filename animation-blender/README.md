@@ -252,7 +252,7 @@ The Bar reach % row is gone. Timing comes from playback speed and cycle speed on
 - **Trunk**: the sprint's forward lean eases out (Spine group). The chest tips back while braking (bars 4–5), then settles slightly forward. The head counters it.
 - **Hips**: dip about 4 cm while braking (the knees bend), then rise for the upright jog.
 - **Legs**: less knee lift and heel kick (knee weight only, so the stance sweep and the feet stay matched). **Arms**: shorter swing at the shoulder only (upper-arm weight); the elbow bend stays.
-- **Foot on ground**: the jog's longer contact, eased in late. **Foot lock** from bar 4.
-- Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk lean 20° → 2° (braking) → 8.5° (jog), foot slip ≤ 1.1 cm per bar from bar 4.
+- **No foot lock, no foot-on-ground stretch** (a longer contact without a lock slides). Re-running the template removes a leftover foot lock. Add one afterwards with Foot lock… if you want it.
+- Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk lean 20° → 2° (braking) → 8.5° (jog), foot slip 3.6–6 cm per bar (the sprint clip itself: 6.5).
 
 Fix: Stride length now also applies while the Hips IK keeps the feet planted. Before, it was cancelled.

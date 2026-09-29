@@ -61,14 +61,15 @@ function applySprintToJog(v) {
 //  straightens into an upright jog):
 //   · cadence (cycle speed) down to the jog's step rate, stride length down to the jog's step length, so the
 //     ground speed lands on `target` m/s with the feet planted (moving speed only trims what is left)
-//   · foot on ground: the jog's longer contact, eased in late; feet locked from bar 4 (no sliding)
+//   · no foot lock and no foot-on-ground stretch: a longer contact without a lock slides, so the feet play as the
+//     clip moves them (cadence × stride keep them matched to the ground speed)
 //   · trunk: the sprint's forward lean goes (Spine group weight), the chest tips back while braking (Chest
 //     rotate X), then settles; the head counters it so the eyes stay level
 //   · hips: dip while braking (the knees bend, feet stay planted), then a little higher for the upright jog
 //   · legs: less knee lift and heel kick (knee weight); arms: shorter swing at the shoulder only (upper-arm
 //     weights), the elbow bend stays
 // ============================================================================
-const DECEL_DEF = { cycles: 10, from: 3, to: 8, target: 2, jogCad: 165, lean: 6, brake: -20, dip: -4, rise: 1.5, legs: 70, arms: 60, gnd: 6, lockFrom: 4 };
+const DECEL_DEF = { cycles: 10, from: 3, to: 8, target: 2, jogCad: 165, lean: 6, brake: -20, dip: -4, rise: 1.5, legs: 70, arms: 60 };
 function applyDecelTemplate(o = {}) {
   const v = { ...DECEL_DEF, ...o };
   if (!cur || cur.kind !== 'loop') return 'Pick a loop clip (the sprint) first.';
@@ -97,10 +98,10 @@ function applyDecelTemplate(o = {}) {
   A.stride = ramp(100, stride);
   A.move = ramp(1, move);
   A.strideArms = false;   // the arms get their own, gentler swing change below (keeps the elbow bend)
-  // 3. foot on ground: the jog's longer contacts, eased in once the speed is low (at sprint speed a longer contact
-  // cannot stay planted: the body runs out of leg)
-  A.gnd = track([[0.5, 0, io], [1, v.gnd]]);
-  A.showMaster = { ...A.showMaster, cycle: true, move: true, stride: true, gnd: true };
+  // 3. no foot-on-ground stretch and no foot lock (a leftover lock from an earlier run goes too)
+  A.gnd = flat(0, S.dur);
+  A.showMaster = { ...A.showMaster, cycle: true, move: true, stride: true, gnd: false };
+  for (const id of ['Lfoot', 'Rfoot']) if (A.ik[id]) { delete A.ik[id]; A.ikOrder = A.ikOrder.filter((n) => n !== id); if (A.rowOrder) A.rowOrder = A.rowOrder.filter((k) => k !== 'eff:' + id); }
   // 4. trunk: forward lean out, a backward tip while braking, then an upright jog; head counters it
   const g = (gid, pts) => { const gr = ensureGroup(gid); gr.weight = pts; gr.timing = flat(0, S.dur); gr.show = { weight: true }; };
   g('g:spine', track([[0, 1, io], [0.5, 0.4], [1, 0.4]]));   // the sprint's lean goes early (braking), then stays out
@@ -119,13 +120,8 @@ function applyDecelTemplate(o = {}) {
   S.lenMode = 'cycles'; A.cycles = v.cycles; A.cycLocked = true;
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs();
-  // 7. foot lock: the feet stay planted through the longer contacts (one undo step with the rest)
-  // from bar `lockFrom` (the sprint bars play as the clip is: at full speed a lock only makes the hips bob)
-  const fl = autoFootLock(); if (/^Hold tracks/.test(fl)) undoStack.pop();
-  const tl = B(v.lockFrom);
-  for (const Sd of ['L', 'R']) { const e = A.ik[Sd + 'foot']; if (!e || !e.tr.hold) continue; const h = e.tr.hold; for (const q of h) if (q.t < tl - 1e-6) q.v = 0; }
   rebuildRows(); save();
-  return `Sprint → Jog (braking): ${v.cycles} bars, slowing over bars ${v.from}–${v.to - 1}, jog from bar ${v.to}: cadence ${Math.round(sprintCad)} → ${Math.round(sprintCad * cad / 100)} steps/min, stride ${Math.round(stride)} %, ${sp.toFixed(2)} → ${v.target} m/s, feet locked.`;
+  return `Sprint → Jog (braking): ${v.cycles} bars, slowing over bars ${v.from}–${v.to - 1}, jog from bar ${v.to}: cadence ${Math.round(sprintCad)} → ${Math.round(sprintCad * cad / 100)} steps/min, stride ${Math.round(stride)} %, ${sp.toFixed(2)} → ${v.target} m/s (no foot lock).`;
 }
 function openTemplate() {
   const dlg = $('tplDlg'); dlg.hidden = false; $('tplNote').textContent = '';
