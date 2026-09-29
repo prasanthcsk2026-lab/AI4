@@ -59,10 +59,9 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - Viewport readouts show each hand's peak reach forward of the hips (R / L / Δ cm) and the step times
     measured from the feet as they are (L→R / R→L / Δ s).
 - **Help:** the "i" button beside IK… explains the timeline.
-- **Master tracks are optional** ("+" beside Group… / Bone… / IK…): playback speed, moving speed, and cycle speed + bar reach. Hidden ones keep their values.
-- **Bar reach:** click a quarter-bar segment to make it v % faster (speed × (1 + v/100)) or slower. A change carries on into later segments until changed again, and changes multiply (10 then 10 = × 1.21). Each cell shows its value and the running factor.
-- **Cycle speed** (automation, speed %): 100 = neutral, 150 = 1.5 × as fast (older saves are converted). It eases between points and multiplies with bar reach.
-- **Realtime bars** (header checkbox): on, the timeline is in real seconds and the bars move with cycle speed / bar reach. Off, the timeline is in bar space: every bar is the same width, and feet, curves and the playhead follow the bars.
+- **Master tracks are optional** ("+" beside Group… / Bone… / IK…): playback speed, moving speed, cycle speed, stride length, foot on ground. Hidden ones keep their values.
+- **Cycle speed** (automation, speed %): 100 = neutral, 150 = 1.5 × as fast (older saves are converted). It eases between points.
+- **Realtime bars** (header checkbox): on, the timeline is in real seconds and the bars move with playback / cycle speed. Off, the timeline is in bar space: every bar is the same width, and feet, curves and the playhead follow the bars.
 - **Timeline zoom:** the scroll bar under the tracks (drag to scroll, drag its ends to zoom), Ctrl + wheel to zoom at the cursor, Shift + wheel to scroll, Fit for the whole length. It follows the playhead while playing. Alt + wheel zooms a track's values.
 - **Viewport layout:**
   - Left toolbar: Select (Q), Move (W), Rotate (E), Auto-key.
@@ -129,7 +128,7 @@ It grew out of `../stride-lab-studio/` (the original, untouched import).
   - The ground is infinite: a shader grid drawn from world coordinates that follows the camera.
   - "In place" off: the character travels with the clip's root motion and keeps going across loops.
   - Follow keeps the camera on the character. Frame (F) re-centres it.
-- **Every delete asks first** (tracks, items, points, bar reach, Reset clip, Revert): Enter = Delete, Esc = Cancel.
+- **Every delete asks first** (tracks, items, points, Reset clip, Revert): Enter = Delete, Esc = Cancel.
 - **Colours:** each kind of track has a muted stripe and tint: master violet, groups blue, bones orange, IK teal, symmetrize pink.
 - **Delete a track:** the × on a track header (shown on hover) or right-click → Delete track. Its automation is cleared and it leaves the timeline. An item with no tracks left is removed. Ctrl+Z brings it back.
 - **Precision:**
@@ -207,7 +206,7 @@ Custom controllers have their own section in the IK dialog and on the timeline (
 Master "+" → **Template: Sprint → Jog (decelerate)…** on a loop clip writes cycle speed, foot on ground (with a braking bump), moving speed, leg / arm group weights, Chest rotate X and Hips move Y: full sprint until the start bar, a slowdown to the end bar, then a jog. Defaults: 10 cycles, bars 3 → 8, cadence 72 %, foot on ground +10 % (+15 % braking), knee lift 75 %, arm swing 65 %, torso lean (spine group) 55 % (the main straightening — a small Chest rotate X on top fine-tunes it), hips +3 cm, ground speed 45 %. The Cycles field counts the cycles the timeline really holds. Imported in-place clips take a travel speed (m/s) in the import list or in the template; a file holding one cycle is used whole as the loop.
 
 ## Bars stay put
-Playback speed and cycle speed (with bar reach) are what turn clip time into real seconds; editing either one moves where the bars fall. Every point on every track — the playback and cycle speed tracks' own points included — is re-timed automatically so it stays on the same bar it was placed on (a speed point dragged up or down stays on its bar even though its value re-times the bars before it). Dragging a point straight up or down never moves it in time; drag sideways to move it to another bar. Each track's own end anchor stays at the timeline's end.
+Playback speed and cycle speed are what turn clip time into real seconds; editing either one moves where the bars fall. Every point on every track — the playback and cycle speed tracks' own points included — is re-timed automatically so it stays on the same bar it was placed on (a speed point dragged up or down stays on its bar even though its value re-times the bars before it). Dragging a point straight up or down never moves it in time; drag sideways to move it to another bar. Each track's own end anchor stays at the timeline's end.
 
 ## Adding a point
 Clicking an empty spot on a track adds a point at that time with the value the curve already had there, so the line doesn't jump — drag (without releasing) to actually set a value.
@@ -238,7 +237,11 @@ Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reach
 
 ## Moving speed, bar copy / paste, curves, whole-timeline FBX
 - **Speed readout**: the viewport's top-right shows the character's moving speed at the playhead (m/s, km/h, moving %, and "in place" when the view is pinned). Readouts has a speed graph over the whole timeline: bar marks, the playhead, hover to read, click to seek.
-- **Upper body (no hips)**: the first bone group (spine and everything above it). It has no IK controller.
-- **Bar copy / paste**: right-click the ruler for Copy bar / Copy bars… and Paste (replace or insert). Ctrl+Shift+C / V copy or paste the playhead's bar. Every track's points and the bar reach of those bars are copied.
+- **Upper body (no hips)**: a separate bone group, first in the list (spine and everything above it). It has no IK controller. The original Upper body group is unchanged.
+- **Bar copy / paste**: right-click the ruler for Copy bar / Copy bars… and Paste (replace or insert). Ctrl+Shift+C / V copy or paste the playhead's bar. Every track's points in those bars are copied.
 - **Curve presets**: right-click a point for Linear, Ease in, Ease out, Ease in-out, or Step (hold). A preset applies to every selected point.
 - **Export FBX (whole timeline)** (File menu): bakes every frame of the timeline with all automation. Options: 30 or 60 fps, travel or in place, and Mixamo or Character Creator (CC_Base_) bone names. The file downloads as a zip.
+
+
+## Bar reach removed
+The Bar reach % row is gone. Timing comes from playback speed and cycle speed only. Older saves and JSON files with bar reach values still load; the values are ignored and the bar count stays locked.

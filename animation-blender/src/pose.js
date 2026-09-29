@@ -149,8 +149,9 @@ const GROUP_DEFS = [];
 (function defineGroups() {
   const sub = (b) => { const out = []; b.traverse((o) => o.isBone && out.push(o)); return out; };
   const add = (g) => GROUP_DEFS.push(g);
-  add({ id: 'g:upper', label: 'Upper body (no hips)', note: 'spine and everything above it', cat: 'Body', bones: () => sub(rig.b.spine) });
+  add({ id: 'g:upperNH', label: 'Upper body (no hips)', note: 'spine and everything above it', cat: 'Body', bones: () => sub(rig.b.spine) });
   add({ id: 'g:body', label: 'Whole body', cat: 'Body', bones: () => sub(rig.b.hips) });
+  add({ id: 'g:upper', label: 'Upper body', cat: 'Body', bones: () => sub(rig.b.spine) });
   add({ id: 'g:lower', label: 'Lower body', note: 'hips + legs', cat: 'Body', bones: () => [rig.b.hips, ...sub(rig.side.L.thigh), ...sub(rig.side.R.thigh)] });
   add({ id: 'g:spine', label: 'Spine', note: 'Spine, Spine1, Spine2', cat: 'Body', bones: () => [rig.b.spine, rig.b.spine1, rig.b.spine2] });
   add({ id: 'g:headneck', label: 'Head & neck', cat: 'Body', bones: () => sub(rig.b.neck) });
@@ -191,23 +192,14 @@ function groupFactor(name, gw, gt) {
 // the timeline holds A.cycles cycles of the clip in S.dur seconds: that sets the base cadence; the playback-speed
 // track multiplies on top of it. Clip time at each timeline time = rate × ∫ speed.
 function cycleRate() { return 1; }   // the clip always plays at its own cadence; Length / Cycles only set how long the timeline is
-// Bar reach speed: every quarter-bar segment of the clip cycles can be made v % faster (speed × (1 + v/100));
-// a change carries on into every later segment until another one changes it again (they multiply). The cycle-speed
-// track is a speed in % (100 = neutral, 150 = 1.5× as fast). Both act in clip time.
-const segLen = () => (cur && cur.dur > 0 ? cur.dur / 4 : 1);
-function segMulTable(maxSeg) {   // cumulative speed factor of segment q (0-based, across all cycles)
-  const cum = new Float32Array(maxSeg + 1); let m = 1;
-  for (let q = 0; q <= maxSeg; q++) { const v = A.barSpeed[q]; if (v) m *= Math.max(0.05, 1 + v / 100); cum[q] = m; }
-  return cum;
-}
+// The cycle-speed track is a speed in % (100 = neutral, 150 = 1.5× as fast); it acts in clip time.
 function rebuildSpeedLUT() {
   const n = Math.max(2, Math.ceil(S.dur * 960) + 1), lut = new Float32Array(n), nom = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
-  const sl = segLen(), maxSeg = Math.ceil((S.dur * SPEED_MAX * 8) / sl) + 8, cum = segMulTable(maxSeg), loop = cur && cur.kind === 'loop';
   for (let i = 1; i < n; i++) {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
-    const q = Math.min(maxSeg, Math.floor(lut[i - 1] / sl)), cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
-    lut[i] = lut[i - 1] + play * (loop ? cum[q] : 1) * (cyc / 100) * dt;
+    const cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
+    lut[i] = lut[i - 1] + play * (cyc / 100) * dt;
   }
   if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
     const tg = A.cycles * cur.dur, e = lut[n - 1];
@@ -220,7 +212,7 @@ function rebuildSpeedLUT() {
   if (typeof viewFreeze !== 'undefined' && viewFreeze) { /* dragging a timing point: keep the view */ }
   else if (S.viewAll !== false) { S.v0 = 0; S.v1 = dispDur(); } else { const D = dispDur(); S.v1 = Math.min(S.v1, D); S.v0 = Math.min(S.v0, Math.max(0, S.v1 - 0.05)); }
   updateHScroll(); drawRuler();
-  if (cur) syncLenInputs();   // the cycles count follows cycle speed / bar reach
+  if (cur) syncLenInputs();   // the cycles count follows cycle speed
 }
 function clipTime(t) { const lut = S.speedLUT, f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
 let moveEndCache = null;

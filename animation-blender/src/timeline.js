@@ -106,7 +106,6 @@ function rebuildRows() {
   if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
   if (A.showMaster.cycle) {
     addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
-    addBarsRow();
   }
   if (A.showMaster.stride) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
   if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
@@ -222,33 +221,13 @@ function rebuildRows() {
   if (window.__slRebuildTree) window.__slRebuildTree();
   layoutLanes();
 }
-// the bar reach row: one cell per quarter-bar segment; click to type how much faster (+) or slower (−) it is
-function addBarsRow() {
-  const r = mkRow('track bars', 'bars'); Object.assign(r, { kind: 'bars' });
-  r.h.innerHTML = '<span class="sw" style="background:#f5a3ff"></span><span class="name">Bar reach <i>% per quarter bar</i></span><div class="rz"></div>';
-  r.h.title = 'Click a segment to set how much faster (+) or slower (−) it is; the change carries on until the next one (they multiply). Right-click for options.';
-  const rz = r.h.querySelector('.rz');
-  rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
-  r.el.style.height = rowHeight(r) + 'px';
-  const cv = document.createElement('canvas'); r.cv = cv; r.lane.append(cv);
-  const segAt = (e) => { const [px] = evXY(r, e); return Math.floor(clipTime(tOf(r, px)) / segLen()); };
-  cv.addEventListener('click', (e) => openBarEdit(segAt(e), e));
-  cv.addEventListener('pointermove', (e) => { const q = segAt(e), v = A.barSpeed[q] || 0; tip(e, `bar ${Math.floor(q / 4) + 1} · .${q % 4}→${q % 4 === 3 ? 'next bar' : '.' + (q % 4 + 1)}: ${v >= 0 ? '+' : ''}${v}% · speed ×${segMulTable(q)[q].toFixed(3)}`); });
-  cv.addEventListener('pointerleave', () => tip(null));
-  cv.addEventListener('contextmenu', (e) => { e.preventDefault(); const q = segAt(e); if (rightDouble('bars#' + q)) { if (A.barSpeed[q]) confirmDelete(`Reset bar ${Math.floor(q / 4) + 1} .${q % 4} to 0 %?`, () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); }, 'Reset'); return; } openMenu(e.clientX, e.clientY, [
-    { label: 'Set this segment…', action: () => openBarEdit(q, e) },
-    { label: 'Reset this segment', disabled: !A.barSpeed[q], action: () => confirmDelete(`Reset bar ${Math.floor(q / 4) + 1} .${q % 4} to 0 %?`, () => { pushUndo(); delete A.barSpeed[q]; barsEdited(); }, 'Reset') },
-    { label: 'Clear all bar speeds', disabled: !Object.keys(A.barSpeed).length, action: () => confirmDelete('Clear every bar reach value?', () => { pushUndo(); A.barSpeed = {}; barsEdited(); }, 'Clear') },
-  ]); });
-  tracksEl.append(r.el); rows.push(r);
-}
 // ---------------------------------------------------------------- "+" menu: the optional master tracks
 $('btnAddMaster').onclick = (e) => {
   const b = e.currentTarget.getBoundingClientRect(), tog = (k) => () => { A.showMaster[k] = !A.showMaster[k]; rebuildRows(); save(); };
   openMenu(b.left, b.bottom + 4, [
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
     { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
-    { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
+    { label: 'Cycle speed', checked: !!A.showMaster.cycle, action: tog('cycle') },
     { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
     { label: 'Arm swing follows the stride', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
@@ -305,36 +284,6 @@ function followPlayhead() {   // while playing, keep the playhead in view
   if (d > S.v1 || d < S.v0) { const span = vSpan(); setView(d - span * 0.1, d - span * 0.1 + span); }
 }
 
-function barsEdited() { pinPointsToBar(); if (holdCountOrUndo('bar reach') === false) return; layoutLanes(); trailDirty = true; save(); }
-function drawBars(r) {
-  const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
-  x.clearRect(0, 0, w, h); x.fillStyle = '#27252b'; x.fillRect(0, 0, w, h);
-  if (!S.speedLUT || !cur) return;
-  const total = S.speedLUT[S.speedLUT.length - 1], qMax = Math.ceil(total / sl), cum = segMulTable(qMax);
-  x.font = `600 ${10 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'middle'; x.textAlign = 'center';
-  for (let q = 0; q < qMax; q++) {
-    const a = xOf(r, timeOfClipTime(q * sl)), b = xOf(r, timeOfClipTime(Math.min(total, (q + 1) * sl)));
-    if (b < 0 || a > w) continue;
-    const v = A.barSpeed[q] || 0, m = cum[q];
-    x.fillStyle = v ? (v > 0 ? 'rgba(245,163,255,.28)' : 'rgba(120,180,255,.25)') : (Math.floor(q / 4) % 2 ? '#221e25' : '#27252b');
-    x.fillRect(a, 0, b - a, h);
-    x.fillStyle = q % 4 === 0 ? '#5b4e61' : '#3a3240'; x.fillRect(Math.round(a), 0, 1, h);
-    if (b - a > 34 * dpr) {
-      x.fillStyle = v ? '#f5d6ff' : '#6f6477'; x.fillText((v > 0 ? '+' : '') + v + '%', (a + b) / 2, h * (Math.abs(m - 1) > 1e-6 ? 0.36 : 0.5));
-      if (Math.abs(m - 1) > 1e-6) { x.fillStyle = '#b08fbd'; x.fillText('×' + m.toFixed(2), (a + b) / 2, h * 0.72); }
-    }
-  }
-  x.textAlign = 'left';
-  drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
-}
-function openBarEdit(q, e) {
-  const box = $('numEdit'); numTarget = { bars: q };
-  $('numTL').hidden = true; $('numV').value = A.barSpeed[q] || 0; $('numV').step = 1; $('numVL').textContent = `bar ${Math.floor(q / 4) + 1} .${q % 4} → +/− %`;
-  box.hidden = false;
-  const bw = box.offsetWidth || 260;
-  box.style.left = clamp(e.clientX - bw / 2, 8, window.innerWidth - bw - 8) + 'px'; box.style.top = clamp(e.clientY - 70, 8, window.innerHeight - 60) + 'px';
-  $('numV').focus(); $('numV').select();
-}
 function boneSummary(ba) {
   const parts = [];
   if (!isFlat(ba.whole, 1)) parts.push('whole');
@@ -399,7 +348,6 @@ function zoomToFit(r) {
 }
 function layoutLane(r) {
   if (!r.cv) return;
-  if (r.kind === 'bars') { const dpr = Math.min(2, window.devicePixelRatio || 1), w = r.lane.clientWidth || 300, h = Math.max(10, rowHeight(r) - 2); r.cv.width = Math.round(w * dpr); r.cv.height = Math.round(h * dpr); r.cv.style.width = w + 'px'; r.cv.style.height = h + 'px'; drawBars(r); return; }
   const dpr = Math.min(2, window.devicePixelRatio || 1), w = r.lane.clientWidth || 300, h = Math.max(10, rowHeight(r) - 1);
   r.cv.width = Math.round(w * dpr); r.cv.height = Math.round(h * dpr); r.cv.style.width = w + 'px'; r.cv.style.height = h + 'px';
   drawLane(r);
@@ -412,13 +360,13 @@ const dprOf = (r) => r.cv.width / Math.max(1, r.cv.clientWidth || r.lane.clientW
 // the visible time window (horizontal zoom / scroll): S.v0 … S.v1 seconds
 const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // Display axis. Realtime bars on: real seconds. Off: "bar space" — the axis follows the bars, so every bar is the
-// same width however cycle speed / bar reach change the timing, and feet and curves stay lined up with the bars.
+// same width however playback / cycle speed change the timing, and feet and curves stay lined up with the bars.
 // A display coordinate d is the nominal time (playback speed only) at which the clip reaches the same clip time.
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
 const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride']);
-// Playback speed and cycle speed (with bar reach) are what turn clip time into real seconds — a "bar" is a fixed
+// Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
 const BAR_DRIVERS = new Set(['speed', 'cyc']);
@@ -435,14 +383,14 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
 let pinDrag = null;
 // clip time reached at real time t1, carrying on from clip time c0 at t0, straight from the current speed tracks
 // (the LUT's own sum, without building the table)
-function clipTimeFrom(t0, c0, t1, cum, sl, maxSeg) {
+function clipTimeFrom(t0, c0, t1) {
   if (t1 <= t0) return c0;
-  const n = Math.max(1, Math.ceil((t1 - t0) * 480)), dt = (t1 - t0) / n, k = cycleRate(), loop = cur.kind === 'loop';
+  const n = Math.max(1, Math.ceil((t1 - t0) * 480)), dt = (t1 - t0) / n, k = cycleRate();
   let c = c0;
   for (let i = 0; i < n; i++) {
     const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
-    const q = Math.min(maxSeg, Math.floor(c / sl)), cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
-    c += play * (loop ? cum[q] : 1) * (cyc / 100) * dt;
+    const cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
+    c += play * (cyc / 100) * dt;
   }
   return c;
 }
@@ -460,7 +408,6 @@ function placeByClipTime(arrs, snap, D) {
   arrs.forEach((pts, i) => pts.forEach((p, j) => { if (snap[i][j] == null) p.t = S.dur; }));   // end anchors ride to the end
   // the speed tracks' own points shape the timing that places them: each is solved (bisection) for the real time
   // at which the timing reaches its bar, in bar order; a couple of passes settle the two tracks against each other
-  const sl = segLen(), maxSeg = Math.ceil((S.dur * SPEED_MAX * 8) / sl) + 8, cum = segMulTable(maxSeg);
   const drv = [];
   arrs.forEach((pts, i) => { if (pts === A.speed || pts === A.cyc) pts.forEach((p, j) => { if (snap[i][j] != null && snap[i][j] > 1e-9) drv.push({ p, ct: snap[i][j] }); }); });
   drv.sort((a, b) => a.ct - b.ct);
@@ -470,7 +417,7 @@ function placeByClipTime(arrs, snap, D) {
     let lo0 = 0;
     for (const d of drv) {
       const own = A.speed.includes(d.p) ? A.speed : A.cyc, prev = own[own.indexOf(d.p) - 1], ts = prev ? Math.min(prev.t, lo0) : 0;
-      const cs = clipTimeFrom(0, 0, ts, cum, sl, maxSeg), at = (t) => { d.p.t = t; return clipTimeFrom(ts, cs, t, cum, sl, maxSeg); };
+      const cs = clipTimeFrom(0, 0, ts), at = (t) => { d.p.t = t; return clipTimeFrom(ts, cs, t); };
       let lo = lo0, hi = S.dur;
       if (at(hi) <= d.ct) { lo0 = hi; continue; }
       // bracket from the point's current place first: a small edit stays a short search
@@ -486,7 +433,7 @@ function placeByClipTime(arrs, snap, D) {
     pts.sort((a, b) => a.t - b.t);
   });
 }
-// ---- Cycles mode: the cycle count is fixed. Any timing change (playback / cycle speed, bar reach, template…) keeps
+// ---- Cycles mode: the cycle count is fixed. Any timing change (playback / cycle speed, template…) keeps
 // every point on its bar and moves the END of the timeline instead, so no bar is ever added or dropped by itself.
 // Bars are only added with "+ Bars" / the ruler menu, or by typing a new count.
 function totalClipTime() { const l = S.speedLUT; return l && l.length ? l[l.length - 1] : 0; }
@@ -571,7 +518,6 @@ function trimToClipTime(arrs, snap, target) {
     for (let j = pts.length - 1; j >= 0; j--) if (snap[i][j] != null && snap[i][j] > target - 1e-6) { pts.splice(j, 1); snap[i].splice(j, 1); }
     const last = pts[pts.length - 1]; if (last && snap[i][pts.length - 1] == null) last.v = vEnd;
   });
-  const sl = segLen(); for (const q of Object.keys(A.barSpeed)) if (+q * sl >= target - 1e-6) delete A.barSpeed[q];
 }
 function finishRetime(msg) {
   selPts = new Set(); moveEndCache = null; editVersion++; trailDirty = true; gridCache = null;
@@ -607,9 +553,6 @@ function addBars(n, ctB) {
     // every point after the insert moves n bars on; no point is added: the segment across the new bars simply
     // stretches (a 100 at bar 5 and a 150 at bar 7 become 100 at bar 5 and 150 at bar 9)
     arrs.forEach((pts, i) => { const sn = snap[i]; for (let j = 0; j < sn.length; j++) if (sn[j] != null && sn[j] > ctB + 1e-6) sn[j] += sh; });
-    const q0 = Math.round(ctB / segLen()), bs = {};
-    for (const [q, v] of Object.entries(A.barSpeed)) bs[+q >= q0 ? +q + 4 * n : +q] = v;
-    A.barSpeed = bs;
   }
   const target = total + sh, was = A.cycles;
   A.cycles = +((A.cycles || total / cur.dur) + n).toFixed(4);
@@ -650,7 +593,7 @@ $('ruler').addEventListener('contextmenu', (e) => {
 const vLut = () => (viewFreeze ? viewFreeze.lut : S.speedLUT), vNom = () => (viewFreeze ? viewFreeze.nom : S.speedLUTNom);
 function freezeView() { if (!viewFreeze) viewFreeze = { lut: S.speedLUT.slice(), nom: S.speedLUTNom.slice(), grid: timeGrid(), bs: barSpace() }; }
 function thawView() { if (!viewFreeze) return; viewFreeze = null; gridCache = null; rebuildSpeedLUT(); layoutLanes(); }
-function barSpace() { if (viewFreeze) return viewFreeze.bs; return !S.realtime && S.speedLUTNom && S.speedLUT && Math.abs(S.speedLUT[S.speedLUT.length - 1] - S.speedLUTNom[S.speedLUTNom.length - 1]) + Object.keys(A.barSpeed || {}).length > 1e-6; }
+function barSpace() { if (viewFreeze) return viewFreeze.bs; return !S.realtime && S.speedLUTNom && S.speedLUT && Math.abs(S.speedLUT[S.speedLUT.length - 1] - S.speedLUTNom[S.speedLUTNom.length - 1]) > 1e-6; }
 function lutAt(lut, t) { const f = clamp(t / S.dur, 0, 1) * (lut.length - 1), i = Math.min(Math.floor(f), lut.length - 2); return lerp(lut[i], lut[i + 1], f - i); }
 function dispOf(t) { return barSpace() ? timeOfClipTime(lutAt(vLut(), t), vNom(), true) : t; }
 function tOfDisp(d) { return barSpace() ? timeOfClipTime(lutAt(vNom(), d), vLut()) : d; }
@@ -674,7 +617,6 @@ function vOfRaw(r, y) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * d
 function vOf(r, y) { return clamp(vOfRaw(r, y), r.range[0], r.range[1]); }
 function niceStep(span, n) { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
 function drawLane(r) {
-  if (r.kind === 'bars') return drawBars(r);
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), pts = r.get();
   x.clearRect(0, 0, w, h);
   x.fillStyle = rows.indexOf(r) % 2 ? '#232326' : '#28282c'; x.fillRect(0, 0, w, h);
@@ -849,11 +791,6 @@ function openNumEdit(r, i, e) {
 function closeNumEdit() { $('numEdit').hidden = true; numTarget = null; }
 function applyNumEdit() {
   if (!numTarget) return;
-  if (numTarget.bars != null) {   // a bar reach segment
-    const q = numTarget.bars, v = clamp(Math.round((parseFloat($('numV').value) || 0) * 10) / 10, -90, 400);
-    pushUndo(); if (v) A.barSpeed[q] = v; else delete A.barSpeed[q];
-    closeNumEdit(); barsEdited(); return;
-  }
   const { r, i } = numTarget, pts = r.get();
   const t = clamp(parseFloat($('numT').value), 0, S.dur), raw = parseFloat($('numV').value);
   if (!isFinite(t) || !isFinite(raw)) { closeNumEdit(); return; }
@@ -967,7 +904,7 @@ function deleteTrackNow(r) {
   const part = r.key.split('|'), last = part[part.length - 1], o = r.owner;
   if (!o) {   // master tracks
     if (r.key === 'speed') A.showMaster.speed = false; else if (r.key === 'move') A.showMaster.move = false;
-    else if (r.key === 'cyc') { A.showMaster.cycle = false; A.barSpeed = {}; }
+    else if (r.key === 'cyc') A.showMaster.cycle = false;
     else if (r.key === 'gnd') A.showMaster.gnd = false;
     else if (r.key === 'stride') A.showMaster.stride = false;
     rebuildSpeedLUT();
@@ -1155,7 +1092,7 @@ function timeGrid() {
   if (S.unit === 'frame') {
     for (let f = 0; f <= Math.round(S.dur * FPS); f++) lines.push({ t: f / FPS, level: f % FPS === 0 ? 2 : f % 5 === 0 ? 1 : 0, label: f % 5 === 0 ? f + 'f' : '' });
   } else if (S.unit === 'cycle' && cur && S.speedLUT) {
-    // realtime: bar lines where the bars really fall (after bar reach / cycle speed); otherwise evenly spaced
+    // realtime: bar lines where the bars really fall (after playback / cycle speed); otherwise evenly spaced
     const lutG = S.speedLUT, total = lutG[lutG.length - 1];
     for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? String(q / 8 + 1) : q % 2 === 0 ? `${Math.floor(q / 8) + 1}.${(q % 8) / 2}` : '' });
   } else if (S.unit === 'step' && spans.length) {

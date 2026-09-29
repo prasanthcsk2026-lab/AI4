@@ -33,7 +33,7 @@ function applySprintToJog(v) {
   const T = timeOfClipTime(v.cycles * dur), t0 = barT(v.from), t1 = barT(v.to);
   const tAt = (f) => timeOfClipTime(((v.from - 1) + f * (v.to - v.from)) * dur);   // f: 0 = start bar, 1 = end bar
   S.dur = A.dur = +T.toFixed(3);
-  A.cyc[A.cyc.length - 1].t = S.dur; A.cycV2 = true; A.barSpeed = {};
+  A.cyc[A.cyc.length - 1].t = S.dur; A.cycV2 = true;
   const ramp = (a, b) => [{ t: 0, v: a, k: 0 }, { t: t0, v: a, k: ease }, { t: t1, v: b, k: 0 }, { t: S.dur, v: b, k: 0 }];
   // 2. foot on ground: up to the jog value with a braking bump in the middle of the slowdown
   A.gnd = [{ t: 0, v: 0, k: 0 }, { t: t0, v: 0, k: 0 }, { t: tAt(0.4), v: v.bump, k: 0 }, { t: tAt(0.8), v: v.bump, k: 0 }, { t: t1, v: v.gnd, k: 0 }, { t: S.dur, v: v.gnd, k: 0 }];
@@ -67,7 +67,7 @@ $('tplDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('tplD
 // ============================================================================
 //  TEMPLATE LIBRARY: save the timeline you built as a named template, open it on any clip
 //  A template stores every track with its points placed by BAR (clip cycles), not by seconds, plus the bar count,
-//  bar reach and which tracks show. Opening it re-times every point for the clip at hand, so a point made on bar
+//  and which tracks show. Opening it re-times every point for the clip at hand, so a point made on bar
 //  3 .2 lands on bar 3 .2 whatever the clip's cycle length or the speeds. Kept in this browser, and also in the
 //  project store when the page has one.
 // ============================================================================

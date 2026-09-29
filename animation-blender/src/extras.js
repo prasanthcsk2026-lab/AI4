@@ -18,7 +18,7 @@ function curveItems(r, hit) {
 
 // ---------------------------------------------------------------- bar copy / paste
 // Copies every track's points inside whole bars a…b (1-based, inclusive) by bar position, plus the values at the two
-// edges (so the shape pastes whole) and the bar reach of those bars; pastes them at another bar, replacing what is
+// edges (so the shape pastes whole); pastes them at another bar, replacing what is
 // there or inserting new bars first. Tracks are matched by name, so a copy goes to another clip too.
 let barClip = null;
 function pointArrayMap(a) {   // stable name → point array, for every track in an automation object
@@ -39,8 +39,7 @@ function copyBars(a, b) {
     const i0 = pts.findIndex((p) => p.t > t0 + 1e-6), before = pts[Math.max(0, i0 - 1)];
     tracks[key] = { v0: evalPts(pts, t0), k0: before && i0 > 0 ? before.k || 0 : 0, e0: before && i0 > 0 ? before.e : undefined, v1: evalPts(pts, t1), inner, flat: inner.length === 0 && Math.abs(evalPts(pts, t0) - evalPts(pts, t1)) < 1e-9 && pts.every((p) => Math.abs(p.v - pts[0].v) < 1e-9) };
   }
-  const bs = {}; for (const [q, v] of Object.entries(A.barSpeed)) if (+q >= (a - 1) * 4 && +q < b * 4) bs[+q - (a - 1) * 4] = v;
-  barClip = { n: b - a + 1, from: a, tracks, barSpeed: bs, clip: cur.name };
+  barClip = { n: b - a + 1, from: a, tracks, clip: cur.name };
   toast(`Copied bar${barClip.n > 1 ? 's' : ''} ${a}${barClip.n > 1 ? '–' + b : ''} (${Object.values(tracks).filter((t) => !t.flat).length} tracks with changes).`);
 }
 function pasteBars(at, mode) {   // at: 1-based bar; mode 'replace' | 'insert'
@@ -63,8 +62,6 @@ function pasteBars(at, mode) {   // at: 1-based bar; mode 'replace' | 'insert'
     add(c1 - 1e-6, { t: 0, v: tr.v1, k: 0 });
     changed++;
   }
-  for (let q = (at - 1) * 4; q < (at - 1 + n) * 4; q++) delete A.barSpeed[q];
-  for (const [q, v] of Object.entries(barClip.barSpeed)) A.barSpeed[(at - 1) * 4 + +q] = v;
   placeByClipTime(arrs, snap, S.dur); ensureEnds(); lockCycles(true);
   moveEndCache = null; editVersion++; trailDirty = true; gridCache = null; holdCache.clear();
   rebuildSpeedLUT(); layoutLanes(); save();

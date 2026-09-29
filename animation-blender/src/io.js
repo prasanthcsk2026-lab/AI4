@@ -15,7 +15,7 @@ function syncLenInputs() {
   $('durIn').classList.toggle('derived', !byLen); $('cycIn').classList.toggle('derived', byLen);
 }
 $('cycIn').onchange = () => { if (!cur) return; setCycles(parseFloat($('cycIn').value)); };
-// cycles the timeline really holds (cycle speed / bar reach / playback speed included)
+// cycles the timeline really holds (cycle speed / playback speed included)
 function realCycles() { const lut = S.speedLUT; return lut && lut.length && lut.length === Math.max(2, Math.ceil(S.dur * 960) + 1) ? lut[lut.length - 1] / cur.dur : S.dur / cur.dur; }
 $('durIn').onchange = () => syncLenInputs();   // read-only: the length follows the bars and the speeds
 function setLength(dIn) {
@@ -60,7 +60,7 @@ function exportObj() {
     symmetrize: A.symOrder.map((k) => ({ item: k, label: symLabel(k), weight_pct: P(A.sym[k].weight, 100), offset_pct: P(A.sym[k].offset, 100) })),
     note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
-    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, foot_on_ground_extra_pct: P(A.gnd), stride_length_pct: P(A.stride), stride_moves_arms: A.strideArms !== false, show_master: A.showMaster,
+    cycle_speed_reach_time_pct: P(A.cyc), foot_on_ground_extra_pct: P(A.gnd), stride_length_pct: P(A.stride), stride_moves_arms: A.strideArms !== false, show_master: A.showMaster,
     moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
@@ -89,7 +89,7 @@ function importObj(o) {
   const clipId = o.clip && (o.clip.id || ('loop:' + o.clip.name));
   if (clipId && clipId !== cur.id && clips.find((x) => x.id === clipId)) selectClip(clipId);
   const d = +o.duration_s || S.dur, P = (a, div = 1) => (Array.isArray(a) && a.length ? a.map(([t, v, k]) => ({ t: +t, v: +v / div, k: +k || 0 })) : null);
-  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move; n.cyc = P(o.cycle_speed_reach_time_pct) || n.cyc; if (o.bar_reach_pct) n.barSpeed = o.bar_reach_pct; if (o.show_master) n.showMaster = o.show_master;
+  const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move; n.cyc = P(o.cycle_speed_reach_time_pct) || n.cyc; if (o.show_master) n.showMaster = o.show_master;
   for (const b of o.bones || []) {
     if (!boneIdx.has(b.bone)) continue;
     const ba = newBoneAuto(d);
