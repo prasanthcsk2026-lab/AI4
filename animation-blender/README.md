@@ -214,3 +214,9 @@ Clicking an empty spot on a track adds a point at that time with the value the c
 
 ## Foot lock
 **Foot lock…** writes Hold tracks on the Left / Right foot IK from the clip's contacts. The lock eases in after a landing (landing blend, default 0.03 s) and out after it lets go (release blend, default 0.12 s): the gap between the held spot and the foot's own path at the release is carried on and faded, so the foot never snaps. The dialog reports how far each foot's animation drifts while locked; **Match moving speed** scales the moving speed track so the ground travel matches the feet (the drift that remains comes from the clip's own foot slide within a contact).
+
+## Templates (save / open)
+Master "+" → **Templates: save / open…** saves the timeline you built as a named template (in this browser, and in the project store when the page has one) and opens it on any clip. Points are stored by bar (clip cycles), so they land on the same bars on another clip whatever its cycle length or speeds; opening replaces that clip's timeline (Ctrl+Z undoes it).
+
+## Symmetrize: odd frame counts, None
+The result's foot contacts are measured on a fine resample, so with an odd frame count the other foot still reads (and shows) at exactly half a cycle. **Even frames** optionally rounds an odd count up by one so that landing falls on a frame. Mode **None** keeps timing and poses as they are (Steadiness still applies).

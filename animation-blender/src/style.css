@@ -328,3 +328,7 @@
   #tplDlg .box { width: min(600px, 100%); grid-template-rows: auto 1fr auto; max-height: 90vh; }
   #tplDlg .bakebody { overflow: auto; }
   .tplgrid input { width: 70px; }
+  #tplLibDlg .box { width: min(620px, 100%); grid-template-rows: auto 1fr auto; max-height: 90vh; }
+  #tplLibDlg .bakebody { overflow: auto; }
+  #tplLibName { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  #tplList .tn { flex: 0 0 150px; font-weight: 600; color: var(--ink); } #tplList .impspd { flex: 1; min-width: 0; }

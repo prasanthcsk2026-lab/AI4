@@ -195,6 +195,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
     { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
+    { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
   ]);
 };
@@ -364,13 +365,14 @@ const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd']);
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
 const BAR_DRIVERS = new Set(['speed', 'cyc']);
-function allPointArrays() {
-  const out = [A.speed, A.move, A.cyc, A.gnd];
-  for (const n of A.order) { const ba = A.bones[n]; out.push(ba.whole, ba.timing, ba.w.x, ba.w.y, ba.w.z, ba.a.x, ba.a.y, ba.a.z); }
-  for (const gid of A.groupOrder) { const g = A.groups[gid]; out.push(g.weight, g.timing); }
-  for (const id of A.ikOrder) { const e = A.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
-  for (const k of A.symOrder) { const sy = A.sym[k]; out.push(sy.weight, sy.offset); }
-  return out;
+function allPointArrays() { return allPointArraysOf(A); }
+function allPointArraysOf(a) {   // every point array of an automation object, in one fixed order
+  const out = [a.speed, a.move, a.cyc, a.gnd];
+  for (const n of a.order) { const ba = a.bones[n]; out.push(ba.whole, ba.timing, ba.w.x, ba.w.y, ba.w.z, ba.a.x, ba.a.y, ba.a.z); }
+  for (const gid of a.groupOrder) { const g = a.groups[gid]; out.push(g.weight, g.timing); }
+  for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
+  for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
+  return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
 let pinDrag = null;
@@ -953,7 +955,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('barsDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

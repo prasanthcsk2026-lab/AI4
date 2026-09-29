@@ -61,3 +61,88 @@ $('tplGo').onclick = () => { $('tplNote').textContent = applySprintToJog(tplVals
 $('tplReset').onclick = () => { for (const [k, d] of Object.entries(TPL_DEF)) $('tpl_' + k).value = d; };
 $('tplClose').onclick = () => { $('tplDlg').hidden = true; };
 $('tplDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('tplDlg').hidden = true; });
+
+// ============================================================================
+//  TEMPLATE LIBRARY: save the timeline you built as a named template, open it on any clip
+//  A template stores every track with its points placed by BAR (clip cycles), not by seconds, plus the bar count,
+//  bar reach and which tracks show. Opening it re-times every point for the clip at hand, so a point made on bar
+//  3 .2 lands on bar 3 .2 whatever the clip's cycle length or the speeds. Kept in this browser, and also in the
+//  project store when the page has one.
+// ============================================================================
+const TPL_KEY = 'animBlender.templates.v1';
+const tplSlug = (n) => n.trim().replace(/[^A-Za-z0-9_.~:@+-]/g, '_').slice(0, 80) || 'template';
+function tplLocal() { try { return JSON.parse(localStorage.getItem(TPL_KEY) || '{}'); } catch { return {}; } }
+function tplLocalSet(all) { try { localStorage.setItem(TPL_KEY, JSON.stringify(all)); return true; } catch { return false; } }
+function tplFromTimeline(name) {   // → the template object for the current timeline
+  const copy = JSON.parse(JSON.stringify(A)), src = allPointArrays(), dst = allPointArraysOf(copy);
+  src.forEach((pts, i) => pts.forEach((p, j) => { const q = dst[i][j]; q.b = p.t >= S.dur - 1e-6 ? null : +(clipTime(p.t) / cur.dur).toFixed(6); delete q.t; }));
+  delete copy.dur;
+  const tracks = dst.length, points = dst.reduce((n, a) => n + a.length, 0);
+  return { name: name.trim(), format: 1, savedAt: Date.now(), clip: cur.name, cycles: +(A.cycles || totalClipTime() / cur.dur).toFixed(4), tracks, points, auto: copy };
+}
+async function tplSave(name) {
+  if (!name || !name.trim()) return 'Type a name first.';
+  if (!cur || !(cur.dur > 0)) return 'Pick a clip first.';
+  const t = tplFromTimeline(name), all = tplLocal(), key = tplSlug(name), existed = !!all[key];
+  all[key] = t; const okLocal = tplLocalSet(all);
+  let okProj = false;
+  if (caps.db) { try { await caps.db.doc('templates/' + key).set(t); okProj = true; } catch { /* the browser copy stays */ } }
+  tplRender();
+  return `${existed ? 'Updated' : 'Saved'} "${t.name}" (${cycTxt(t.cycles)} bars, ${t.tracks} tracks)` + (okLocal ? ' in this browser' : '') + (okProj ? ' and the project store' : '') + '.';
+}
+async function tplList() {   // local and project templates, newest first (the project copy wins on the same name)
+  const map = {};
+  for (const [k, t] of Object.entries(tplLocal())) map[k] = { ...t, key: k, where: ['browser'] };
+  if (caps.db) {
+    try { const snap = await caps.db.collection('templates').get(); for (const d of snap.docs) { const t = d.data(); if (!t || !t.auto) continue; const w = map[d.id] ? map[d.id].where.concat('project') : ['project']; map[d.id] = { ...t, key: d.id, where: w }; } } catch { /* project store unavailable */ }
+  }
+  return Object.values(map).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+}
+function tplOpen(t) {   // replace this clip's timeline with the template, every point on its bar
+  if (!cur || !(cur.dur > 0)) return 'Pick a clip first.';
+  pushUndo();
+  const a = JSON.parse(JSON.stringify(t.auto));
+  const barsOf = new Map();   // point object → bar position (null = end anchor), kept across normalizeAuto
+  for (const pts of allPointArraysOf(a)) for (const p of pts) { barsOf.set(p, p.b); p.t = p.b == null ? 1e9 : p.b * cur.dur; delete p.b; }
+  const target = (+t.cycles || 5) * cur.dur;
+  a.dur = +(target + 0.01).toFixed(3);
+  for (const pts of allPointArraysOf(a)) for (const p of pts) if (p.t > a.dur) p.t = a.dur;
+  A = normalizeAuto(a); A.cycles = +t.cycles || 5; A.cycLocked = true;
+  S.dur = A.dur; S.t = 0; S.v0 = 0; S.v1 = S.dur; selPts = new Set(); selRow = null;
+  for (const gid of A.groupOrder) if (!A.groups[gid]) A.groupOrder = A.groupOrder.filter((x) => x !== gid);
+  for (const id of A.ikOrder) if (id.startsWith('ig:c') && A.ik[id]) registerIG(id, A.ik[id].label);
+  const arrs = allPointArrays(), snap = arrs.map((pts) => pts.map((p) => { const b = barsOf.get(p); return b === undefined ? (p.t >= S.dur - 1e-6 ? null : p.t) : b == null ? null : b * cur.dur; }));
+  rebuildSpeedLUT();
+  lockBusy = true; let ok = true;
+  try { placeByClipTime(arrs, snap, S.dur); ok = fitToClipTime(target, arrs, snap); } finally { lockBusy = false; }
+  ensureEnds(); moveEndCache = null; editVersion++; trailDirty = true; gridCache = null; holdCache.clear();
+  S.viewAll = true; rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save(); afterSelect();
+  return ok ? `Opened "${t.name}" on ${cur.name}: ${cycTxt(A.cycles)} bars, every point on its bar. Ctrl+Z undoes it.` : `Opened "${t.name}", but ${cycTxt(A.cycles)} bars do not fit in 120 s at its speeds.`;
+}
+async function tplDelete(t) {
+  const all = tplLocal(); delete all[t.key]; tplLocalSet(all);
+  if (caps.db && t.where.includes('project')) { try { await caps.db.doc('templates/' + t.key).delete(); } catch { /* keep going */ } }
+  tplRender(); toast(`Deleted template "${t.name}".`);
+}
+async function tplRender() {
+  const box = $('tplList'); box.textContent = 'Loading…';
+  const list = await tplList(); box.textContent = '';
+  if (!list.length) { box.innerHTML = '<div class="empty">No templates yet. Build a timeline, name it above and press Save.</div>'; return; }
+  for (const t of list) {
+    const row = document.createElement('div'); row.className = 'improw';
+    const nm = document.createElement('span'); nm.className = 'tn'; nm.textContent = t.name;
+    const info = document.createElement('span'); info.className = 'impspd'; info.textContent = `${cycTxt(+t.cycles || 0)} bars · ${t.tracks || '?'} tracks · from ${t.clip || '?'}`;
+    const tags = t.where.map((w) => { const g = document.createElement('span'); g.className = 'imptag ' + (w === 'project' ? 'proj' : 'cache'); g.textContent = w; return g; });
+    const op = document.createElement('button'); op.type = 'button'; op.className = 'mini'; op.textContent = 'Open'; op.title = 'Replace this clip\'s timeline with the template (Ctrl+Z undoes it)';
+    op.onclick = () => { $('tplLibNote').textContent = tplOpen(t); };
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'mini'; del.textContent = 'Delete';
+    del.onclick = () => tplDelete(t);
+    row.append(nm, info, ...tags, op, del); box.append(row);
+  }
+}
+function openTplLib() { $('tplLibDlg').hidden = false; $('tplLibNote').textContent = ''; $('tplLibClip').textContent = cur ? cur.name : '—'; tplRender(); $('tplLibName').focus(); }
+$('tplLibSave').onclick = async () => { $('tplLibNote').textContent = await tplSave($('tplLibName').value); };
+$('tplLibName').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('tplLibSave').click(); });
+$('tplLibSprint').onclick = () => { $('tplLibDlg').hidden = true; openTemplate(); };
+$('tplLibClose').onclick = () => { $('tplLibDlg').hidden = true; };
+$('tplLibDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('tplLibDlg').hidden = true; });

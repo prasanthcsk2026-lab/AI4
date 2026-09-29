@@ -88,7 +88,7 @@ function stOpts() {
   return { steady: steadyOpts(),
     arms: $('stArms').value, legs: $('stLegs').value, w: clamp(+$('stW').value / 100, 0, 1),
     split: clamp(+$('stSplit').value / 100, 0.3, 0.7), retime: $('stRetime').checked, start: $('stStart').value,
-    center: $('stCenter').checked, swing: $('stSwing').checked, mode: $('stMode').value,
+    center: $('stCenter').checked, swing: $('stSwing').checked, mode: $('stMode').value, even: $('stEven').checked,
     ease: clamp(+$('stEase').value / 100, -0.8, 1), zone: clamp(+$('stZone').value / 100, 0.02, 0.45),
   };
 }
@@ -172,11 +172,20 @@ function stMirrorAverageAB(Qa, Ha, Qb, Hb, N, strength, only = null) {
 //    A uniform stretch never lands two output frames on the same moment, so no frame repeats.
 // 3. optional: even swing / swing ease (extra re-timing, each step kept ≥ half a normal frame step), then
 //    Average (or Copy) for symmetry, frame by frame against the frame half a cycle away.
+function stUpsample(Q, H, N, M) {   // a looping N-frame cycle resampled to M (rotations slerped, hips lerped)
+  const Qu = new Float32Array(M * B * 4), Hu = new Float32Array(M * 3), a = new THREE.Quaternion(), b = new THREE.Quaternion();
+  for (let k = 0; k < M; k++) {
+    const f = (k / M) * N, i0 = Math.floor(f) % N, i1 = (i0 + 1) % N, u = f - Math.floor(f);
+    for (let bi = 0; bi < B; bi++) { a.fromArray(Q, (i0 * B + bi) * 4); b.fromArray(Q, (i1 * B + bi) * 4); a.slerp(b, u).toArray(Qu, (k * B + bi) * 4); }
+    for (let c = 0; c < 3; c++) Hu[k * 3 + c] = lerp(H[i0 * 3 + c], H[i1 * 3 + c], u);
+  }
+  return [Qu, Hu];
+}
 function stProcess() {
   const clip = ST.clip, o = stOpts(), keepCur = cur, keepBk = BAKED[clip.id];
   if (!ST.fk) ST.fk = new VirtualFK(rig);
   cur = clip; if (ST.src) BAKED[clip.id] = ST.src; else delete BAKED[clip.id];   // sample the loaded clip, not the preview
-  const dur = clip.dur, N = Math.max(8, ST.src ? ST.src.n : clip.c.n || Math.round(dur * 30)), M = ST_M;
+  const dur = clip.dur, N0 = Math.max(8, ST.src ? ST.src.n : clip.c.n || Math.round(dur * 30)), N = o.even && N0 % 2 ? N0 + 1 : N0, M = ST_M;   // even: the other foot's landing (half a cycle) falls on a frame
   const Qx = new Float32Array(B * 4), Hx = V3();
   const sample = (p, Q, H) => {   // the clip at cycle phase p (with the Copy-mode mirror)
     sampleClip(mod1(p) * dur, Q, H);
@@ -190,7 +199,8 @@ function stProcess() {
     const [Qf0, Hf0] = fill((u) => u, M), before = stMeasure(Qf0, Hf0, M);
     const S0 = o.start, S1 = S0 === 'L' ? 'R' : 'L';
     let base = (u) => u, retimed = false;
-    if (o.retime && before.contact[S0] && before.contact[S1]) {
+    const none = o.mode === 'none';   // None: timing and poses as they are (Steadiness still applies)
+    if (!none && o.retime && before.contact[S0] && before.contact[S1]) {
       const a = before.contact[S0].on, d1 = mod1(before.contact[S1].on - a) || 0.5;
       base = (u) => a + (u < 0.5 ? (u / 0.5) * d1 : d1 + ((u - 0.5) / 0.5) * (1 - d1));   // uniform in each half
       retimed = true;
@@ -209,7 +219,7 @@ function stProcess() {
       if (ok.length > 2) remap = stSpline(ok);
     }
     let easeInfo = null;
-    if (Math.abs(o.ease) > 1e-3) {
+    if (!none && Math.abs(o.ease) > 1e-3) {
       const r1 = remap, [Qe, He] = fill((u) => base(r1(u)), M), nz = stLimbZ(Qe, He, M);
       const sp = new Float32Array(M); for (let k = 0; k < M; k++) { let v = 0; for (const z of nz) v += Math.abs(z[(k + 1) % M] - z[k]); sp[k] = v + 1e-4; }
       const half = M / 2, cum = new Float32Array(M + 1); for (let k = 0; k < M; k++) cum[k + 1] = cum[k] + sp[k];
@@ -230,7 +240,14 @@ function stProcess() {
     else if (o.mode === 'avg') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w); }
     else if (o.mode === 'copy' && o.center) { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, 1, 'centre'); }
     const steadyRep = stSteady(Qo, Ho, N, o.steady);
-    const after = stMeasure(Qo, Ho, N);
+    // contacts measured on a fine resample of the result, not on its frames: with an odd frame count the landing
+    // half a cycle away falls between two frames, and a frame-by-frame reading put it up to half a frame late
+    const [Qu, Hu] = stUpsample(Qo, Ho, N, M), after = stMeasure(Qu, Hu, M);
+    if (retimed) for (const [Sd, at] of [[S0, 0], [S1, 0.5]]) {   // the retime put the landings exactly here
+      const cc = after.contact[Sd]; if (!cc) continue;
+      const d = ((cc.on - at + 0.5) % 1 + 1) % 1 - 0.5;
+      if (Math.abs(d) < 1.5 / N) { cc.on -= d; cc.off -= d; }
+    }
     if (easeInfo) { const nz = stLimbZ(Qo, Ho, N); easeInfo.hands.push(stEndsShare(nz.slice(0, 2), o.zone)); easeInfo.feet.push(stEndsShare(nz.slice(2), o.zone)); }
     const win = {};
     for (const Sd of ['L', 'R']) if (after.contact[Sd]) { const cc = after.contact[Sd]; win[Sd] = [cc.on, cc.on + mod1(cc.off - cc.on)]; }
@@ -326,7 +343,7 @@ function stSave() {
   try {
     store.baked = store.baked || {}; store.baked[ST.clip.id] = packBk(bk);
     const vs = stVersions(); vs.forEach((v) => { v.current = false; });
-    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.mode === 'phase' ? 'phase match' : o.mode === 'arms' ? 'phase match + arms avg' : o.mode === 'avg' ? 'average' : [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs].filter(Boolean).join(', '), o.retime && 'feet on bars', o.swing && 'even swing'].filter(Boolean).join(', ') });
+    const o = stOpts(); vs.push({ ...packBk(bk), at: Date.now(), current: true, label: [o.mode === 'none' ? 'no change' : o.mode === 'phase' ? 'phase match' : o.mode === 'arms' ? 'phase match + arms avg' : o.mode === 'avg' ? 'average' : [o.arms && 'arms ' + o.arms, o.legs && 'legs ' + o.legs].filter(Boolean).join(', '), o.retime && 'feet on bars', o.swing && 'even swing'].filter(Boolean).join(', ') });
     while (vs.length > 8) vs.shift();
   } catch { /* storage full: the session keeps it */ }
   save(); markBakedClips(); stFillVersions();
@@ -372,12 +389,12 @@ function openSymTool() {
 }
 $('btnSym').onclick = openSymTool;
 $('stClip').onchange = () => stLoad($('stClip').value);
-for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing', 'stZone']) $(id).onchange = stRun;
+for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing', 'stZone', 'stEven']) $(id).onchange = stRun;
 $('stEase').oninput = () => { $('stEasev').textContent = (+$('stEase').value > 0 ? '+' : '') + $('stEase').value; };
 $('stEase').onchange = stRun;
 buildSteadyUI();
 $('stMode').onchange = () => { stModeUI(); stRun(); };
-function stModeUI() { const m = $('stMode').value; for (const el of document.querySelectorAll('.copyonly')) el.hidden = m !== 'copy'; for (const el of document.querySelectorAll('.wonly')) el.hidden = m === 'phase'; }
+function stModeUI() { const m = $('stMode').value; for (const el of document.querySelectorAll('.copyonly')) el.hidden = m !== 'copy'; for (const el of document.querySelectorAll('.wonly')) el.hidden = m === 'phase' || m === 'none'; }
 $('stW').oninput = () => { $('stWv').textContent = $('stW').value + '%'; };
 $('stW').onchange = stRun;
 $('stSave').onclick = stSave;
