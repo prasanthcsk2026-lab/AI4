@@ -245,3 +245,14 @@ Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reach
 
 ## Bar reach removed
 The Bar reach % row is gone. Timing comes from playback speed and cycle speed only. Older saves and JSON files with bar reach values still load; the values are ignored and the bar count stays locked.
+
+## Template: Sprint → Jog 2 m/s, braking (bars 3–7)
+"+" menu or Tools menu. Built for a sprint loop: 10 bars, bars 1–2 sprint, the slowdown runs through bars 3–7, bars 8–10 jog at 2 m/s. Based on running-deceleration studies: speed drops through both step rate and step length; the trunk tips back and the knees bend to brake; then the body straightens into an upright jog.
+- **Cadence** (cycle speed) drops to 165 steps/min. **Stride length** drops so that cadence × stride = 2 m/s with the feet planted.
+- **Trunk**: the sprint's forward lean eases out (Spine group). The chest tips back while braking (bars 4–5), then settles slightly forward. The head counters it.
+- **Hips**: dip about 4 cm while braking (the knees bend), then rise for the upright jog.
+- **Legs**: less knee lift and heel kick (knee weight only, so the stance sweep and the feet stay matched). **Arms**: shorter swing at the shoulder only (upper-arm weight); the elbow bend stays.
+- **Foot on ground**: the jog's longer contact, eased in late. **Foot lock** from bar 4.
+- Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk lean 20° → 2° (braking) → 8.5° (jog), foot slip ≤ 1.1 cm per bar from bar 4.
+
+Fix: Stride length now also applies while the Hips IK keeps the feet planted. Before, it was cancelled.

@@ -39,6 +39,7 @@ const MENUS = {
     { label: 'Foot lock…', action: clickId('btnFootLock') },
     { label: 'Templates…', action: () => openTplLib() },
     { label: 'Template: Sprint → Jog…', action: () => openTemplate() },
+    { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Bake / Project…', action: clickId('btnBake') },
   ],
   view: () => [

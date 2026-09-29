@@ -692,6 +692,7 @@ function solveIK(t, pend) {
     const sd = rig.side[Sd];
     fkRef[Sd] = { foot: worldP(sd.foot), footQ: rig.delta(sd.foot), hand: worldP(sd.hand), handQ: rig.delta(sd.hand) };
   }
+  const hz0 = worldP(b.hips).z;   // stride scales the planted-foot spots about the hips as they were before the hips moved
   // 1. hips
   let feetPin = 1;
   if (on('hips')) {
@@ -710,7 +711,8 @@ function solveIK(t, pend) {
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
-    let base = carried.clone().lerp(fkRef[Sd].foot, on('hips') ? feetPin : 0);
+    const fkFoot = fkRef[Sd].foot.clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
+    let base = carried.clone().lerp(fkFoot, on('hips') ? feetPin : 0);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
     const e = A.ik[fId];
     if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }

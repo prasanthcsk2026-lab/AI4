@@ -53,6 +53,80 @@ function applySprintToJog(v) {
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
   return `Sprint → Jog written: ${v.cycles} cycles (${S.dur.toFixed(2)} s), slowing from bar ${v.from} to bar ${v.to}. Run "Auto foot-lock" to plant the longer contacts.`;
 }
+// ============================================================================
+//  TEMPLATE: Sprint → Jog, braking (research-based)
+//  Bars 1–2 sprint, the slowdown runs from the start of bar `from` to the start of bar `to`, then the jog holds.
+//  What changes (from running-deceleration studies: speed drops through both step rate and step length, the trunk
+//  tips back and the knees bend to brake while the feet land further ahead and stay down longer, then the body
+//  straightens into an upright jog):
+//   · cadence (cycle speed) down to the jog's step rate, stride length down to the jog's step length, so the
+//     ground speed lands on `target` m/s with the feet planted (moving speed only trims what is left)
+//   · foot on ground: the jog's longer contact, eased in late; feet locked from bar 4 (no sliding)
+//   · trunk: the sprint's forward lean goes (Spine group weight), the chest tips back while braking (Chest
+//     rotate X), then settles; the head counters it so the eyes stay level
+//   · hips: dip while braking (the knees bend, feet stay planted), then a little higher for the upright jog
+//   · legs: less knee lift and heel kick (knee weight); arms: shorter swing at the shoulder only (upper-arm
+//     weights), the elbow bend stays
+// ============================================================================
+const DECEL_DEF = { cycles: 10, from: 3, to: 8, target: 2, jogCad: 165, lean: 6, brake: -20, dip: -4, rise: 1.5, legs: 70, arms: 60, gnd: 6, lockFrom: 4 };
+function applyDecelTemplate(o = {}) {
+  const v = { ...DECEL_DEF, ...o };
+  if (!cur || cur.kind !== 'loop') return 'Pick a loop clip (the sprint) first.';
+  const sp = cur.c.speed > 0.05 ? cur.c.speed : 0;
+  if (!sp) return 'This clip has no travel speed: set its m/s (Clip → Travel) first.';
+  pushUndo();
+  const dur = cur.dur, sprintCad = 120 / dur;   // two steps per cycle
+  const cad = clamp(v.jogCad / sprintCad * 100, 30, 100);
+  const stride = clamp((v.target / sp) / (cad / 100) * 100, 50, 100);
+  const move = clamp((v.target / sp) / ((cad / 100) * (stride / 100)), 0.2, 1.5);
+  // 1. the timeline: v.cycles bars, cycle speed placed where the bars fall (they move once the cadence drops)
+  S.dur = A.dur = +(v.cycles * dur / (cad / 100) + 1).toFixed(3);
+  A.speed = flat(1, S.dur);
+  const io = 'inout', P = (t, val, e) => (e ? { t, v: val, k: 0, e } : { t, v: val, k: 0 });
+  A.cyc = [P(0, 100), P(0, 100, io), P(0, cad), P(S.dur, cad)];
+  for (let it = 0; it < 12; it++) { rebuildSpeedLUT(); A.cyc[1].t = timeOfClipTime((v.from - 1) * dur); A.cyc[2].t = timeOfClipTime((v.to - 1) * dur); }
+  rebuildSpeedLUT();
+  S.dur = A.dur = +timeOfClipTime(v.cycles * dur).toFixed(3);
+  A.cyc[A.cyc.length - 1].t = S.dur; A.cycV2 = true;
+  rebuildSpeedLUT();
+  const B = (x) => Math.min(S.dur, timeOfClipTime((x - 1) * dur));   // bar position (1-based, fractional) → seconds
+  const len = v.to - v.from, at = (f) => B(v.from + f * len);        // f: 0 = slowdown starts, 1 = jog reached
+  const track = (list) => { const pts = [P(0, list[0][1])]; for (const [f, val, e] of list) pts.push(P(at(f), val, e)); pts.push(P(S.dur, list[list.length - 1][1])); return pts.filter((p, i, a) => i === 0 || p.t > a[i - 1].t + 1e-6 || i === a.length - 1); };
+  const ramp = (a, b) => track([[0, a, io], [1, b]]);
+  // 2. cadence × stride = the jog speed, feet planted
+  A.stride = ramp(100, stride);
+  A.move = ramp(1, move);
+  A.strideArms = false;   // the arms get their own, gentler swing change below (keeps the elbow bend)
+  // 3. foot on ground: the jog's longer contacts, eased in once the speed is low (at sprint speed a longer contact
+  // cannot stay planted: the body runs out of leg)
+  A.gnd = track([[0.5, 0, io], [1, v.gnd]]);
+  A.showMaster = { ...A.showMaster, cycle: true, move: true, stride: true, gnd: true };
+  // 4. trunk: forward lean out, a backward tip while braking, then an upright jog; head counters it
+  const g = (gid, pts) => { const gr = ensureGroup(gid); gr.weight = pts; gr.timing = flat(0, S.dur); gr.show = { weight: true }; };
+  g('g:spine', track([[0, 1, io], [0.5, 0.4], [1, 0.4]]));   // the sprint's lean goes early (braking), then stays out
+  const eff = (id, key, pts) => { const e = ensureEff(id); e.tr[key] = pts; e.show = { ...e.show, [key]: true }; return e; };
+  const effReset = (id) => { const e = ensureEff(id); for (const k of Object.keys(e.tr)) e.tr[k] = flat(TRK[k].ref, S.dur); e.show = {}; return e; };
+  effReset('chest'); eff('chest', 'rx', track([[0, 0, io], [0.45, v.brake, io], [1, -v.lean]]));
+  effReset('head'); eff('head', 'rx', track([[0, 0, io], [0.45, -v.brake * 0.45, io], [1, v.lean * 0.3]]));
+  // 5. hips: dip while braking (feet stay: the knees bend), rise for the jog
+  effReset('hips'); eff('hips', 'py', track([[0, 0, io], [0.45, v.dip, io], [1, v.rise]]));
+  // 6. legs: less knee lift / heel kick; arms: shorter swing at the shoulder only
+  // (the knee only: turning down the whole leg would also shorten the stance sweep, and the feet would slide)
+  for (const Sd of ['L', 'R']) {
+    const kn = ensureBone(rig.side[Sd].shin.name); kn.whole = ramp(1, v.legs / 100); kn.show = { whole: true };
+    const ua = ensureBone(rig.side[Sd].upper.name); ua.whole = ramp(1, v.arms / 100); ua.show = { whole: true };
+  }
+  S.lenMode = 'cycles'; A.cycles = v.cycles; A.cycLocked = true;
+  S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
+  ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs();
+  // 7. foot lock: the feet stay planted through the longer contacts (one undo step with the rest)
+  // from bar `lockFrom` (the sprint bars play as the clip is: at full speed a lock only makes the hips bob)
+  const fl = autoFootLock(); if (/^Hold tracks/.test(fl)) undoStack.pop();
+  const tl = B(v.lockFrom);
+  for (const Sd of ['L', 'R']) { const e = A.ik[Sd + 'foot']; if (!e || !e.tr.hold) continue; const h = e.tr.hold; for (const q of h) if (q.t < tl - 1e-6) q.v = 0; }
+  rebuildRows(); save();
+  return `Sprint → Jog (braking): ${v.cycles} bars, slowing over bars ${v.from}–${v.to - 1}, jog from bar ${v.to}: cadence ${Math.round(sprintCad)} → ${Math.round(sprintCad * cad / 100)} steps/min, stride ${Math.round(stride)} %, ${sp.toFixed(2)} → ${v.target} m/s, feet locked.`;
+}
 function openTemplate() {
   const dlg = $('tplDlg'); dlg.hidden = false; $('tplNote').textContent = '';
   for (const [k, d] of Object.entries(TPL_DEF)) if ($('tpl_' + k).value === '') $('tpl_' + k).value = d;

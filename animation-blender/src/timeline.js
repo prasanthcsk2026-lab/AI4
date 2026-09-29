@@ -233,6 +233,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
+    { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
   ]);
 };
 $('btnHelp').onclick = () => { $('helpDlg').hidden = false; $('helpClose').focus(); };
