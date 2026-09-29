@@ -240,7 +240,7 @@ function rebuildTravelLUT() {
   rawTravel(0, prev);
   for (let i = 1; i < n; i++) {
     rawTravel(i * dt, now);
-    const m = evalPts(A.move, (i - 0.5) * dt);
+    const m = evalPts(A.move, (i - 0.5) * dt) * strideK((i - 0.5) * dt);
     x[i] = x[i - 1] + (now.x - prev.x) * m; z[i] = z[i - 1] + (now.z - prev.z) * m;
     prev.copy(now);
   }
@@ -292,9 +292,9 @@ function sampleClip(tau, Q, H) {   // the untouched clip at clip time tau (s), l
   H.set(HcG.x - h0.x, HcG.y, HcG.z - h0.z).applyQuaternion(qY); H.x = Hi.x; H.z = Hi.z;   // in place (height and turn kept)
 }
 function wholeEff(name, t) {
-  let W = 1; const ba0 = A.bones[name]; if (ba0) W = evalPts(ba0.whole, t);
+  let W = 1; const ba0 = boneOn(name); if (ba0) W = evalPts(ba0.whole, t);
   let p = rig.bones[boneIdx.get(name)].parent;
-  while (p && p.isBone) { const pba = A.bones[p.name]; if (pba && pba.withChildren) W *= evalPts(pba.whole, t); p = p.parent; }
+  while (p && p.isBone) { const pba = boneOn(p.name); if (pba && pba.withChildren) W *= evalPts(pba.whole, t); p = p.parent; }
   return W;
 }
 // ---------------------------------------------------------------- foot on ground (braking)
@@ -321,18 +321,26 @@ function gndLegSets() {
   return gndLegs;
 }
 const gndArr = { L: null, R: null }, gndH = V3();
+// a track muted from its header (Vegas-style M button) counts as not there
+const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefined; };
+// Stride length (master track, % of the clip's own): each foot reaches that much further ahead of / behind the hips
+// (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
+function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1; }
+let armChain = null;
+function armBones() { if (armChain && armChain.rig === rig) return armChain; armChain = { rig, set: new Set() }; for (const Sd of ['L', 'R']) for (const k of ['clav', 'upper', 'fore', 'hand']) armChain.set.add(rig.side[Sd][k].name); return armChain; }
 const shiftPool = [], HshiftScratch = V3(), _trav = V3();
 function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
+  const armK = A.strideArms !== false ? strideK(t) : 1;
   const gw = new Map(), gt = new Map();
-  for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
+  for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g || g.bypass) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
   const gF = gw.size ? rig.bones.map((b) => groupFactor(b.name, gw, gt)) : null;
   // per-bone timing offset (its own + its groups'): re-sample the clip at a shifted clip-time for bones that use it
   const shiftKeyOf = new Map(), shiftArr = new Map();
   for (let i = 0; i < B; i++) {
-    const name = rig.bones[i].name, ba = A.bones[name];
+    const name = rig.bones[i].name, ba = boneOn(name);
     const sh = (ba && ba.timing ? evalPts(ba.timing, t) : 0) + (gF ? gF[i][1] : 0);
     if (Math.abs(sh) < 1e-4) continue;
     const key = Math.round(sh * 1000); shiftKeyOf.set(name, key);
@@ -348,12 +356,12 @@ function composePose(t, Qout, Hout, pend) {
   }
   const pb = pend && pend.kind === 'bone' ? pend : null;
   for (let i = 0; i < B; i++) {
-    const o = i * 4, name = rig.bones[i].name, ba = A.bones[name];
+    const o = i * 4, name = rig.bones[i].name, ba = boneOn(name);
     const legSd = legOf ? (legOf.L.has(name) ? 'L' : legOf.R.has(name) ? 'R' : null) : null;
     const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : legSd && gndArr[legSd] ? gndArr[legSd] : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
-    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1);
+    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (armK !== 1 && armBones().set.has(name) ? armK : 1);
     if (!ba && !pd && Math.abs(W - 1) < 1e-6) { Qout.set(src.subarray(o, o + 4), o); continue; }
     qI.fromArray(QI, o);
     qD.copy(qI).invert().multiply(qC); if (qD.w < 0) { qD.x = -qD.x; qD.y = -qD.y; qD.z = -qD.z; qD.w = -qD.w; }
@@ -413,7 +421,7 @@ function symMirrorInto(Qout, Hout, key, w, srcQ, srcH) {
   }
 }
 function applySymmetrize(t, Qout, Hout) {
-  const act = A.symOrder.filter((k) => A.sym[k] && evalPts(A.sym[k].weight, t) > 1e-4);
+  const act = A.symOrder.filter((k) => A.sym[k] && !A.sym[k].bypass && evalPts(A.sym[k].weight, t) > 1e-4);
   if (!act.length) return;
   ensureSymFK();
   for (const key of act) {
@@ -435,6 +443,8 @@ function fkPositionsAt(t) {
   if (!Qh.v) Qh.v = new Float32Array(B * 4);
   composePose(t, Qh.v, Hh, null);
   fk.v.run(Qh.v, Hh, 0);
+  const k = strideK(t);
+  if (Math.abs(k - 1) > 1e-4) { const P = fk.v.P, hz = P[boneIdx.get(rig.b.hips.name)].z; for (const Sd of ['L', 'R']) { const f = P[boneIdx.get(rig.side[Sd].foot.name)]; f.z = hz + (f.z - hz) * k; } }
   return fk.v.P;
 }
 
@@ -462,7 +472,7 @@ function ikLimb(limb, root, target, pole, fallback) {
   const d2 = basisQ(a2, h, new THREE.Quaternion()).multiply(limb.B2inv);
   return { d1, d2 };
 }
-const effActive = (id, pend) => !!A.ik[id] || !!(pend && pend.kind === 'eff' && pend.id === id);
+const effActive = (id, pend) => (!!A.ik[id] && !A.ik[id].bypass) || !!(pend && pend.kind === 'eff' && pend.id === id);
 function effVal(id, k, t) { const e = A.ik[id]; return e && e.tr[k] ? evalPts(e.tr[k], t) : TRK[k].ref; }
 const eulerQ = (xd, yd, zd, out = new THREE.Quaternion()) => out.setFromEuler(new THREE.Euler(xd * DEG, yd * DEG, zd * DEG, 'YXZ'));
 function effRotQ(id, t, pend, w = 1) {   // world rotation offset of an effector (tracks × blend, then the live gizmo change)
@@ -642,7 +652,7 @@ function applyLimits(before) {
 // which active group IKs hold an effector, and how much of the group's move it takes
 const CARRIERS = { spine: ['hips'], spine1: ['spine', 'hips'], chest: ['spine1', 'spine', 'hips'], neck: ['chest', 'spine1', 'spine', 'hips'], head: ['neck', 'chest', 'spine1', 'spine', 'hips'], Lhand: ['chest', 'spine1', 'spine', 'hips'], Rhand: ['chest', 'spine1', 'spine', 'hips'], Lfoot: ['hips'], Rfoot: ['hips'] };
 function makeGroupCtx(t, pend) {
-  const ids = A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].kind === 'igroup');
+  const ids = A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].kind === 'igroup' && A.ik[id] && !A.ik[id].bypass);
   if (pend && pend.kind === 'eff' && EFF_BY_ID[pend.id] && EFF_BY_ID[pend.id].kind === 'igroup' && !ids.includes(pend.id)) ids.push(pend.id);
   const pivots = new Map();
   const ctx = {
@@ -677,7 +687,8 @@ function makeGroupCtx(t, pend) {
 
 // ---------------------------------------------------------------- full-body IK solve
 function solveIK(t, pend) {
-  const active = A.ikOrder.length || (pend && pend.kind === 'eff');
+  const sk = strideK(t), strideOn = Math.abs(sk - 1) > 1e-4;
+  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn;
   if (!active) return;
   const GX = makeGroupCtx(t, pend);
   const before = S.limits ? limitDefs().map((L) => L.bone.quaternion.clone()) : null;   // FK pose, to find what the IK changed
@@ -703,19 +714,20 @@ function solveIK(t, pend) {
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine');
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn;
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
+    if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
     let base = carried.clone().lerp(fkRef[Sd].foot, on('hips') ? feetPin : 0);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].footQ, on('hips') ? feetPin : 0);
     const e = A.ik[fId];
-    if (e && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
+    if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
     const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
     const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
     baseQ = gx.q.clone().multiply(baseQ);
     legT[Sd] = { target, baseQ, w, gx };
   }
-  if (on('hips')) {   // lower the pelvis just enough that both planted feet stay reachable
+  if (on('hips') || sk > 1.001) {   // lower the pelvis just enough that both planted feet stay reachable (a longer stride too)
     let drop = 0;
     for (const Sd of ['L', 'R']) {
       if (!legT[Sd]) continue;
@@ -751,7 +763,7 @@ function solveIK(t, pend) {
     let base = carried.clone().lerp(fkRef[Sd].hand, pin);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].handQ, pin);
     const e = A.ik[hId];
-    if (e && e.tr.hold) { const hb = holdBlend(sd.hand, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
+    if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.hand, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }
     const gx = GX.xf(hId, base);
     baseQ = gx.q.clone().multiply(baseQ);
     armT[Sd] = { target: base.clone().add(effPosOff(hId, t, pend, w)).add(gx.dpos), baseQ, w, gx, pull: w ? effVal(hId, 'pull', t) * w : 0 };

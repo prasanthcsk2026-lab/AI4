@@ -66,7 +66,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure
 renderer.shadowMap.enabled = true;
 view.prepend(renderer.domElement);
 const scene = new THREE.Scene();
-const BG = new THREE.Color('#1a201d');
+const BG = new THREE.Color('#1d1e21');
 scene.background = BG;
 const FOG_NEAR = 18, FOG_FAR = 80;
 scene.fog = new THREE.Fog(BG, FOG_NEAR, FOG_FAR);
@@ -75,14 +75,14 @@ camera.position.set(2.6, 1.35, 3.3);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0.95, 0); controls.enableDamping = true; controls.minDistance = 0.6; controls.maxDistance = 45;
 controls.maxPolarAngle = Math.PI * 0.495;
-scene.add(new THREE.HemisphereLight('#dfe8e2', '#27302b', 1.1));
+scene.add(new THREE.HemisphereLight('#dfe8e2', '#2a2b2e', 1.1));
 const sun = new THREE.DirectionalLight('#fff4e2', 2.2); sun.castShadow = true;
 sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -2.5, right: 2.5, top: 2.5, bottom: -1.5, near: 0.5, far: 20 });
 scene.add(sun, sun.target);
 // The ground is a grid drawn from world coordinates in the shader: it follows the camera, so it never ends.
 const groundMat = new THREE.ShaderMaterial({
   uniforms: {
-    uBase: { value: new THREE.Color('#1f3326') }, uMinor: { value: new THREE.Color('#284030') }, uMajor: { value: new THREE.Color('#3b5c45') },
+    uBase: { value: new THREE.Color('#26282c') }, uMinor: { value: new THREE.Color('#303237') }, uMajor: { value: new THREE.Color('#474a51') },
     uAxis: { value: new THREE.Color('#6b5530') }, uFog: { value: BG }, uNear: { value: FOG_NEAR }, uFar: { value: FOG_FAR }, uCam: { value: V3() },
   },
   vertexShader: 'varying vec3 vW; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
@@ -125,7 +125,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], barSpeed: {}, cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), showMaster: { speed: false, move: false, cycle: false, gnd: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], barSpeed: {}, cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -137,7 +137,7 @@ function newBoneAuto(dur) {
 function normalizeAuto(a) {
   a.ik = a.ik || {}; a.ikOrder = a.ikOrder || []; a.heights = a.heights || {}; a.zoom = a.zoom || {};
   a.groups = a.groups || {}; a.groupOrder = a.groupOrder || []; a.move = a.move || flat(1, a.dur);
-  a.barSpeed = a.barSpeed || {}; a.cyc = a.cyc || flat(100, a.dur); a.gnd = a.gnd || flat(0, a.dur);
+  a.barSpeed = a.barSpeed || {}; a.cyc = a.cyc || flat(100, a.dur); a.gnd = a.gnd || flat(0, a.dur); a.stride = a.stride || flat(100, a.dur); if (a.strideArms == null) a.strideArms = true;
   if (!a.cycV2) { for (const p of a.cyc) p.v = clamp(10000 / Math.max(1, p.v), 25, 400); a.cycV2 = true; }   // was reach time %, now speed %
   a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);

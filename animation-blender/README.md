@@ -220,3 +220,9 @@ Master "+" → **Templates: save / open…** saves the timeline you built as a n
 
 ## Symmetrize: odd frame counts, None
 The result's foot contacts are measured on a fine resample, so with an odd frame count the other foot still reads (and shows) at exactly half a cycle. **Even frames** optionally rounds an odd count up by one so that landing falls on a frame. Mode **None** keeps timing and poses as they are (Steadiness still applies).
+
+## Workspace (Vegas-style)
+Menu bar (File, Edit, Insert, Tools, View, Help), a main toolbar (undo / redo, Select / Move / Rotate / Auto-key, Snap, Templates, Symmetrize, Foot lock) with a big time display (bar . quarter, seconds, frame). The middle is split: an options dock on the left (30 %, drag the divider, double-click to reset; sections Clip, Selection, View, Readouts, Tools, Import / Export remember open / closed; the Symmetrize tool opens inside it) and the 3D viewport on the right (70 %). Under the timeline a transport bar: start, previous bar, play, stop (back to where play started), next bar, end, loop, clock and status. Track headers carry an **M** (mute) button that turns a bone, group, IK effector or symmetrize item off without deleting it. The ruler's end line reads "bar N end" on its lower line, so the last bar keeps its own label.
+
+## Stride length
+Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reaches that much further ahead of and behind the hips (foot IK; the pelvis drops if a foot would be out of reach), the ground covered grows by the same share so the feet do not slide, and the arm swing follows (toggle "Arm swing follows the stride" in the same menu). The Readouts show cadence (steps / min), step length and ground speed at the playhead. The Sprint → Jog template now shortens the stride (default 70 %) instead of only slowing the travel.

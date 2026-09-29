@@ -7,12 +7,12 @@
 //  (Chest rotate X) and the hips rise a little (Hips move Y); from the end bar on it holds the jog. The ground
 //  covered drops to the chosen share of the sprint (moving speed). Every value stays editable afterwards.
 // ============================================================================
-const TPL_DEF = { cycles: 10, from: 3, to: 8, cad: 72, gnd: 10, bump: 15, legs: 75, arms: 65, torso: 55, lean: -6, hips: 3, travel: 45, speed: 7 };
+const TPL_DEF = { cycles: 10, from: 3, to: 8, cad: 72, stride: 70, gnd: 10, bump: 15, legs: 75, arms: 65, torso: 55, lean: -6, hips: 3, travel: 45, speed: 7 };
 function tplVals() {
   const v = {}; for (const k of Object.keys(TPL_DEF)) v[k] = +$('tpl_' + k).value;
   v.cycles = clamp(Math.round(v.cycles), 2, 200); v.from = clamp(Math.round(v.from), 1, v.cycles - 1); v.to = clamp(Math.round(v.to), v.from + 1, v.cycles);
   v.cad = clamp(v.cad, 25, 100); v.gnd = clamp(v.gnd, 0, GND_MAX); v.bump = clamp(v.bump, 0, GND_MAX); v.legs = clamp(v.legs, 0, 200); v.arms = clamp(v.arms, 0, 200); v.torso = clamp(v.torso, 0, 200);
-  v.travel = clamp(v.travel, 5, 100); v.speed = clamp(v.speed, 0, 15);
+  v.travel = clamp(v.travel, 5, 100); v.stride = clamp(v.stride, 50, 150); v.speed = clamp(v.speed, 0, 15);
   return v;
 }
 function applySprintToJog(v) {
@@ -37,9 +37,11 @@ function applySprintToJog(v) {
   const ramp = (a, b) => [{ t: 0, v: a, k: 0 }, { t: t0, v: a, k: ease }, { t: t1, v: b, k: 0 }, { t: S.dur, v: b, k: 0 }];
   // 2. foot on ground: up to the jog value with a braking bump in the middle of the slowdown
   A.gnd = [{ t: 0, v: 0, k: 0 }, { t: t0, v: 0, k: 0 }, { t: tAt(0.4), v: v.bump, k: 0 }, { t: tAt(0.8), v: v.bump, k: 0 }, { t: t1, v: v.gnd, k: 0 }, { t: S.dur, v: v.gnd, k: 0 }];
-  // 3. ground covered: the travel falls to `travel` % of the sprint; cadence already gives cad %, moving speed the rest
-  A.move = ramp(1, clamp(v.travel / v.cad, 0.05, 3));
-  A.showMaster.cycle = true; A.showMaster.gnd = true; A.showMaster.move = true;
+  // 3. ground covered: the travel falls to `travel` % of the sprint = cadence × stride × moving speed; the stride
+  // track shortens the steps (feet reach less far, no sliding), moving speed takes whatever is left
+  A.stride = ramp(100, v.stride);
+  A.move = ramp(1, clamp((v.travel / v.cad) / (v.stride / 100), 0.05, 3));
+  A.showMaster.cycle = true; A.showMaster.gnd = true; A.showMaster.move = true; A.showMaster.stride = true;
   // 4. pose: knee lift and arm swing (group weights). The sprint's own forward lean is baked into the spine motion,
   // so straightening it takes the same trick as the legs and arms: turn down how much of that motion plays (the
   // "g:spine" group), not just a small extra tilt (Chest rotate X, kept for a bit of fine control).

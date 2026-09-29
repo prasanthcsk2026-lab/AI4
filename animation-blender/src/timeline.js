@@ -15,6 +15,7 @@ const HEIGHT_PRESETS = [['Small', 30], ['Normal', LANE_H], ['Tall', 90], ['Extra
 const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
+  stride: { range: [50, 150], ref: 100, color: '#ffc94d', scale: 1, unit: '% stride', fmt: (v) => Math.round(v) + '%', snap: 5 },
   gnd: { range: [0, GND_MAX], ref: 0, color: '#7fd4a8', scale: 1, unit: '% of cycle', fmt: (v) => '+' + Math.round(v) + '%', snap: 1 },
   cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% speed', fmt: (v) => Math.round(v) + '%', snap: 5 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
@@ -28,6 +29,19 @@ function effSpec(k) {
   return { range: T.range, ref: T.ref, color: T.color, scale, unit, fmt: T.fmt, snap: T.snap, flag: !!T.flag };
 }
 
+// Vegas-style mute: M on a bone / group / IK / symmetrize header turns it off without deleting it (twin side too)
+function addBypass(hr, obj, twinOf) {
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'bypass'; b.textContent = 'M';
+  b.title = obj.bypass ? 'Muted: click to turn it back on' : 'Mute: turn this off without deleting it';
+  b.setAttribute('aria-pressed', obj.bypass ? 'true' : 'false'); if (obj.bypass) hr.el.classList.add('bypassed');
+  b.onclick = (ev) => {
+    ev.stopPropagation(); pushUndo();
+    const on = !obj.bypass, tw = twinOf && twinOf();
+    for (const o of [obj, tw]) { if (!o) continue; if (on) o.bypass = true; else delete o.bypass; }
+    editVersion++; trailDirty = true; holdCache.clear(); rebuildRows(); save();
+  };
+  const del = hr.h.querySelector('[data-act="del"]'); hr.h.insertBefore(b, del);
+}
 function mkRow(cls, key) {
   const el = document.createElement('div'); el.className = 'row ' + cls;
   const h = document.createElement('div'); h.className = 'h'; el.append(h);
@@ -69,6 +83,7 @@ function rebuildRows() {
     addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
     addBarsRow();
   }
+  if (A.showMaster.stride) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
   if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   for (const k of A.symOrder) {
@@ -78,6 +93,7 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = symLabel(k);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { sy.collapsed = !sy.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove "${symLabel(k)}" and its tracks?`, () => { pushUndo(); delete A.sym[k]; A.symOrder = A.symOrder.filter((x) => x !== k); rebuildRows(); save(); });
+    addBypass(hr, sy, null);
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('s|' + k)) hr.h.querySelector('[data-act="del"]').click(); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = 'The target side copies the other side\'s clip motion from the cycle split away (50 % = half a cycle), mirrored. Weight 100 % = fully symmetric. Watch the step times in the viewport.';
     tracksEl.append(hr.el); rows.push(hr);
@@ -98,6 +114,7 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = g.mirror ? sideless(groupLabel(gid)) : groupLabel(gid);
     hr.h.querySelector('[data-act="fold"]').onclick = () => { g.collapsed = !g.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeGroup(gid);
+    addBypass(hr, g, () => A.groups[mirrorGroupId(gid)]);
     hr.h.querySelector('.name').onclick = () => selectGroup(gid);
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('g|' + gid)) removeGroup(gid); else openGroupMenu(ev, gid); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = groupSummary(gid);
@@ -120,6 +137,7 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = ba.mirror ? sideless(name) : name;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { ba.collapsed = !ba.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeBone(name);
+    addBypass(hr, ba, () => A.bones[mirrorName(name)]);
     hr.h.querySelector('.name').onclick = () => selectBone(name);
     hr.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('b|' + name)) removeBone(name); else openBoneMenu(e, name); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = boneSummary(ba);
@@ -146,6 +164,7 @@ function rebuildRows() {
     hr.h.querySelector('.name').textContent = e.mirror ? sideless(d.label) : d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
+    addBypass(hr, e, () => A.ik[mirrorEffId(id)]);
     { const eb = hr.h.querySelector('[data-act="edit"]'); if (eb) eb.onclick = () => editController(id); }
     hr.h.querySelector('.name').onclick = () => selectEff(id);
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('e|' + id)) removeEff(id); else openEffMenu(ev, id); };
@@ -194,6 +213,8 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
     { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
     { label: 'Cycle speed + bar reach', checked: !!A.showMaster.cycle, action: tog('cycle') },
+    { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
+    { label: 'Arm swing follows the stride', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
@@ -251,7 +272,7 @@ function followPlayhead() {   // while playing, keep the playhead in view
 function barsEdited() { pinPointsToBar(); if (holdCountOrUndo('bar reach') === false) return; layoutLanes(); trailDirty = true; save(); }
 function drawBars(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
-  x.clearRect(0, 0, w, h); x.fillStyle = '#1d1a20'; x.fillRect(0, 0, w, h);
+  x.clearRect(0, 0, w, h); x.fillStyle = '#27252b'; x.fillRect(0, 0, w, h);
   if (!S.speedLUT || !cur) return;
   const total = S.speedLUT[S.speedLUT.length - 1], qMax = Math.ceil(total / sl), cum = segMulTable(qMax);
   x.font = `600 ${10 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'middle'; x.textAlign = 'center';
@@ -259,7 +280,7 @@ function drawBars(r) {
     const a = xOf(r, timeOfClipTime(q * sl)), b = xOf(r, timeOfClipTime(Math.min(total, (q + 1) * sl)));
     if (b < 0 || a > w) continue;
     const v = A.barSpeed[q] || 0, m = cum[q];
-    x.fillStyle = v ? (v > 0 ? 'rgba(245,163,255,.28)' : 'rgba(120,180,255,.25)') : (Math.floor(q / 4) % 2 ? '#221e25' : '#1d1a20');
+    x.fillStyle = v ? (v > 0 ? 'rgba(245,163,255,.28)' : 'rgba(120,180,255,.25)') : (Math.floor(q / 4) % 2 ? '#221e25' : '#27252b');
     x.fillRect(a, 0, b - a, h);
     x.fillStyle = q % 4 === 0 ? '#5b4e61' : '#3a3240'; x.fillRect(Math.round(a), 0, 1, h);
     if (b - a > 34 * dpr) {
@@ -360,14 +381,14 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd']);
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride']);
 // Playback speed and cycle speed (with bar reach) are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
 const BAR_DRIVERS = new Set(['speed', 'cyc']);
 function allPointArrays() { return allPointArraysOf(A); }
 function allPointArraysOf(a) {   // every point array of an automation object, in one fixed order
-  const out = [a.speed, a.move, a.cyc, a.gnd];
+  const out = [a.speed, a.move, a.cyc, a.gnd, a.stride];
   for (const n of a.order) { const ba = a.bones[n]; out.push(ba.whole, ba.timing, ba.w.x, ba.w.y, ba.w.z, ba.a.x, ba.a.y, ba.a.z); }
   for (const gid of a.groupOrder) { const g = a.groups[gid]; out.push(g.weight, g.timing); }
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
@@ -612,7 +633,7 @@ function timeAreaCss() { const rw = ruler.clientWidth || 300, sb = Math.max(0, t
 const twOf = (r) => timeAreaCss() * dprOf(r);
 function xOf(r, t) { return xT(t, twOf(r)); }
 function tOf(r, x) { return clamp(tOfDisp(S.v0 + (x / twOf(r)) * vSpan()), 0, S.dur); }
-function endLabel() { if (!cur || !(cur.dur > 0)) return 'end'; const nb = totalClipTime() / cur.dur; return Math.abs(nb - Math.round(nb)) < 0.01 ? `${Math.round(nb) + 1} · end` : 'end'; }
+function endLabel() { if (!cur || !(cur.dur > 0)) return 'end'; const nb = totalClipTime() / cur.dur; return Math.abs(nb - Math.round(nb)) < 0.01 ? `bar ${Math.round(nb)} end` : 'end'; }
 function drawEndMark(x, w, h, xe, dpr, dark) {   // shade past the end, then the end line
   if (xe < w) { x.fillStyle = dark; x.fillRect(Math.max(0, xe), 0, w - Math.max(0, xe), h); }
   if (xe >= -2 && xe <= w + 2) { x.fillStyle = 'rgba(240,138,28,.9)'; x.fillRect(Math.round(xe) - Math.round(dpr / 2), 0, Math.max(1, Math.round(1.5 * dpr)), h); }
@@ -625,11 +646,11 @@ function drawLane(r) {
   if (r.kind === 'bars') return drawBars(r);
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), pts = r.get();
   x.clearRect(0, 0, w, h);
-  x.fillStyle = rows.indexOf(r) % 2 ? '#1b201d' : '#1f2522'; x.fillRect(0, 0, w, h);
+  x.fillStyle = rows.indexOf(r) % 2 ? '#232326' : '#28282c'; x.fillRect(0, 0, w, h);
   // time grid in the chosen unit (seconds, frames, clip cycles or foot steps)
   const G = timeGrid();
   if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.09)' : 'rgba(255,138,74,.08)'; const a = xOf(r, sp.t0), b = xOf(r, sp.t1); x.fillRect(a, 0, Math.max(1, b - a), h); x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.55)' : 'rgba(255,138,74,.55)'; x.fillRect(a, sp.S === 'L' ? h - 3 * dpr : h - 6 * dpr, Math.max(1, b - a), 2 * dpr); }
-  for (const g of visibleGrid(G, twOf(r), dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#34403a' : g.level === 1 ? '#2b3430' : '#232a26'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
+  for (const g of visibleGrid(G, twOf(r), dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#45454b' : g.level === 1 ? '#36363b' : '#2d2d31'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
   // foot landings: a line in the foot's colour
   for (const [t, Sd] of footMarks()) { const px = Math.round(xOf(r, t)); if (px < -2 || px > w + 2) continue; x.fillStyle = Sd === 'L' ? 'rgba(201,139,214,.75)' : 'rgba(255,138,74,.75)'; x.fillRect(px, 0, Math.max(1, Math.round(dpr)), h); }
   // value grid with labels once the track is tall enough
@@ -638,8 +659,8 @@ function drawLane(r) {
     const st = niceStep((hi - lo) * r.scale, cssH / 26) / r.scale;
     x.font = `500 ${10 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'middle';
     for (let v = Math.ceil(lo / st) * st; v <= hi + 1e-9; v += st) {
-      const gy = Math.round(yOf(r, v)) + 0.5; x.fillStyle = '#29322d'; x.fillRect(0, gy, w, 1);
-      x.fillStyle = '#6d7872'; x.fillText(+(v * r.scale).toFixed(4) + '', 4 * dpr, gy - 6 * dpr);
+      const gy = Math.round(yOf(r, v)) + 0.5; x.fillStyle = '#333338'; x.fillRect(0, gy, w, 1);
+      x.fillStyle = '#8a8a90'; x.fillText(+(v * r.scale).toFixed(4) + '', 4 * dpr, gy - 6 * dpr);
     }
   }
   const zoomed = !!A.zoom[r.key];
@@ -797,6 +818,13 @@ document.addEventListener('pointerdown', (e) => { if (!$('numEdit').hidden && !$
 const menuEl = document.createElement('div'); menuEl.id = 'ctxMenu'; menuEl.hidden = true; document.body.append(menuEl);
 document.addEventListener('pointerdown', (e) => { if (!menuEl.hidden && !menuEl.contains(e.target)) menuEl.hidden = true; });
 window.addEventListener('blur', () => { menuEl.hidden = true; });
+// a right-click that lands on an open menu belongs to what is under it (right double-click deletes even when the
+// first click's menu opened under the pointer)
+menuEl.addEventListener('contextmenu', (e) => {
+  e.preventDefault(); menuEl.hidden = true;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  if (el && el !== menuEl) el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: 2 }));
+});
 function openMenu(x, y, items) {
   menuEl.textContent = '';
   for (const it of items) {
@@ -888,6 +916,7 @@ function deleteTrackNow(r) {
     if (r.key === 'speed') A.showMaster.speed = false; else if (r.key === 'move') A.showMaster.move = false;
     else if (r.key === 'cyc') { A.showMaster.cycle = false; A.barSpeed = {}; }
     else if (r.key === 'gnd') A.showMaster.gnd = false;
+    else if (r.key === 'stride') A.showMaster.stride = false;
     rebuildSpeedLUT();
   } else if (o.type === 'bone') {
     const ba = A.bones[o.name]; ba.show[last] = false;
@@ -1021,16 +1050,16 @@ function footMarks() {
 function drawRuler() {
   const dpr = Math.min(2, window.devicePixelRatio || 1), w = ruler.clientWidth || 300; ruler.width = Math.round(w * dpr); ruler.height = Math.round(34 * dpr);
   const x = ruler.getContext('2d'), W = ruler.width, H = ruler.height;
-  x.fillStyle = '#181d1a'; x.fillRect(0, 0, W, H);
+  x.fillStyle = '#1f1f22'; x.fillRect(0, 0, W, H);
   x.font = `500 ${11 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'top';
   const TW = timeAreaCss() * dpr, G = timeGrid(), vis = visibleGrid(G, TW, dpr);
   if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = xT(sp.t0, TW), b = xT(sp.t1, TW); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
   const taken = [];   // labels: the end first, then the major ones, then the rest where they fit
   const xe = xT(S.dur, TW);
-  { const lb = endLabel(), tw = x.measureText(lb).width, a0 = Math.round(xe) - tw - 5 * dpr; x.fillStyle = '#f5b46b'; x.fillText(lb, a0, 5 * dpr); taken.push([a0 - 2 * dpr, xe + 2 * dpr]); }
+  { const lb = endLabel(), tw = x.measureText(lb).width, a0 = Math.round(xe) - tw - 5 * dpr; x.fillStyle = '#f5b46b'; x.fillText(lb, a0, 19 * dpr); }   // on the lower line: the last bar keeps its own label
   for (const g of vis) {
     const px = Math.round(xT(g.t, TW)) + 0.5;
-    x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : g.level === 2 ? '#7d8882' : g.level === 1 ? '#56615b' : '#3a443f';
+    x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : g.level === 2 ? '#8e8e94' : g.level === 1 ? '#5e5e64' : '#46464c';
     x.fillRect(px, g.level === 2 ? H * 0.45 : g.level === 1 ? H * 0.6 : H * 0.72, 1, H);
   }
   for (const pass of [2, 1, 0]) for (const g of vis) {

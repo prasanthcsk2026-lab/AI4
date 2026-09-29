@@ -5,7 +5,7 @@
 //  matched to this character, and every frame is retargeted:
 //    target world rotation = (source rotation since its rest pose) · (rest-direction alignment) · target bind
 //  so an A-pose rest in the file still gives the right pose here. The hips path is scaled to this character's leg
-//  length; the travel is taken out and kept as speed + direction, so the header "In place" toggle decides whether it travels. A loop is cut from one
+//  length; the travel is taken out and kept as speed + direction, so the "In place" toggle decides whether it travels. A loop is cut from one
 //  left-foot landing to the next. Imported clips live in this browser (IndexedDB) until "Save to project".
 // ============================================================================
 const CC_TO_RIG = {   // Character Creator (CC_Base_…) → this rig (Mixamo names)
@@ -209,7 +209,7 @@ async function impDo() {
   try { await idbPut(rec); } catch (e) { $('impNote').textContent = 'Could not keep it in this browser: ' + e.message; }
   addImportedClip(rec); buildClipSelect(); markBakedClips(); selectClip(id); impList();
   if (rec.speed < 0.05) { $('impNote').textContent = `Imported "${name}" (${cut.n} frames). It is an in-place file (no travel): type its travel speed in m/s in the list below.`; return; }
-  $('impNote').textContent = `Imported "${name}" (${cut.n} frames, ${loop ? 'loop' : 'one-shot'}). Turn "In place" off in the header to see it travel. It is kept in this browser; "Save to project" stores it in the project.`;
+  $('impNote').textContent = `Imported "${name}" (${cut.n} frames, ${loop ? 'loop' : 'one-shot'}). Turn "In place" off (Clip panel) to see it travel. It is kept in this browser; "Save to project" stores it in the project.`;
 }
 $('btnImportAnim').onclick = openImport;
 $('impFile').onchange = () => { const f = $('impFile').files[0]; if (f) impFileChosen(f); };

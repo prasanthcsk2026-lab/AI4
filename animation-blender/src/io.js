@@ -28,7 +28,7 @@ function setLength(dIn) {
   for (const id of A.ikOrder) { const e = A.ik[id]; for (const key in e.tr) scale(e.tr[key]); }
   for (const gid of A.groupOrder) { const g = A.groups[gid]; scale(g.weight); scale(g.timing); }
   for (const k of A.symOrder) { scale(A.sym[k].weight); scale(A.sym[k].offset); }
-  scale(A.cyc); scale(A.gnd);
+  scale(A.cyc); scale(A.gnd); scale(A.stride);
   S.dur = A.dur = d; S.t = Math.min(S.t, d); S.v0 = 0; S.v1 = d; syncLenInputs(); updateHScroll(); rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save();
 }
 $('btnReset').onclick = () => {
@@ -60,7 +60,7 @@ function exportObj() {
     symmetrize: A.symOrder.map((k) => ({ item: k, label: symLabel(k), weight_pct: P(A.sym[k].weight, 100), offset_pct: P(A.sym[k].offset, 100) })),
     note: 'points are [time_s, value, tension]. Groups: weight in % multiplied into every bone listed (groups nest by multiplying), timing in % of the cycle added. FK: weight in %, adjust in degrees about the bone local axis (axes: what + does), timing offset in % of the clip cycle. Group IK: members_pct = share of the group move per effector, pivot = what it rotates about. IK: effector offsets in world axes (X sideways, Y up, Z forward), move in cm, rotate in degrees (Euler YXZ), blend / pin / pull / feet in %, hold 0/1, swivel / curl / spread / thumb / toe bend in degrees. Playback speed in % of the clip speed (cadence); moving speed in % of the ground the clip covers (travel only).',
     playback_speed_pct: P(A.speed, 100),
-    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, foot_on_ground_extra_pct: P(A.gnd), show_master: A.showMaster,
+    cycle_speed_reach_time_pct: P(A.cyc), bar_reach_pct: A.barSpeed, foot_on_ground_extra_pct: P(A.gnd), stride_length_pct: P(A.stride), stride_moves_arms: A.strideArms !== false, show_master: A.showMaster,
     moving_speed_pct: P(A.move, 100),
     bones: A.order.filter((n) => A.bones[n]).map((n) => {
       const ba = A.bones[n];
@@ -273,7 +273,7 @@ function frame(now) {
     if (S.playing) followPlayhead();
     placePlayhead();
     $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
-    updateUnitChip();
+    updateUnitChip(); updateWorkspace();
     const ct = clipTime(S.t), el = $('status');
     const travel = S.inPlace ? 'in place' : `travel ${hipsGround().length().toFixed(1)} m`;
     el.textContent = el.dataset.flash || `clip time ${ct.toFixed(2)} s · ${cur.kind === 'loop' ? 'cycle ' + cur.dur.toFixed(3) + ' s · phase ' + mod1(ct / cur.dur).toFixed(2) : 'move ' + cur.dur.toFixed(2) + ' s'} · speed ${Math.round(evalPts(A.speed, S.t) * 100)}% · moving ${Math.round(evalPts(A.move, S.t) * 100)}% · ${travel}`;

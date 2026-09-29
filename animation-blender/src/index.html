@@ -25,76 +25,104 @@
 </head>
 <body>
 <div class="app" id="app">
-  <header class="bar">
+  <nav class="menubar" aria-label="Menu">
     <div class="brand"><b>Anim<span>/</span>Blender</b></div>
-    <div class="field"><label for="clipSel">Clip</label><select id="clipSel"></select></div>
-    <div class="field"><label for="cycIn">Bars</label><select hidden id="lenMode" title="Set the timeline by its length in seconds, or by how many clip cycles it holds (the other one follows; the clip's speed does not change)"><option value="length">Length</option><option value="cycles">Cycles</option></select>
-      <input id="durIn" type="number" min="0.2" max="120" step="0.5" value="10" title="Length in seconds"><span class="unitlbl">s</span>
-      <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Clip cycles (at 100 % playback speed)"><span class="unitlbl" title="Locked: the bar count only changes when you add bars or type a new count">🔒 bars</span><button type="button" class="mini" id="btnAddBars" title="Add bars: at the end or after a bar (the cycle count never changes by itself in Cycles mode). Right-click the ruler to insert bars at a spot.">+ Bars</button></div>
-    <div class="transport">
-      <button type="button" id="btnHome" title="Back to the start and the origin (Home)">⏮</button>
-      <button type="button" class="primary" id="btnPlay" title="Play / pause (Space)">Play</button>
-      <button type="button" id="btnLoop" aria-pressed="true" title="Loop the timeline">Loop</button>
-      <span class="clock" id="clock">0.00 / 10.00 s</span>
-    </div>
-    <div class="field"><label for="unitSel">Grid</label><select id="unitSel" title="Timeline unit: grid lines, ruler and Ctrl-snap">
-      <option value="sec">Seconds</option><option value="frame">Frames (30 fps)</option><option value="cycle">Cycles (bars)</option><option value="step">Foot steps (locks)</option>
-    </select><label class="cb" title="On: the timeline in real seconds (bars move with cycle speed / bar reach). Off: bar space — every bar the same width, feet and curves stay on the bars."><input type="checkbox" id="realtimeCb"> Realtime bars</label><button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Magnet</button></div>
+    <button type="button" class="mnu" data-menu="file">File</button><button type="button" class="mnu" data-menu="edit">Edit</button><button type="button" class="mnu" data-menu="insert">Insert</button><button type="button" class="mnu" data-menu="tools">Tools</button><button type="button" class="mnu" data-menu="view">View</button><button type="button" class="mnu" data-menu="help">Help</button>
     <div class="spacer"></div>
-    <div class="io">
-      <button type="button" id="btnSym" title="Make left and right match: mirror one side onto the other, half a cycle apart">Symmetrize</button>
-      <button type="button" id="btnFootLock" title="Foot lock: hold tracks from the clip's foot contacts, soft release, drift check">Foot lock…</button>
-      <button type="button" id="btnBake" title="Bake the result into the clip (replace it), save it to the project, or download it">Bake / Project…</button>
-      <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export</button>
-      <button type="button" id="btnImportAnim" title="Import an FBX animation (Character Creator CC_Base_ bones)">Import FBX…</button>
-      <button type="button" id="btnImport" title="Load automation JSON">Import</button>
-      <button type="button" id="btnReset" title="Clear all automation for this clip">Reset clip</button>
-    </div>
-  </header>
-  <section class="view" id="view" aria-label="Character viewport">
-    <div class="overlay">
-      <div class="chip sel" id="selChip" hidden>
-        <div class="selhead"><span class="dot" id="selDot"></span><span><b id="selName"></b> <i id="selKind"></i></span><button type="button" class="mini" id="btnAddSel">Add to timeline</button><button type="button" class="mini" id="btnGroupSel" hidden title="Make a group from this bone and everything below it">As group</button></div>
-        <div class="axes" id="selAxes"></div>
-      </div>
-      <div class="chip hint" id="hintChip">Click a joint or an IK handle to select it · drag to orbit · wheel to zoom</div>
-      <div class="chip" id="gizPanel" hidden><span>Gizmo <b id="gizAxis">–</b></span><button type="button" class="mini" id="btnKey" title="Write the change into the tracks at the playhead">Key</button><button type="button" class="mini" id="btnGizCancel" title="Drop the change">Cancel</button></div>
-    </div>
-    <div class="toolbar" role="toolbar" aria-label="Tools">
-      <button type="button" id="btnSelect" class="tool" aria-pressed="true" title="Select: click joints and IK handles (Q)"><span class="ic">↖</span><span class="tl-l">Select</span><kbd>Q</kbd></button>
-      <button type="button" id="btnGizMove" class="tool" aria-pressed="false" title="Move the selected IK handle or the hips (W)"><span class="ic">✥</span><span class="tl-l">Move</span><kbd>W</kbd></button>
-      <button type="button" id="btnGizRot" class="tool" aria-pressed="false" title="Rotate the selected bone or IK handle (E)"><span class="ic">⟳</span><span class="tl-l">Rotate</span><kbd>E</kbd></button>
-      <div class="tsep"></div>
-      <button type="button" id="btnAutoKey" class="tool key" aria-pressed="true" title="Auto-key: write gizmo changes into the tracks when you let go (off: use Key in the gizmo panel)"><span class="ic">●</span><span class="tl-l">Auto-key</span></button>
-    </div>
-    <div class="viewbtns">
-      <div class="btngroup" role="group" aria-label="View">
-        <span class="grplbl">View</span>
-        <button type="button" id="btnBones" aria-pressed="true" title="Show the skeleton">Bones</button>
-        <button type="button" id="btnIK" aria-pressed="true" title="Show the IK handles">IK</button>
-        <button type="button" id="btnGhost" aria-pressed="false" title="Show the untouched clip as a ghost">Ghost</button>
-        <button type="button" id="btnLimits" aria-pressed="true" title="Human joint limits on the IK (joints at a limit turn red)">Limits</button>
-        <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline · drag its dots to reshape it">Trail</button>
-        <label class="falloff" id="falloffBox" title="Trail edits: how far in time (±s) a dragged dot pulls its neighbours">±<input id="falloffIn" type="number" min="0" max="2" step="0.05" value="0.15">s</label>
-      </div>
-    </div>
-    <div class="worldbtns btngroup" role="group" aria-label="Camera and world">
-      <span class="grplbl">World</span>
-      <button type="button" id="btnInPlace" aria-pressed="true" title="Off: the character travels with the clip's root motion">In place</button>
-      <button type="button" id="btnFollow" aria-pressed="true" title="The camera follows the character">Follow</button>
-      <button type="button" id="btnFrame" title="Put the camera back on the character (F)">Frame</button>
-    </div>
-    <div class="hud"><div class="chip hudchip" id="unitChip" hidden></div><div class="chip hudchip" id="reachChip" hidden title="How far forward of the hips each hand gets at its peak, over the timeline"></div><div class="chip hudchip" id="stepChip" hidden title="Step times measured from the feet as they are now: left foot down → right foot down, and back"></div><div id="status"></div></div>
-    <div id="loading">Loading character and clips…</div>
-  </section>
+    <span class="mclip" id="menuClip"></span>
+  </nav>
+  <div class="tbar" role="toolbar" aria-label="Main toolbar">
+    <button type="button" class="tb" id="tbUndo" title="Undo (Ctrl+Z)">↶</button><button type="button" class="tb" id="tbRedo" title="Redo (Ctrl+Y)">↷</button>
+    <span class="tbsep"></span>
+    <button type="button" id="btnSelect" class="tool" aria-pressed="true" title="Select: click joints and IK handles (Q)"><span class="ic">↖</span><span class="tl-l">Select</span><kbd>Q</kbd></button>
+    <button type="button" id="btnGizMove" class="tool" aria-pressed="false" title="Move the selected IK handle or the hips (W)"><span class="ic">✥</span><span class="tl-l">Move</span><kbd>W</kbd></button>
+    <button type="button" id="btnGizRot" class="tool" aria-pressed="false" title="Rotate the selected bone or IK handle (E)"><span class="ic">⟳</span><span class="tl-l">Rotate</span><kbd>E</kbd></button>
+    <button type="button" id="btnAutoKey" class="tool key" aria-pressed="true" title="Auto-key: write gizmo changes into the tracks when you let go (off: use Key in the gizmo panel)"><span class="ic">●</span><span class="tl-l">Auto-key</span></button>
+    <span class="tbsep"></span>
+    <button type="button" id="btnMagnet" aria-pressed="true" title="Magnet: new and dragged points stick to the grid unit's lines">🧲 Snap</button>
+    <span class="tbsep"></span>
+    <button type="button" class="tb" id="tbTpl" title="Templates: save / open">Templates</button><button type="button" class="tb" id="tbSym" title="Symmetrize tool">Symmetrize</button><button type="button" class="tb" id="tbFoot" title="Foot lock">Foot lock</button>
+    <div class="spacer"></div>
+    <div class="bigtime" id="bigTime" title="Playhead: bar . quarter · seconds · frame (30 fps)"><b id="btBar">1 .0</b><span id="btSec">0.000 s</span><span id="btFrm">f 0</span></div>
+  </div>
+  <div class="work" id="work">
+    <aside class="dock" id="dock" aria-label="Options">
+      <details class="dsec" open data-sec="clip"><summary>Clip</summary>
+        <div class="drow"><label for="clipSel">Clip</label><select id="clipSel"></select></div>
+        <div class="drow"><label for="cycIn">Bars</label><select hidden id="lenMode"><option value="length">Length</option><option value="cycles">Cycles</option></select>
+          <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Bar count (clip cycles): locked, it only changes when you add bars or type a new count"><span class="unitlbl">🔒</span><button type="button" class="mini" id="btnAddBars" title="Add bars: at the end or after a bar. Right-click the ruler to insert bars at a spot.">+ Bars</button>
+          <input id="durIn" type="number" min="0.2" max="120" step="0.5" value="10" title="Timeline length in seconds (follows the bars and the speeds)"><span class="unitlbl">s</span></div>
+        <div class="drow btngroup" role="group" aria-label="Camera and world"><label>World</label>
+          <button type="button" id="btnInPlace" aria-pressed="true" title="Off: the character travels with the clip's root motion">In place</button>
+          <button type="button" id="btnFollow" aria-pressed="true" title="The camera follows the character">Follow</button>
+          <button type="button" id="btnFrame" title="Put the camera back on the character (F)">Frame</button></div>
+      </details>
+      <details class="dsec" open data-sec="sel"><summary>Selection</summary>
+        <div class="chip hint" id="hintChip">Click a joint or an IK handle in the viewport to select it · right-click for its tracks</div>
+        <div class="chip sel" id="selChip" hidden>
+          <div class="selhead"><span class="dot" id="selDot"></span><span><b id="selName"></b> <i id="selKind"></i></span><button type="button" class="mini" id="btnAddSel">Add to timeline</button><button type="button" class="mini" id="btnGroupSel" hidden title="Make a group from this bone and everything below it">As group</button></div>
+          <div class="axes" id="selAxes"></div>
+        </div>
+        <div class="chip" id="gizPanel" hidden><span>Gizmo <b id="gizAxis">–</b></span><button type="button" class="mini" id="btnKey" title="Write the change into the tracks at the playhead">Key</button><button type="button" class="mini" id="btnGizCancel" title="Drop the change">Cancel</button></div>
+      </details>
+      <details class="dsec" open data-sec="view"><summary>View</summary>
+        <div class="drow btngroup" role="group" aria-label="View">
+          <button type="button" id="btnBones" aria-pressed="true" title="Show the skeleton">Bones</button>
+          <button type="button" id="btnIK" aria-pressed="true" title="Show the IK handles">IK</button>
+          <button type="button" id="btnGhost" aria-pressed="false" title="Show the untouched clip as a ghost">Ghost</button>
+          <button type="button" id="btnLimits" aria-pressed="true" title="Human joint limits on the IK (joints at a limit turn red)">Limits</button>
+          <button type="button" id="btnTrail" aria-pressed="false" title="Show the path of the selected joint over the timeline · drag its dots to reshape it">Trail</button>
+          <label class="falloff" id="falloffBox" title="Trail edits: how far in time (±s) a dragged dot pulls its neighbours">±<input id="falloffIn" type="number" min="0" max="2" step="0.05" value="0.15">s</label></div>
+        <div class="drow"><label for="unitSel">Grid</label><select id="unitSel" title="Timeline unit: grid lines, ruler and snap">
+          <option value="sec">Seconds</option><option value="frame">Frames (30 fps)</option><option value="cycle">Cycles (bars)</option><option value="step">Foot steps (locks)</option>
+        </select><label class="cb" title="On: the timeline in real seconds (bars move with cycle speed / bar reach). Off: bar space, every bar the same width."><input type="checkbox" id="realtimeCb"> Realtime bars</label></div>
+      </details>
+      <details class="dsec" open data-sec="read"><summary>Readouts</summary>
+        <div class="readouts"><div class="chip hudchip" id="gaitChip" title="At the playhead: cadence (steps per minute), step length and ground speed"></div><div class="chip hudchip" id="unitChip" hidden></div><div class="chip hudchip" id="stepChip" hidden title="Step times measured from the feet as they are now: left foot down → right foot down, and back"></div><div class="chip hudchip" id="reachChip" hidden title="How far forward of the hips each hand gets at its peak, over the timeline"></div></div>
+      </details>
+      <details class="dsec" open data-sec="tools"><summary>Tools</summary>
+        <div class="io dgrid">
+          <button type="button" id="btnSym" title="Make left and right match: mirror one side onto the other, half a cycle apart">Symmetrize</button>
+          <button type="button" id="btnFootLock" title="Foot lock: hold tracks from the clip's foot contacts, soft release, drift check">Foot lock…</button>
+          <button type="button" id="btnTplLib" title="Save the timeline as a template, or open one">Templates…</button>
+          <button type="button" id="btnBake" title="Bake the result into the clip (replace it), save it to the project, or download it">Bake / Project…</button>
+          <button type="button" id="btnReset" title="Clear all automation for this clip">Reset clip</button>
+        </div>
+      </details>
+      <details class="dsec" open data-sec="io"><summary>Import / Export</summary>
+        <div class="io dgrid">
+          <button type="button" id="btnImportAnim" title="Import an FBX animation (Character Creator CC_Base_ or Mixamo bones)">Import FBX…</button>
+          <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export…</button>
+          <button type="button" id="btnImport" title="Load automation JSON">Import JSON</button>
+        </div>
+      </details>
+      <div id="dockTool"></div>
+    </aside>
+    <div class="dockgrip" id="dockGrip" role="separator" aria-orientation="vertical" aria-label="Resize the options panel" tabindex="0"></div>
+    <section class="view" id="view" aria-label="Character viewport">
+      <div id="loading">Loading character and clips…</div>
+    </section>
+  </div>
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
   <section class="tl" aria-label="Automation timeline">
     <div class="tl-head">
-      <div class="addbar"><button type="button" id="btnAddMaster" title="Optional master tracks: playback speed, moving speed, cycle speed + bar reach">+</button><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button><button type="button" id="btnHelp" class="helpbtn" title="How the timeline works">i</button></div>
+      <div class="addbar"><button type="button" id="btnAddMaster" title="Master tracks (playback speed, moving speed, cycle speed + bar reach, stride length, foot on ground) and templates">+</button><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button><button type="button" id="btnHelp" class="helpbtn" title="How the timeline works">i</button></div>
       <canvas id="ruler" aria-label="Time ruler: click or drag to move the playhead"></canvas>
     </div>
     <div class="tracks" id="tracks"></div>
     <div class="hbar"><div class="hbarh"><button type="button" class="mini" id="btnFit" title="Show the whole timeline">Fit</button><span class="hhint">Ctrl+wheel zoom · Shift+wheel scroll</span></div><div id="hscroll" title="Drag to scroll · drag the ends to zoom"><div id="hthumb"><i class="l"></i><i class="r"></i></div></div></div>
+    <div class="transport" role="toolbar" aria-label="Transport">
+      <button type="button" id="btnHome" title="Back to the start and the origin (Home)">|◀</button>
+      <button type="button" id="btnPrevBar" title="Previous bar">◀◀</button>
+      <button type="button" class="primary" id="btnPlay" title="Play / pause (Space)">Play</button>
+      <button type="button" id="btnStop" title="Stop: back to where play started">■</button>
+      <button type="button" id="btnNextBar" title="Next bar">▶▶</button>
+      <button type="button" id="btnEnd" title="Go to the end">▶|</button>
+      <button type="button" id="btnLoop" aria-pressed="true" title="Loop the timeline">Loop</button>
+      <span class="clock" id="clock">0.00 / 10.00 s</span>
+      <div class="spacer"></div>
+      <div id="status"></div>
+    </div>
   </section>
 </div>
 <div id="playhead"></div>
@@ -194,10 +222,10 @@
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="tplTitle">
     <h2 id="tplTitle">Template: Sprint → Jog (decelerate)</h2>
     <div class="bakebody">
-      <p>Clip: <b id="tplClip"></b>. Writes cycle speed, foot on ground, moving speed, leg / arm group weights, Chest rotate X and Hips move Y onto the timeline. Everything stays editable; Ctrl+Z undoes it.</p>
+      <p>Clip: <b id="tplClip"></b>. Writes cycle speed, stride length, foot on ground, moving speed, leg / arm group weights, Chest rotate X and Hips move Y onto the timeline. Everything stays editable; Ctrl+Z undoes it.</p>
       <div class="impgrid tplgrid">
         <label>Cycles <span><input type="number" id="tpl_cycles" step="any"> </span></label><label>Slow down from bar <span><input type="number" id="tpl_from" step="any"> </span></label><label>Jog from bar <span><input type="number" id="tpl_to" step="any"> </span></label>
-        <label>Jog cadence <span><input type="number" id="tpl_cad" step="any"> % of sprint</span></label><label>Foot on ground (jog) <span><input type="number" id="tpl_gnd" step="any"> +%</span></label><label>Braking (mid slowdown) <span><input type="number" id="tpl_bump" step="any"> +%</span></label>
+        <label>Jog cadence <span><input type="number" id="tpl_cad" step="any"> % of sprint</span></label><label>Stride at jog <span><input type="number" id="tpl_stride" step="any"> % of sprint</span></label><label>Foot on ground (jog) <span><input type="number" id="tpl_gnd" step="any"> +%</span></label><label>Braking (mid slowdown) <span><input type="number" id="tpl_bump" step="any"> +%</span></label>
         <label>Knee lift (leg groups) <span><input type="number" id="tpl_legs" step="any"> %</span></label><label>Arm swing (arm groups) <span><input type="number" id="tpl_arms" step="any"> %</span></label><label>Torso lean (spine group) <span><input type="number" id="tpl_torso" step="any"> %</span></label><label>Chest fine-tune (rotate X) <span><input type="number" id="tpl_lean" step="any"> ° (− = upright)</span></label>
         <label>Hips height <span><input type="number" id="tpl_hips" step="any"> cm</span></label><label>Ground speed at jog <span><input type="number" id="tpl_travel" step="any"> % of sprint</span></label><label id="tplSpeedRow">Sprint travel speed <span><input type="number" id="tpl_speed" step="any"> m/s</span></label>
       </div>
