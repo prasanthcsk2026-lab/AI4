@@ -405,3 +405,14 @@
   .work.nodock { grid-template-columns: 0 0 minmax(0, 1fr); } .work.nodock .dock { overflow: hidden; }
   .readouts .chip { display: block; line-height: 1.5; } .transport button { font-family: var(--ui); }
   #dockTool .toolpanel { overflow-x: hidden; } #dockTool .stgrid > *, #dockTool .stline > * { min-width: 0; max-width: 100%; } #dockTool .toolpanel select { width: 100%; } #dockTool .stw input { min-width: 0; } #dockTool .stgrid > span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  /* blocks: a header row, its tracks indented under it with a guide line in the block's colour */
+  .row.sub .h { padding-left: 30px; }
+  .row.sub .h::after { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px; background: var(--stripe, #555); opacity: .55; }
+  .row.sub.blockend .h::after { bottom: 50%; }
+  .row.sub .h .name { font-size: 11.5px; color: var(--muted); }
+  .row.sub .h .sw { width: 4px; height: 12px; }
+  .row.blockend { border-bottom: 3px solid #121214; }
+  .row.bone .h .name { font-size: 13.5px; }
+  .bgrip { flex: none; cursor: grab; color: var(--muted); font: 700 11px var(--mono); letter-spacing: -2px; padding: 0 2px; user-select: none; touch-action: none; }
+  .bgrip:hover { color: var(--ink); }
+  .blockdrop { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 5; pointer-events: none; }

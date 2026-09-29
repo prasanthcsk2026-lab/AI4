@@ -369,7 +369,7 @@ function renderGroupList(q) {
       const r = document.createElement('div'); r.className = 'treerow'; r.style.paddingLeft = '16px';
       r.innerHTML = `<span class="tn"${inTl ? ' style="color:#e58ad6"' : ''}></span><span class="note2">${inTl ? 'in timeline' : 'weight 100 % = fully symmetric'}</span>`;
       r.firstChild.textContent = label;
-      r.onclick = () => { $('boneDlg').hidden = true; if (!inTl) { pushUndo(); A.sym[k] = newSymAuto(S.dur); A.symOrder.push(k); rebuildRows(); save(); } };
+      r.onclick = () => { $('boneDlg').hidden = true; if (!inTl) { pushUndo(); A.sym[k] = newSymAuto(S.dur); A.symOrder.push(k); addRowKey('sym:' + k); rebuildRows(); save(); } };
       root.append(r);
     }
   }
@@ -542,7 +542,7 @@ function openAddDialog(target, existingShow) {
 }
 function commitAddBone(name, show, mirror) {
   pushUndo();
-  if (!A.bones[name]) { A.bones[name] = newBoneAuto(S.dur); A.order.push(name); }
+  if (!A.bones[name]) { A.bones[name] = newBoneAuto(S.dur); A.order.push(name); addRowKey('bone:' + name); }
   A.bones[name].show = show;
   setMirrorLink('bone', name, mirror);
   selectBone(name); save();
@@ -556,8 +556,10 @@ function commitAddGroup(gid, show, mirror) {
   selectGroup(gid); save();
   const r = document.querySelector(`[data-group="${CSS.escape(gid)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
 }
+// a new block goes to the end of the timeline, in the order things are added
+function addRowKey(key) { if (!A.rowOrder) A.rowOrder = []; if (!A.rowOrder.includes(key)) A.rowOrder.push(key); }
 function ensureGroup(gid) {
-  if (!A.groups[gid]) { A.groups[gid] = newGroupAuto(S.dur); A.groupOrder.push(gid); }
+  if (!A.groups[gid]) { A.groups[gid] = newGroupAuto(S.dur); A.groupOrder.push(gid); addRowKey('grp:' + gid); }
   return A.groups[gid];
 }
 function commitAddEff(id, show, mirror, ig) {
@@ -582,7 +584,7 @@ function duplicateController(id) {
   const nid = 'ig:c' + n, label = (src.label || EFF_BY_ID[id].label) + ' copy';
   registerIG(nid, label);
   const c = JSON.parse(JSON.stringify(src)); delete c.mirror; delete c.mirrorOf; c.label = label;
-  A.ik[nid] = c; A.ikOrder.push(nid);
+  A.ik[nid] = c; A.ikOrder.push(nid); addRowKey('eff:' + nid);
   selectEff(nid); save(); toast(`Duplicated as "${label}".`);
 }
 function newControllerWith(members) {
@@ -592,10 +594,10 @@ function newControllerWith(members) {
   openAddDialog({ type: 'eff', id });
 }
 function ensureEff(id) {
-  if (!A.ik[id]) { A.ik[id] = newEffAuto(id, S.dur); A.ikOrder.push(id); }
+  if (!A.ik[id]) { A.ik[id] = newEffAuto(id, S.dur); A.ikOrder.push(id); addRowKey('eff:' + id); }
   return A.ik[id];
 }
 function ensureBone(name) {
-  if (!A.bones[name]) { A.bones[name] = newBoneAuto(S.dur); A.order.push(name); }
+  if (!A.bones[name]) { A.bones[name] = newBoneAuto(S.dur); A.order.push(name); addRowKey('bone:' + name); }
   return A.bones[name];
 }

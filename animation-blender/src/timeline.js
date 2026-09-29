@@ -30,6 +30,31 @@ function effSpec(k) {
 }
 
 // Vegas-style mute: M on a bone / group / IK / symmetrize header turns it off without deleting it (twin side too)
+function addBlockGrip(hr, key) {
+  const g = document.createElement('span'); g.className = 'bgrip'; g.textContent = '⋮⋮'; g.title = 'Drag to move this block up or down';
+  hr.h.prepend(g);
+  g.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); g.setPointerCapture(e.pointerId);
+    const heads = () => [...tracksEl.querySelectorAll('[data-block]')];
+    const mark = document.createElement('div'); mark.className = 'blockdrop'; tracksEl.append(mark);
+    let target = null;
+    const move = (ev) => {
+      const hs = heads(), tb = tracksEl.getBoundingClientRect(); let at = hs.length;
+      for (let i = 0; i < hs.length; i++) { const b = hs[i].getBoundingClientRect(); if (ev.clientY < b.top + b.height / 2) { at = i; break; } }
+      target = at; const ref = hs[at]; mark.style.top = ((ref ? ref.getBoundingClientRect().top : tb.top + tracksEl.scrollHeight - tracksEl.scrollTop) - tb.top + tracksEl.scrollTop - 1) + 'px';
+    };
+    const up = () => {
+      g.removeEventListener('pointermove', move); g.removeEventListener('pointerup', up); mark.remove();
+      if (target == null) return;
+      const order = A.rowOrder.slice(), from = order.indexOf(key); if (from < 0) return;
+      const keys = heads().map((h) => h.dataset.block), before = keys[target];
+      order.splice(from, 1); let to = before ? order.indexOf(before) : order.length; if (to < 0) to = order.length;
+      if (order.join('|') === A.rowOrder.filter((k) => k !== key).join('|') && to === from) return;
+      pushUndo(); order.splice(to, 0, key); A.rowOrder = order; rebuildRows(); save();
+    };
+    g.addEventListener('pointermove', move); g.addEventListener('pointerup', up);
+  });
+}
 function addBypass(hr, obj, twinOf) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'bypass'; b.textContent = 'M';
   b.title = obj.bypass ? 'Muted: click to turn it back on' : 'Mute: turn this off without deleting it';
@@ -86,8 +111,8 @@ function rebuildRows() {
   if (A.showMaster.stride) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
   if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
   // symmetrize (one side follows the other, mirrored, half a cycle later)
-  for (const k of A.symOrder) {
-    const sy = A.sym[k]; if (!sy) continue;
+  const drawSym = (k) => {
+    const sy = A.sym[k]; if (!sy) return;
     const hr = mkRow('bone sym'); Object.assign(hr, { kind: 'sym', sym: k });
     hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!sy.collapsed}">${sy.collapsed ? '▸' : '▾'}</button><span class="symtag">SYM</span><span class="name"></span><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
     hr.h.querySelector('.name').textContent = symLabel(k);
@@ -102,11 +127,11 @@ function rebuildRows() {
       if (sy.show.weight !== false) addTrackRow(`s|${k}|weight`, { ...SPEC.whole, range: [0, 1], color: '#e58ad6' }, () => sy.weight, (p) => { sy.weight = p; }, 'Symmetry <i>weight</i>', { type: 'sym', id: k });
       if (sy.show.offset !== false) addTrackRow(`s|${k}|offset`, { ...SPEC.whole, range: [0.3, 0.7], ref: 0.5, color: '#c98bd6', snap: 0.005 }, () => sy.offset, (p) => { sy.offset = p; }, 'Cycle split <i>50 % = even steps</i>', { type: 'sym', id: k });
     }
-  }
+  };
   // groups (weights multiply into every bone they hold)
-  for (const gid of A.groupOrder) {
-    const g = A.groups[gid]; if (!g) continue;
-    if (g.mirrorOf) continue;   // the linked twin lives in its source's row
+  const drawGroup = (gid) => {
+    const g = A.groups[gid]; if (!g) return;
+    if (g.mirrorOf) return;   // the linked twin lives in its source's row
     const hr = mkRow('bone grp' + (isSelRow('group', gid) ? ' selected' : ''));
     Object.assign(hr, { kind: 'group', group: gid });
     hr.el.dataset.group = gid;
@@ -119,15 +144,15 @@ function rebuildRows() {
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('g|' + gid)) removeGroup(gid); else openGroupMenu(ev, gid); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = groupSummary(gid);
     tracksEl.append(hr.el); rows.push(hr);
-    if (g.collapsed) continue;
+    if (g.collapsed) return;
     const own = { type: 'group', id: gid };
     if (g.show.weight) addTrackRow(`g|${gid}|weight`, { ...SPEC.whole, color: COL.group }, () => g.weight, (p) => { g.weight = p; }, 'Group weight <i>× its bones</i>', own);
     if (g.show.timing) addTrackRow(`g|${gid}|timing`, SPEC.timing, () => g.timing, (p) => { g.timing = p; }, 'Group timing <i>phase %</i>', own);
-  }
+  };
   // FK bones
-  for (const name of A.order) {
-    const ba = A.bones[name]; if (!ba) continue;
-    if (ba.mirrorOf) continue;
+  const drawBone = (name) => {
+    const ba = A.bones[name]; if (!ba) return;
+    if (ba.mirrorOf) return;
     const hr = mkRow('bone' + (isSelRow('bone', name) ? ' selected' : ''));
     Object.assign(hr, { kind: 'bone', bone: name });
     hr.el.dataset.bone = name;
@@ -142,21 +167,18 @@ function rebuildRows() {
     hr.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('b|' + name)) removeBone(name); else openBoneMenu(e, name); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = boneSummary(ba);
     tracksEl.append(hr.el); rows.push(hr);
-    if (ba.collapsed) continue;
+    if (ba.collapsed) return;
     const lab = axisInfo[name] || {}, sw = ba.show || { whole: true }, own = { type: 'bone', name };
     const k = (s) => `b|${name}|${s}`;
     if (sw.whole) addTrackRow(k('whole'), SPEC.whole, () => ba.whole, (p) => { ba.whole = p; }, 'Whole bone <i>weight</i>', own);
     for (const a of AXES) if (sw['w' + a]) addTrackRow(k('w' + a), SPEC.w, () => ba.w[a], (p) => { ba.w[a] = p; }, `<b class="axl" style="color:${AXIS_COL[a]}">${a.toUpperCase()}</b> weight <i>${lab[a] ? lab[a].short : ''}</i>`, { ...own, axis: a });
     for (const a of AXES) if (sw['a' + a]) addTrackRow(k('a' + a), SPEC.a, () => ba.a[a], (p) => { ba.a[a] = p; }, `<b class="axl" style="color:${AXIS_COL[a]}">${a.toUpperCase()}</b> adjust <i>${lab[a] ? lab[a].short : ''}</i>`, { ...own, axis: a });
     if (sw.timing) addTrackRow(k('timing'), SPEC.timing, () => ba.timing, (p) => { ba.timing = p; }, 'Timing offset <i>phase %</i>', own);
-  }
+  };
   // IK effectors: the built-in ones, then the custom controllers in their own section
-  const ikIds = A.ikOrder.filter((id) => EFF_BY_ID[id] && !EFF_BY_ID[id].custom).concat(A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].custom));
-  let customHead = false;
-  for (const id of ikIds) {
-    const e = A.ik[id], d = EFF_BY_ID[id]; if (!e || !d) continue;
-    if (e.mirrorOf) continue;
-    if (d.custom && !customHead) { customHead = true; const sh = document.createElement('div'); sh.className = 'tlsec'; sh.textContent = 'Custom IK controllers'; tracksEl.append(sh); }
+  const drawEff = (id) => {
+    const e = A.ik[id], d = EFF_BY_ID[id]; if (!e || !d) return;
+    if (e.mirrorOf) return;
     const hr = mkRow('bone eff' + (isSelRow('eff', id) ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
@@ -170,13 +192,27 @@ function rebuildRows() {
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('e|' + id)) removeEff(id); else openEffMenu(ev, id); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = effSummary(id);
     tracksEl.append(hr.el); rows.push(hr);
-    if (e.collapsed) continue;
+    if (e.collapsed) return;
     for (const k of d.tracks) {
       if (!e.show[k]) continue;
       const T = TRK[k], axl = T.axis ? `<b class="axl" style="color:${AXIS_COL[T.axis]}">${T.axis.toUpperCase()}</b> ` : '';
       const info = T.kind ? worldAxisInfo(T.kind)[T.axis].short : (T.hint || '');
       addTrackRow(`e|${id}|${k}`, effSpec(k), () => e.tr[k], (p) => { e.tr[k] = p; }, `${axl}${T.kind ? (T.kind === 'p' ? 'Move' : 'Rotate') : T.label} <i>${info}</i>`, { type: 'eff', id, k });
     }
+  };
+  // every bone / group / IK / symmetrize block in the order it was added (new ones at the end; drag a block's
+  // ⋮⋮ grip to move it); A.rowOrder keeps that order, older projects start from the type order
+  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
+  const all = [...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
+  const seen = new Set(); A.rowOrder = (A.rowOrder || []).filter((k) => keyOk(k) && !seen.has(k) && seen.add(k));
+  for (const k of all) if (!seen.has(k)) { seen.add(k); A.rowOrder.push(k); }
+  for (const key of A.rowOrder) {
+    const [kind, ...r] = key.split(':'), id = r.join(':'), n0 = rows.length;
+    if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
+    const blk = rows.slice(n0); if (!blk.length) continue;
+    blk[0].el.dataset.block = key; addBlockGrip(blk[0], key);
+    for (const sub of blk.slice(1)) sub.el.classList.add('sub');
+    blk[blk.length - 1].el.classList.add('blockend');
   }
   if (!rows.length) {
     const e = document.createElement('div'); e.className = 'empty';
@@ -568,16 +604,9 @@ function addBars(n, ctB) {
   if (atEnd) holdTails(arrs, snap, total);
   else {
     const tB = timeOfClipTime(ctB);
-    arrs.forEach((pts, i) => {
-      const sn = snap[i], vB = evalPts(pts, tB);
-      let at = sn.findIndex((c) => c == null || c > ctB + 1e-6); if (at < 0) at = pts.length;
-      for (let j = 0; j < sn.length; j++) if (sn[j] != null && sn[j] > ctB + 1e-6) sn[j] += sh;
-      if (pts.length && !isFlat(pts, pts[0].v)) {
-        const kPrev = at > 0 ? pts[at - 1].k : 0;
-        pts.splice(at, 0, { t: tB, v: vB, k: 0 }, { t: tB, v: vB, k: kPrev }); sn.splice(at, 0, ctB, ctB + sh);
-        if (at > 0 && pts[at - 1].k) { /* the curve into the split keeps its bend */ }
-      }
-    });
+    // every point after the insert moves n bars on; no point is added: the segment across the new bars simply
+    // stretches (a 100 at bar 5 and a 150 at bar 7 become 100 at bar 5 and 150 at bar 9)
+    arrs.forEach((pts, i) => { const sn = snap[i]; for (let j = 0; j < sn.length; j++) if (sn[j] != null && sn[j] > ctB + 1e-6) sn[j] += sh; });
     const q0 = Math.round(ctB / segLen()), bs = {};
     for (const [q, v] of Object.entries(A.barSpeed)) bs[+q >= q0 ? +q + 4 * n : +q] = v;
     A.barSpeed = bs;
@@ -678,6 +707,7 @@ function drawLane(r) {
   // selection ring + box-select rectangle
   if (r === selRow && selPts.size) for (const i of selPts) { const p = pts[i]; if (!p) continue; x.beginPath(); x.arc(xOf(r, p.t), yOf(r, p.v), 6.5 * dpr, 0, Math.PI * 2); x.strokeStyle = '#ffffff'; x.lineWidth = dpr; x.stroke(); }
   x.restore();
+  if (drag && drag.r === r && drag.stick) { const gy = Math.round(yOf(r, drag.stick.v)) + 0.5; x.save(); x.strokeStyle = 'rgba(255,214,120,.8)'; x.lineWidth = dpr; x.setLineDash([4 * dpr, 3 * dpr]); x.beginPath(); x.moveTo(0, gy); x.lineTo(w, gy); x.stroke(); x.restore(); }   // the value it is holding at
   if (boxSel && boxSel.r === r) { x.save(); x.strokeStyle = 'rgba(255,255,255,.55)'; x.setLineDash([3 * dpr, 3 * dpr]); x.strokeRect(Math.min(boxSel.x0, boxSel.x1), Math.min(boxSel.y0, boxSel.y1), Math.abs(boxSel.x1 - boxSel.x0), Math.abs(boxSel.y1 - boxSel.y0)); x.restore(); }
   drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
   if (zoomed) { x.font = `600 ${10 * dpr}px "Barlow", sans-serif`; x.textBaseline = 'top'; x.textAlign = 'right'; x.fillStyle = 'rgba(240,138,28,.8)'; x.fillText(`zoom ${+(lo * r.scale).toFixed(2)}…${+(hi * r.scale).toFixed(2)}`, w - 4 * dpr, 3 * dpr); x.textAlign = 'left'; }
@@ -708,7 +738,7 @@ function onLaneDown(e, r) {
     return;
   }
   pushUndo();
-  { const [px, py] = evXY(r, e), q = pts[i]; drag = { r, i, dx: xOf(r, q.t) - px, dy: yOf(r, q.v) - py, x0: px }; }   // grab offset: the point doesn't jump to the pixel under the cursor
+  { const [px, py] = evXY(r, e), q = pts[i]; drag = { r, i, dx: xOf(r, q.t) - px, dy: yOf(r, q.v) - py, x0: px, passed: q.v }; }   // grab offset: the point doesn't jump to the pixel under the cursor
   onDrag(e);
 }
 function onDrag(e) {
@@ -724,6 +754,26 @@ function onDrag(e) {
   let t = sideways ? tOf(r, px) : p.t, v = vOf(r, py);
   if (sideways && (S.magnet || e.ctrlKey || e.metaKey)) t = snapTime(t, r.cv.width, dprOf(r));   // magnet: stick to the unit's lines
   if (e.ctrlKey || e.metaKey) v = Math.round(v / r.snap) * r.snap;
+  // value magnet: when the dragged value reaches or crosses a neighbour's value, the track's default or another
+  // point's value, it holds there for a moment (0.25 s), then follows the mouse again; Alt drags free
+  const rawV = v, now = performance.now();
+  if (S.magnet && !e.altKey && !(e.ctrlKey || e.metaKey) && !r.flag) {
+    if (drag.hold && now < drag.hold.until) v = drag.hold.v;
+    else {
+      if (drag.hold) { drag.passed = drag.hold.v; drag.hold = null; }
+      const cands = [], add = (val, why) => { if (val != null && isFinite(val)) cands.push({ v: val, why }); };
+      if (drag.i > 0) add(pts[drag.i - 1].v, 'previous point'); if (drag.i < pts.length - 1) add(pts[drag.i + 1].v, 'next point');
+      add(r.ref, 'default'); pts.forEach((q, j) => { if (j !== drag.i && Math.abs(j - drag.i) > 1) add(q.v, 'a point'); });
+      const pv = drag.prevV ?? rawV, near = 2.5 * kk;
+      for (const c of cands) {
+        if (drag.passed != null && Math.abs(c.v - drag.passed) < 1e-9) continue;   // just let go of this one
+        const crossed = (pv - c.v) * (rawV - c.v) <= 0 && Math.abs(pv - rawV) > 1e-12, close = Math.abs(yOf(r, c.v) - yOf(r, rawV)) < near;
+        if (crossed || close) { drag.hold = { v: c.v, why: c.why, until: now + 250 }; v = c.v; break; }
+      }
+      if (drag.passed != null && Math.abs(yOf(r, drag.passed) - yOf(r, rawV)) > 6 * kk) drag.passed = null;
+    }
+  }
+  drag.prevV = rawV; drag.stick = drag.hold && now < drag.hold.until ? drag.hold : null;
   if (r.flag) v = v >= 0.5 ? 1 : 0;
   const lo = drag.i > 0 ? pts[drag.i - 1].t : 0, hi = drag.i < pts.length - 1 ? pts[drag.i + 1].t : S.dur;
   p.t = drag.i === 0 ? 0 : drag.i === pts.length - 1 ? S.dur : clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
@@ -734,8 +784,9 @@ function onDrag(e) {
     if (drag.ct0 == null) drag.ct0 = clipTime(p.t);   // its bar when grabbed
     pinDrag = { p, ct: clamp(sideways ? lutAt(vLut(), p.t) : drag.ct0, ctLo, ctHi) };
   }
-  if (BAR_DRIVERS.has(r.key)) { freezeView(); drawLane(r); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)} · updates on release`); return; }
-  edited(r, true); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}`);
+  const held = drag.stick ? ` · = ${drag.stick.why}` : '';
+  if (BAR_DRIVERS.has(r.key)) { freezeView(); drawLane(r); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}${held} · updates on release`); return; }
+  edited(r, true); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}${held}`);
 }
 function finalizeBoxSelect() {
   const { r, x0, y0, x1, y1 } = boxSel;

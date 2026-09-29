@@ -226,3 +226,8 @@ Menu bar (File, Edit, Insert, Tools, View, Help), a main toolbar (undo / redo, S
 
 ## Stride length
 Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reaches that much further ahead of and behind the hips (foot IK; the pelvis drops if a foot would be out of reach), the ground covered grows by the same share so the feet do not slide, and the arm swing follows (toggle "Arm swing follows the stride" in the same menu). The Readouts show cadence (steps / min), step length and ground speed at the playhead. The Sprint → Jog template now shortens the stride (default 70 %) instead of only slowing the travel.
+
+## Timeline blocks and editing
+- Blocks (bone, group, IK, symmetrize) show in the order they were added, new ones at the end; drag a block's ⋮⋮ grip to move it. A block's tracks sit indented under its header with a guide line in the block's colour.
+- Inserting bars in the middle moves every later point on by the same number of bars and adds no points: a curve across the new bars stretches (100 at bar 5 and 150 at bar 7 become 100 at bar 5 and 150 at bar 9).
+- Value magnet (with Snap on): dragging a point up or down holds for a moment (0.25 s) when it reaches a neighbour's value, the track's default or another point's value, with a dashed guide and a note in the tooltip; hold Alt to drag free.

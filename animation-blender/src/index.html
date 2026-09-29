@@ -276,7 +276,7 @@
     <h2 id="barsDlgT">Add bars</h2>
     <div class="barsform"><label>How many <input type="number" id="barsN" min="1" max="200" step="1" value="1"></label>
       <label>Where <select id="barsWhere"><option value="end">At the end</option><option value="after">After the playhead's bar</option><option value="at" hidden>Where you clicked</option></select></label></div>
-    <div class="acts"><span class="note">Every point stays on its bar; the new bars hold the value each track had there.</span><button type="button" id="barsCancel">Cancel</button><button type="button" class="primary" id="barsOk">Add</button></div>
+    <div class="acts"><span class="note">Points after the new bars move on with their bars; no points are added (a curve across the new bars stretches).</span><button type="button" id="barsCancel">Cancel</button><button type="button" class="primary" id="barsOk">Add</button></div>
   </div>
 </div>
 <div class="sheet" id="addDlg" hidden>
