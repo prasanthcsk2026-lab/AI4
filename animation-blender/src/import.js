@@ -185,6 +185,23 @@ function impMapTable() {   // the main bones, each with a dropdown of the file's
     l.append(sel); box.append(l);
   }
 }
+// An in-place file carries no travel. Its speed is estimated from the feet: while a foot is down it sweeps back
+// under the hips by as much as the body moves forward, so speed ≈ that sweep / the time it is down.
+function impEstimateSpeed(fr) {
+  const F = new VirtualFK(rig), hi = boneIdx.get(rig.b.hips.name), out = [];
+  for (const Sd of ['L', 'R']) {
+    const fi = boneIdx.get(rig.side[Sd].foot.name), ys = [], zs = [];
+    for (let f = 0; f < fr.n; f++) { F.run(fr.q.subarray(f * B * 4, (f + 1) * B * 4), V3(fr.hp[f * 3], fr.hp[f * 3 + 1], fr.hp[f * 3 + 2]), 0); ys.push(F.P[fi].y); zs.push(F.P[fi].z - F.P[hi].z); }
+    const lo = Math.min(...ys); let a = null;
+    for (let f = 0; f <= fr.n; f++) {
+      const down = f < fr.n && ys[f] < lo + 0.02;
+      if (down && a == null) a = f;
+      if (!down && a != null) { const len = f - 1 - a; if (len >= 2) out.push((zs[a] - zs[f - 1]) / (len / fr.fps)); a = null; }
+    }
+  }
+  const ok = out.filter((v) => v > 0.1 && v < 15).sort((x, y) => x - y);
+  return ok.length ? ok[ok.length >> 1] : 0;
+}
 function impDetect() {   // retarget once, find the loop
   const take = IMP.src.takes[+$('impTake').value || 0];
   IMP.frames = impRetarget(IMP.src, IMP.map, take);
@@ -193,6 +210,12 @@ function impDetect() {   // retarget once, find the loop
   const loop = $('impKind').value === 'loop';
   if (loop && lands.length >= 2) { const mid = Math.max(0, Math.floor(lands.length / 2) - 1); $('impStart').value = lands[mid]; $('impEnd').value = lands[mid + 1]; }
   else { $('impStart').value = 0; $('impEnd').value = IMP.frames.n - 1; }
+  { // travel: the file's own, or (in place) an estimate from the feet the user can change
+    const n = IMP.frames.n - 1, T = n / IMP.frames.fps, dx = IMP.frames.hp[n * 3] - IMP.frames.hp[0], dz = IMP.frames.hp[n * 3 + 2] - IMP.frames.hp[2], own = T > 0 ? Math.hypot(dx, dz) / T : 0;
+    const inPlace = own < 0.03, est = inPlace ? impEstimateSpeed(IMP.frames) : own;
+    $('impSpeedRow').hidden = !inPlace; $('impSpeed').value = est ? est.toFixed(2) : '';
+    $('impSpeedNote').textContent = inPlace ? (est ? `In-place file (no travel). Estimated from the feet: ${est.toFixed(2)} m/s; change it if you know the real speed.` : 'In-place file (no travel): type its travel speed, or it will not move.') : '';
+  }
   $('impInfo').textContent = `${IMP.frames.n} frames at ${IMP.frames.fps} fps · left-foot landings at frames ${lands.join(', ') || 'none found'}` + (loop && lands.length < 2 ? ' · one cycle in the file: the whole take is the loop (Symmetrize → "Left lands on the bar" makes it left-to-left)' : '');
 }
 async function impDo() {
@@ -200,7 +223,8 @@ async function impDo() {
   const a = clamp(Math.round(+$('impStart').value), 0, IMP.frames.n - 2), b = clamp(Math.round(+$('impEnd').value), a + 2, IMP.frames.n);
   const loop = $('impKind').value === 'loop', cut = impCut(IMP.frames, a, loop ? b : b + 1 > IMP.frames.n ? IMP.frames.n : b + 1);
   const name = ($('impName').value || IMP.src.name).trim(), id = 'imp:' + name.replace(/[^A-Za-z0-9_.-]/g, '_');
-  const rec = { id, name, kind: loop ? 'loop' : 'move', fps: cut.fps, n: cut.n, q: cut.q, hp: cut.hp, speed: cut.speed, dir: cut.dir, where: 'cache', at: Date.now() };
+  const typed = +$('impSpeed').value, speed = cut.speed < 0.03 && typed > 0 ? clamp(typed, 0, 15) : cut.speed;   // in place: the speed from the dialog
+  const rec = { id, name, kind: loop ? 'loop' : 'move', fps: cut.fps, n: cut.n, q: cut.q, hp: cut.hp, speed, dir: cut.dir, where: 'cache', at: Date.now() };
   if (loop) {   // measured contacts, so the timeline shows the feet
     if (!ST.fk) ST.fk = new VirtualFK(rig);
     const m = stMeasure(rec.q, rec.hp, rec.n); rec.win = {};

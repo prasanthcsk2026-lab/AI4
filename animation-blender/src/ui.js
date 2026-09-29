@@ -102,10 +102,10 @@ $('btnNextBar').onclick = () => stepBar(1);
 function updateWorkspace() {
   if (!cur) return;
   const ct = clipTime(S.t), d = cur.dur > 0 ? cur.dur : 1, k = ct / d, bar = Math.floor(k + 1e-6), q = Math.floor((k - bar) * 4 + 1e-6);
-  $('btBar').textContent = `bar ${bar + 1}${q > 0 ? ' .' + clamp(q, 1, 3) : ''}`;
+  $('btBar').textContent = q > 0 ? `${bar + 1}.${clamp(q, 1, 3)}` : String(bar + 1);
   $('btSec').textContent = `${S.t.toFixed(3)} s`;
   $('btFrm').textContent = `f ${Math.round(S.t * 30)}`;
-  const mc = $('menuClip'); if (mc.dataset.id !== cur.id) { mc.dataset.id = cur.id; mc.textContent = cur.name; }
+  const mc = $('menuClip'); if (mc.dataset.id !== cur.id || mc.dataset.sp !== String(cur.c && cur.c.speed)) { mc.dataset.id = cur.id; mc.dataset.sp = String(cur.c && cur.c.speed); mc.textContent = cur.name; syncClipSpeed(); }
   const g = $('gaitChip'), spd = cur.c && cur.c.speed;
   if (cur.kind !== 'loop' || !(spd > 0.01)) { g.textContent = 'Cadence, step length and speed show for a travelling loop clip.'; return; }
   const play = evalPts(A.speed, S.t), cyc = Math.max(5, evalPts(A.cyc, S.t)) / 100, rate = play * cyc;   // cycles of the clip per clip-second
@@ -113,3 +113,15 @@ function updateWorkspace() {
   g.innerHTML = `cadence <b>${cadence.toFixed(0)}</b> steps/min · step <b>${step.toFixed(2)}</b> m · speed <b>${ground.toFixed(2)}</b> m/s · stride <b>${Math.round(strideK(S.t) * 100)} %</b>`;
 }
 new MutationObserver(() => { if (!$('symTool').hidden) $('symTool').scrollIntoView({ block: 'start', behavior: 'smooth' }); }).observe($('symTool'), { attributes: true, attributeFilter: ['hidden'] });
+// ---- travel speed of the current clip (Clip panel): imported clips take it here; library clips show theirs
+function syncClipSpeed() {
+  if (!cur) return;
+  const inp = $('clipSpeed'), imp = !!(cur.c && cur.c.imported), sp = +(cur.c && cur.c.speed) || 0;
+  if (document.activeElement !== inp) inp.value = sp.toFixed(2);
+  inp.disabled = !imp;
+  $('clipSpeedNote').textContent = imp ? (sp < 0.03 ? '⚠ in place: type a speed' : '') : 'library clip';
+}
+$('clipSpeed').onchange = async () => { if (!cur || !cur.c.imported) return; await impSetSpeed(cur, +$('clipSpeed').value); syncClipSpeed(); toast(`${cur.name}: travel ${(+cur.c.speed).toFixed(2)} m/s.`); };
+$('btnInPlace').addEventListener('click', () => {   // turning In place off on a clip that has no travel: say why nothing moves
+  if (!S.inPlace && cur && !(cur.c && cur.c.speed > 0.03)) toast(cur.c && cur.c.imported ? 'This clip has no travel speed (an in-place file): set it under Clip → Travel (m/s).' : 'This clip has no travel.');
+});

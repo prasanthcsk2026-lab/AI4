@@ -52,6 +52,7 @@
         <div class="drow"><label for="cycIn">Bars</label><select hidden id="lenMode"><option value="length">Length</option><option value="cycles">Cycles</option></select>
           <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Bar count (clip cycles): locked, it only changes when you add bars or type a new count"><span class="unitlbl">🔒</span><button type="button" class="mini" id="btnAddBars" title="Add bars: at the end or after a bar. Right-click the ruler to insert bars at a spot.">+ Bars</button>
           <input id="durIn" type="number" min="0.2" max="120" step="0.5" value="10" title="Timeline length in seconds (follows the bars and the speeds)"><span class="unitlbl">s</span></div>
+        <div class="drow"><label for="clipSpeed">Travel</label><input id="clipSpeed" type="number" min="0" max="15" step="0.1" title="Ground speed of this clip at 100 % (m/s). Imported clips: type it here (an in-place file has none)"><span class="unitlbl">m/s</span><span class="unitlbl" id="clipSpeedNote"></span></div>
         <div class="drow btngroup" role="group" aria-label="Camera and world"><label>World</label>
           <button type="button" id="btnInPlace" aria-pressed="true" title="Off: the character travels with the clip's root motion">In place</button>
           <button type="button" id="btnFollow" aria-pressed="true" title="The camera follows the character">Follow</button>
@@ -207,8 +208,9 @@
           <label>Kind <select id="impKind"><option value="loop">Loop (cycle)</option><option value="move">One-shot</option></select></label>
           <label>Start frame <input type="number" id="impStart" min="0" step="1"></label>
           <label>End frame <input type="number" id="impEnd" min="1" step="1"></label>
+          <label id="impSpeedRow" hidden>Travel speed <span><input type="number" id="impSpeed" min="0" max="15" step="0.1"> m/s</span></label>
         </div>
-        <p class="note" id="impInfo"></p>
+        <p class="note" id="impSpeedNote"></p><p class="note" id="impInfo"></p>
         <details><summary id="impMap"></summary><div id="impMapTable"></div></details>
         <div class="bakebtns"><button type="button" class="primary" id="impGo">Import clip</button></div>
       </div>

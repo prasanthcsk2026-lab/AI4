@@ -662,7 +662,7 @@ function timeAreaCss() { const rw = ruler.clientWidth || 300, sb = Math.max(0, t
 const twOf = (r) => timeAreaCss() * dprOf(r);
 function xOf(r, t) { return xT(t, twOf(r)); }
 function tOf(r, x) { return clamp(tOfDisp(S.v0 + (x / twOf(r)) * vSpan()), 0, S.dur); }
-function endLabel() { if (!cur || !(cur.dur > 0)) return 'end'; const nb = totalClipTime() / cur.dur; return Math.abs(nb - Math.round(nb)) < 0.01 ? `bar ${Math.round(nb)} end` : 'end'; }
+function endLabel() { if (!cur || !(cur.dur > 0)) return 'end'; const nb = totalClipTime() / cur.dur; return Math.abs(nb - Math.round(nb)) < 0.01 ? `${Math.round(nb)} |` : 'end |'; }
 function drawEndMark(x, w, h, xe, dpr, dark) {   // shade past the end, then the end line
   if (xe < w) { x.fillStyle = dark; x.fillRect(Math.max(0, xe), 0, w - Math.max(0, xe), h); }
   if (xe >= -2 && xe <= w + 2) { x.fillStyle = 'rgba(240,138,28,.9)'; x.fillRect(Math.round(xe) - Math.round(dpr / 2), 0, Math.max(1, Math.round(1.5 * dpr)), h); }
@@ -1115,11 +1115,13 @@ function drawRuler() {
   }
   for (const pass of [2, 1, 0]) for (const g of vis) {
     if (g.level !== pass || !g.label || g.t >= S.dur - 1e-6) continue;
+    const big = S.unit === 'cycle' && pass === 2;   // bar numbers large, quarters (1.2, 1.3) small
+    x.font = big ? `700 ${15 * dpr}px "IBM Plex Mono", monospace` : `500 ${10 * dpr}px "IBM Plex Mono", monospace`;
     const px = Math.round(xT(g.t, TW)) + 0.5, a0 = px + 4 * dpr, a1 = a0 + x.measureText(g.label).width + 6 * dpr;
     if (a1 < 0 || a0 > W || taken.some(([l, r]) => a0 < r && a1 > l)) continue;
     taken.push([a0, a1]);
     x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : pass === 2 ? '#d4dbd6' : '#8d9892';
-    x.fillText(g.label, a0, 5 * dpr);
+    x.fillText(g.label, a0, (big ? 3 : 6) * dpr);
   }
   // clip cycle marks (where one loop / move of the clip ends, at the current speeds)
   if (cur && vLut()) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = vLut(); for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, TW)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
@@ -1153,7 +1155,7 @@ function timeGrid() {
   } else if (S.unit === 'cycle' && cur && S.speedLUT) {
     // realtime: bar lines where the bars really fall (after bar reach / cycle speed); otherwise evenly spaced
     const lutG = S.speedLUT, total = lutG[lutG.length - 1];
-    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? 'bar ' + (q / 8 + 1) : q % 2 === 0 ? '.' + (q % 8) / 2 : '' });
+    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? String(q / 8 + 1) : q % 2 === 0 ? `${Math.floor(q / 8) + 1}.${(q % 8) / 2}` : '' });
   } else if (S.unit === 'step' && spans.length) {
     const n = { L: 0, R: 0 };
     lines.push({ t: 0, level: 2, label: '' });

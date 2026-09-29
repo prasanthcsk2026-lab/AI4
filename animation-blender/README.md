@@ -231,3 +231,7 @@ Master "+" → **Stride length** (50–150 %, like cycle speed): each foot reach
 - Blocks (bone, group, IK, symmetrize) show in the order they were added, new ones at the end; drag a block's ⋮⋮ grip to move it. A block's tracks sit indented under its header with a guide line in the block's colour.
 - Inserting bars in the middle moves every later point on by the same number of bars and adds no points: a curve across the new bars stretches (100 at bar 5 and 150 at bar 7 become 100 at bar 5 and 150 at bar 9).
 - Value magnet (with Snap on): dragging a point up or down holds for a moment (0.25 s) when it reaches a neighbour's value, the track's default or another point's value, with a dashed guide and a note in the tooltip; hold Alt to drag free.
+
+## In-place FBX travel, ruler numbers
+- Importing an in-place FBX (no travel in the file) shows a **Travel speed** field, pre-filled with an estimate from the feet (while a foot is down it sweeps back under the hips as far as the body moves); the clip then moves with In place off. The Clip panel has a **Travel (m/s)** field for imported clips, and turning In place off on a clip without travel says why nothing moves.
+- The ruler shows bar numbers **1, 2, 3…** large and quarters **1.1, 1.2, 1.3** small; the end reads "10 |". The big time display reads the same way (3, 3.2).
