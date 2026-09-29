@@ -9,6 +9,12 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* @css */
+  #barsDlg .box { max-width: 400px; grid-template-rows: auto auto auto; }
+  .barsform { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .barsform label { display: flex; align-items: center; gap: 8px; font: 500 13px var(--ui); }
+  #barsN { width: 64px; }
+  #addDlgDel.danger { color: var(--warn, #ff6b57); }
+  .ctxhead { padding: 6px 10px 4px; font: 600 11px var(--ui); color: var(--muted); }
 </style>
 <script type="importmap">
 { "imports": {
@@ -22,9 +28,9 @@
   <header class="bar">
     <div class="brand"><b>Anim<span>/</span>Blender</b></div>
     <div class="field"><label for="clipSel">Clip</label><select id="clipSel"></select></div>
-    <div class="field"><label for="lenMode">Set by</label><select id="lenMode" title="Set the timeline by its length in seconds, or by how many clip cycles it holds (the other one follows; the clip's speed does not change)"><option value="length">Length</option><option value="cycles">Cycles</option></select>
+    <div class="field"><label for="cycIn">Bars</label><select hidden id="lenMode" title="Set the timeline by its length in seconds, or by how many clip cycles it holds (the other one follows; the clip's speed does not change)"><option value="length">Length</option><option value="cycles">Cycles</option></select>
       <input id="durIn" type="number" min="0.2" max="120" step="0.5" value="10" title="Length in seconds"><span class="unitlbl">s</span>
-      <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Clip cycles (at 100 % playback speed)"><span class="unitlbl">cycles</span></div>
+      <input id="cycIn" type="number" min="0.25" max="400" step="0.25" value="5" title="Clip cycles (at 100 % playback speed)"><span class="unitlbl" title="Locked: the bar count only changes when you add bars or type a new count">🔒 bars</span><button type="button" class="mini" id="btnAddBars" title="Add bars: at the end or after a bar (the cycle count never changes by itself in Cycles mode). Right-click the ruler to insert bars at a spot.">+ Bars</button></div>
     <div class="transport">
       <button type="button" id="btnHome" title="Back to the start and the origin (Home)">⏮</button>
       <button type="button" class="primary" id="btnPlay" title="Play / pause (Space)">Play</button>
@@ -116,6 +122,7 @@
     <label title="Extra re-timing: the time from the foot's back-most point to passing under the hips equals passing → front-most. Off by default.">Even swing</label><span><input type="checkbox" id="stSwing"> back → centre = centre → front</span>
     <label class="copyonly">Centre</label><span class="copyonly"><input type="checkbox" id="stCenter" checked> hips, spine, neck, head sway alike both ways</span>
   </div>
+  <details class="ststeady" id="stSteadyBox"><summary>Steadiness <span class="note2">keep centre bones still</span></summary><div id="stSteady" class="stsgrid"></div></details>
   <canvas id="stStrip"></canvas>
   <div id="stInfo" class="stinfo"></div>
   <div class="stbtns"><button type="button" class="primary" id="stSave">Save (replace clip)</button><button type="button" id="stSaveProj">Save to project</button><button type="button" id="stRevert" title="Put the original clip back">Revert to original</button></div>
@@ -219,6 +226,14 @@
     <input type="text" id="boneSearch" placeholder="Search the skeleton…" spellcheck="false">
     <div id="boneTree"></div>
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="barsDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="barsDlgT">
+    <h2 id="barsDlgT">Add bars</h2>
+    <div class="barsform"><label>How many <input type="number" id="barsN" min="1" max="200" step="1" value="1"></label>
+      <label>Where <select id="barsWhere"><option value="end">At the end</option><option value="after">After the playhead's bar</option><option value="at" hidden>Where you clicked</option></select></label></div>
+    <div class="acts"><span class="note">Every point stays on its bar; the new bars hold the value each track had there.</span><button type="button" id="barsCancel">Cancel</button><button type="button" class="primary" id="barsOk">Add</button></div>
   </div>
 </div>
 <div class="sheet" id="addDlg" hidden>

@@ -209,6 +209,11 @@ function rebuildSpeedLUT() {
     const q = Math.min(maxSeg, Math.floor(lut[i - 1] / sl)), cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
     lut[i] = lut[i - 1] + play * (loop ? cum[q] : 1) * (cyc / 100) * dt;
   }
+  if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
+    const tg = A.cycles * cur.dur, e = lut[n - 1];
+    if (e > 0 && Math.abs(e - tg) < 1e-3 * cur.dur) { const kk = tg / e; for (let i = 1; i < n; i++) lut[i] *= kk; }
+    else if (!lockBusy) queueLock();
+  }
   S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;
   rebuildTravelLUT(); gridCache = null;

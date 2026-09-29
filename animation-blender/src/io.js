@@ -8,16 +8,16 @@ $('btnHome').onclick = goHome;
 $('btnLoop').onclick = () => { S.loop = !S.loop; syncToggles(); };
 // Length or Cycles: one sets the timeline, the other just shows the matching value (the clip's cadence never changes)
 function syncLenInputs() {
-  const byLen = S.lenMode === 'length';
-  $('durIn').value = +S.dur.toFixed(3); $('cycIn').value = cur && cur.dur > 0 ? +realCycles().toFixed(2) : '';
+  const byLen = false;
+  if (cur && cur.dur > 0 && A && A.cycles > 0) $('cycIn').classList.toggle('drift', Math.abs(realCycles() - A.cycles) > 0.005);
+  $('durIn').value = +S.dur.toFixed(3); $('cycIn').value = cur && cur.dur > 0 ? +(byLen || !(A && A.cycles > 0) ? realCycles() : A.cycles).toFixed(2) : '';
   $('durIn').readOnly = !byLen; $('cycIn').readOnly = byLen;
   $('durIn').classList.toggle('derived', !byLen); $('cycIn').classList.toggle('derived', byLen);
 }
-$('lenMode').onchange = () => { S.lenMode = $('lenMode').value; syncLenInputs(); save(); };
-$('cycIn').onchange = () => { if (S.lenMode !== 'cycles' || !cur) return; const c = clamp(parseFloat($('cycIn').value) || realCycles(), 0.25, 400), rc = realCycles(); setLength(rc > 1e-3 ? S.dur * (c / rc) : c * cur.dur); };
+$('cycIn').onchange = () => { if (!cur) return; setCycles(parseFloat($('cycIn').value)); };
 // cycles the timeline really holds (cycle speed / bar reach / playback speed included)
 function realCycles() { const lut = S.speedLUT; return lut && lut.length && lut.length === Math.max(2, Math.ceil(S.dur * 960) + 1) ? lut[lut.length - 1] / cur.dur : S.dur / cur.dur; }
-$('durIn').onchange = () => { if (S.lenMode !== 'length') return; setLength(parseFloat($('durIn').value) || S.dur); };
+$('durIn').onchange = () => syncLenInputs();   // read-only: the length follows the bars and the speeds
 function setLength(dIn) {
   const d = clamp(+(+dIn).toFixed(3), 0.2, 120);
   pushUndo();
@@ -123,8 +123,10 @@ function importObj(o) {
   pushUndo();
   n.cycles = +o.cycles > 0 ? +o.cycles : 0;
   for (const sy of o.symmetrize || []) if (SYM_KEYS.some(([k]) => k === sy.item)) { const x = newSymAuto(d); x.weight = P(sy.weight_pct, 100) || x.weight; x.offset = P(sy.offset_pct, 100) || x.offset; n.sym[sy.item] = x; n.symOrder.push(sy.item); }
-  A = normalizeAuto(n); S.dur = d; S.v0 = 0; S.v1 = d; syncLenInputs(); S.t = 0; selPts = new Set(); selRow = null;
-  rebuildSpeedLUT(); rebuildRows(); save(); afterSelect();
+  A = normalizeAuto(n); S.dur = d; S.v0 = 0; S.v1 = d; S.t = 0; selPts = new Set(); selRow = null;
+  if (!(A.cycles > 0) || !(+o.cycles > 0)) { rebuildSpeedLUT(); A.cycles = +(Math.round(realCycles() * 100) / 100).toFixed(2); }
+  A.cycLocked = true; ensureEnds();
+  rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save(); afterSelect();
 }
 
 // ---------------------------------------------------------------- baked glTF (.glb in a .zip)

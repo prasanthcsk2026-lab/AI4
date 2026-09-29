@@ -263,14 +263,78 @@ renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4 || !skel || gizDragging) return;
   if (performance.now() - gizEndedAt < 300 || (tcontrols && tcontrols.enabled && tcontrols.axis)) return;
+  const best = pickViewport(e.clientX, e.clientY);
+  if (!best) clearSelection(); else if (best.eff) selectEff(best.eff); else selectBone(best.bone);
+});
+function pickViewport(cx, cy) {   // → { eff } | { bone } | null: IK handles first, then joints, then finger joints
+  if (!skel) return null;
   const b = renderer.domElement.getBoundingClientRect();
   const scr = (p) => { const q = p.clone().project(camera); return [(q.x + 1) / 2 * b.width + b.left, (1 - q.y) / 2 * b.height + b.top, q.z]; };
   let best = null, bd = 16;
-  if (S.showIK) for (const h of handles) { if (!h.m.visible) continue; const [x, y, z] = scr(h.m.position); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < bd) { bd = d; best = { eff: h.d.id }; } }
-  if (!best && S.bones) for (const j of skel.joints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < bd) { bd = d; best = { bone: j.name }; } }
-  if (!best && S.bones) { let fd = 9; for (const j of skel.fjoints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - e.clientX, y - e.clientY); if (z < 1 && d < fd) { fd = d; best = { bone: j.name }; } } }
-  if (!best) clearSelection(); else if (best.eff) selectEff(best.eff); else selectBone(best.bone);
+  if (S.showIK) for (const h of handles) { if (!h.m.visible) continue; const [x, y, z] = scr(h.m.position); const d = Math.hypot(x - cx, y - cy); if (z < 1 && d < bd) { bd = d; best = { eff: h.d.id }; } }
+  if (!best && S.bones) for (const j of skel.joints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - cx, y - cy); if (z < 1 && d < bd) { bd = d; best = { bone: j.name }; } }
+  if (!best && S.bones) { let fd = 9; for (const j of skel.fjoints) { const [x, y, z] = scr(worldP(j)); const d = Math.hypot(x - cx, y - cy); if (z < 1 && d < fd) { fd = d; best = { bone: j.name }; } } }
+  return best;
+}
+// double-click a custom controller's handle: edit it
+renderer.domElement.addEventListener('dblclick', (e) => {
+  const hit = pickViewport(e.clientX, e.clientY);
+  if (hit && hit.eff && EFF_BY_ID[hit.eff] && EFF_BY_ID[hit.eff].custom) editController(hit.eff);
 });
+// ================= #6 right-click a bone or IK handle in the viewport (a right-drag still pans)
+let rDownAt = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 2) rDownAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const at = rDownAt; rDownAt = null;
+  if (!rig || !A || (at && Math.hypot(e.clientX - at[0], e.clientY - at[1]) > 5)) return;
+  const hit = pickViewport(e.clientX, e.clientY); if (!hit) return;
+  if (hit.eff) { selectEff(hit.eff); openViewEffMenu(e, hit.eff); } else { selectBone(hit.bone); openViewBoneMenu(e, hit.bone); }
+});
+function keyHereArrays(arrs) {   // a point at the playhead on each track, at the value it has there (the curve does not change)
+  pushUndo(); let n = 0;
+  for (const pts of arrs) { if (!pts) continue; setPointAt(pts, S.t, evalPts(pts, S.t)); n++; }
+  editVersion++; trailDirty = true; layoutLanes(); save(); toast(n ? `Keyed ${n} track${n > 1 ? 's' : ''} at ${S.t.toFixed(2)} s.` : 'Nothing shown to key.');
+}
+function boneArr(ba, k) { return k === 'whole' ? ba.whole : k === 'timing' ? ba.timing : k[0] === 'w' ? ba.w[k[1]] : k[0] === 'a' ? ba.a[k[1]] : null; }
+function effOfBone(name) { const b = rig.bones[boneIdx.get(name)]; return EFFECTORS.find((d) => d.kind !== 'igroup' && d.kind !== 'fingers' && effBone(d) === b) || null; }
+function openViewBoneMenu(e, name0) {
+  const own = A.bones[name0], name = own && own.mirrorOf ? own.mirrorOf : name0, ba = A.bones[name], lab = axisInfo[name0] || {};
+  const toggle = (k) => () => { pushUndo(); const b = ensureBone(name); const sh = { ...(b.show || {}) }; sh[k] = !sh[k]; if (!Object.values(sh).some(Boolean)) sh.whole = true; b.show = sh; syncMirrors(); selectBone(name0); save(); };
+  const trackItems = BONE_TRACKS.map(([k, l]) => { const ax = k.length === 2 && 'wa'.includes(k[0]) ? k[1] : null; return { label: l + (ax && lab[ax] ? ' · ' + lab[ax].short : ''), checked: !!(ba && ba.show && ba.show[k]), action: toggle(k) }; });
+  const ed = effOfBone(name0), grp = GROUP_DEFS.filter((g) => groupMembers(g.id).has(name0));
+  const hasKids = rig.bones[boneIdx.get(name0)].children.some((c) => c.isBone);
+  openMenu(e.clientX, e.clientY, [
+    { label: name0, disabled: true },
+    ...trackItems,
+    { sep: true },
+    ...(ed ? [{ label: A.ik[ed.id] ? `IK: ${ed.label} (on the timeline)` : `Add IK: ${ed.label}…`, action: () => (A.ik[ed.id] ? selectEff(ed.id) : openAddDialog({ type: 'eff', id: ed.id })) }] : []),
+    ...(ed && MOVABLE.includes(ed.id) ? [{ label: 'New IK controller with this joint…', action: () => newControllerWith({ [ed.id]: 1 }) }] : []),
+    ...grp.map((g) => ({ label: A.groups[g.id] ? `Group: ${g.label} (on the timeline)` : `Add to group: ${g.label}…`, action: () => (A.groups[g.id] ? selectGroup(g.id) : openAddDialog({ type: 'group', id: g.id })) })),
+    { label: 'Group: this bone + everything below…', disabled: !hasKids, action: () => (A.groups['sub:' + name0] ? selectGroup('sub:' + name0) : openAddDialog({ type: 'group', id: 'sub:' + name0 })) },
+    { sep: true },
+    ba ? linkItem('bone', name) : { label: 'Both sides (add a track first)', disabled: true },
+    { label: 'Key here (every shown track, at the playhead)', disabled: !ba, action: () => keyHereArrays(Object.keys(ba.show || {}).filter((k) => ba.show[k]).map((k) => boneArr(ba, k))) },
+    { label: ba ? 'Show in the timeline' : 'Add to the timeline…', action: () => { if (ba) { selectBone(name0); const r = document.querySelector(`[data-bone="${CSS.escape(name)}"]`); if (r) r.scrollIntoView({ block: 'nearest' }); } else openAddDialog({ type: 'bone', name: name0 }); } },
+    { label: 'Remove from the timeline', disabled: !ba, action: () => removeBone(name) },
+  ]);
+}
+function openViewEffMenu(e, id0) {
+  const own = A.ik[id0], id = own && own.mirrorOf ? own.mirrorOf : id0, ef = A.ik[id], d = EFF_BY_ID[id0];
+  const toggle = (k) => () => { pushUndo(); const x = ensureEff(id); const sh = { ...(x.show || {}) }; sh[k] = !sh[k]; if (!Object.values(sh).some(Boolean)) sh[d.defaultShow[0]] = true; x.show = sh; syncMirrors(); selectEff(id0); save(); };
+  const trackItems = d.tracks.map((k) => ({ label: trackLabel(d, k).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(), checked: !!(ef && ef.show && ef.show[k]), action: toggle(k) }));
+  openMenu(e.clientX, e.clientY, [
+    { label: d.label + ' (IK)', disabled: true },
+    ...(d.custom ? [{ label: 'Edit controller…', action: () => editController(id0) }, { label: 'Duplicate controller', disabled: !A.ik[id0], action: () => duplicateController(id0) }, { sep: true }] : []),
+    ...trackItems,
+    { sep: true },
+    ...(!d.custom && MOVABLE.includes(id0) ? [{ label: 'New IK controller with this effector…', action: () => newControllerWith({ [id0]: 1 }) }] : []),
+    ef ? linkItem('eff', id) : { label: 'Both sides (add a track first)', disabled: true },
+    { label: 'Key here (every shown track, at the playhead)', disabled: !ef, action: () => keyHereArrays(Object.keys(ef.show || {}).filter((k) => ef.show[k]).map((k) => ef.tr[k])) },
+    { label: ef ? 'Show in the timeline' : 'Add to the timeline…', action: () => { if (ef) { selectEff(id0); const r = document.querySelector(`[data-eff="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: 'nearest' }); } else openAddDialog({ type: 'eff', id: id0 }); } },
+    { label: 'Remove from the timeline', disabled: !ef, action: () => removeEff(id) },
+  ]);
+}
 function updateSelChip() {
   const on = !!(S.selected || S.selEff || S.selGroup); $('selChip').hidden = !on; $('hintChip').hidden = on;
   $('btnGroupSel').hidden = true;

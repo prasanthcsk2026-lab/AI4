@@ -142,10 +142,11 @@ function rebuildRows() {
     const hr = mkRow('bone eff' + (isSelRow('eff', id) ? ' selected' : ''));
     Object.assign(hr, { kind: 'eff', eff: id });
     hr.el.dataset.eff = id;
-    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag${d.custom ? ' cust' : ''}">${d.custom ? 'IK CUST' : d.kind === 'igroup' ? 'IK GRP' : 'IK'}</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
+    hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!e.collapsed}" title="Show / hide tracks">${e.collapsed ? '▸' : '▾'}</button><span class="iktag${d.custom ? ' cust' : ''}">${d.custom ? 'IK CUST' : d.kind === 'igroup' ? 'IK GRP' : 'IK'}</span><span class="name" title="Select in the viewport · right-click for options"></span>${e.mirror ? '<span class="mirtag" title="Both sides: every edit applies to left and right">⇄ L+R</span>' : ''}${d.custom ? '<button type="button" class="mini" data-act="edit" title="Edit controller: name, members, pivot, tracks">✎</button>' : ''}<button type="button" class="mini" data-act="del" title="Remove this effector from the timeline">×</button>`;
     hr.h.querySelector('.name').textContent = e.mirror ? sideless(d.label) : d.label;
     hr.h.querySelector('[data-act="fold"]').onclick = () => { e.collapsed = !e.collapsed; rebuildRows(); save(); };
     hr.h.querySelector('[data-act="del"]').onclick = () => removeEff(id);
+    { const eb = hr.h.querySelector('[data-act="edit"]'); if (eb) eb.onclick = () => editController(id); }
     hr.h.querySelector('.name').onclick = () => selectEff(id);
     hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('e|' + id)) removeEff(id); else openEffMenu(ev, id); };
     hr.lane.innerHTML = '<div class="summary"></div>'; hr.lane.firstChild.textContent = effSummary(id);
@@ -234,7 +235,7 @@ function updateHScroll() {
   document.querySelector('.tl').addEventListener('wheel', (e) => {
     if (e.altKey || !(e.ctrlKey || e.metaKey || e.shiftKey)) return;
     e.preventDefault();
-    const rb = ruler.getBoundingClientRect(), f = clamp((e.clientX - rb.left) / rb.width, 0, 1), c = S.v0 + f * vSpan();
+    const rb = ruler.getBoundingClientRect(), f = clamp((e.clientX - rb.left) / timeAreaCss(), 0, 1), c = S.v0 + f * vSpan();
     if (e.shiftKey && !(e.ctrlKey || e.metaKey)) { const d = (e.deltaY || e.deltaX) / 600 * vSpan(); setView(S.v0 + d, S.v1 + d); return; }
     const k = Math.exp(clamp(e.deltaY, -200, 200) * 0.003), span = vSpan() * k;
     setView(c - f * span, c - f * span + span);
@@ -246,7 +247,7 @@ function followPlayhead() {   // while playing, keep the playhead in view
   if (d > S.v1 || d < S.v0) { const span = vSpan(); setView(d - span * 0.1, d - span * 0.1 + span); }
 }
 
-function barsEdited() { pinPointsToBar(); layoutLanes(); trailDirty = true; save(); }
+function barsEdited() { pinPointsToBar(); if (holdCountOrUndo('bar reach') === false) return; layoutLanes(); trailDirty = true; save(); }
 function drawBars(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
   x.clearRect(0, 0, w, h); x.fillStyle = '#1d1a20'; x.fillRect(0, 0, w, h);
@@ -266,6 +267,7 @@ function drawBars(r) {
     }
   }
   x.textAlign = 'left';
+  drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
 }
 function openBarEdit(q, e) {
   const box = $('numEdit'); numTarget = { bars: q };
@@ -345,6 +347,7 @@ function layoutLane(r) {
   drawLane(r);
 }
 function layoutLanes() { for (const r of rows) layoutLane(r); drawRuler(); placePlayhead(); }
+{ let lastSb = -1; new ResizeObserver(() => { const sb = tracksEl.offsetWidth - tracksEl.clientWidth; if (sb !== lastSb) { lastSb = sb; if (A) layoutLanes(); } }).observe(tracksEl); }
 // geometry
 const viewOf = (r) => A.zoom[r.key] || r.range;
 const dprOf = (r) => r.cv.width / Math.max(1, r.cv.clientWidth || r.lane.clientWidth || 1);
@@ -384,12 +387,18 @@ function clipTimeFrom(t0, c0, t1, cum, sl, maxSeg) {
   }
   return c;
 }
+// each point's bar (clip time) under the timing as it is now; a point exactly at the track's end is its end anchor
+// (every track's last point sits at S.dur), not "placed on a bar", so it stays at the end (null)
+function snapClipTimes(arrs) { return arrs.map((pts) => pts.map((p) => (pinDrag && p === pinDrag.p ? pinDrag.ct : p.t >= S.dur - 1e-6 ? null : clipTime(p.t)))); }
 function pinPointsToBar() {
   if (!cur || !S.speedLUT) { rebuildSpeedLUT(); return; }
   const arrs = allPointArrays();
-  // each point's bar (clip time) under the timing as it was; a point exactly at the track's end is its end anchor
-  // (every track's last point sits at S.dur), not "placed on a bar", so it stays at the end
-  const snap = arrs.map((pts) => pts.map((p) => (pinDrag && p === pinDrag.p ? pinDrag.ct : p.t >= S.dur - 1e-6 ? null : clipTime(p.t))));
+  placeByClipTime(arrs, snapClipTimes(arrs), S.dur);
+}
+// put every point at the real time where the (new) timing reaches its bar; D = the timeline length to use
+function placeByClipTime(arrs, snap, D) {
+  if (Math.abs(D - S.dur) > 1e-9) { S.dur = A.dur = +D; S.t = Math.min(S.t, S.dur); }
+  arrs.forEach((pts, i) => pts.forEach((p, j) => { if (snap[i][j] == null) p.t = S.dur; }));   // end anchors ride to the end
   // the speed tracks' own points shape the timing that places them: each is solved (bisection) for the real time
   // at which the timing reaches its bar, in bar order; a couple of passes settle the two tracks against each other
   const sl = segLen(), maxSeg = Math.ceil((S.dur * SPEED_MAX * 8) / sl) + 8, cum = segMulTable(maxSeg);
@@ -418,6 +427,172 @@ function pinPointsToBar() {
     pts.sort((a, b) => a.t - b.t);
   });
 }
+// ---- Cycles mode: the cycle count is fixed. Any timing change (playback / cycle speed, bar reach, template…) keeps
+// every point on its bar and moves the END of the timeline instead, so no bar is ever added or dropped by itself.
+// Bars are only added with "+ Bars" / the ruler menu, or by typing a new count.
+function totalClipTime() { const l = S.speedLUT; return l && l.length ? l[l.length - 1] : 0; }
+function fitToClipTime(target, arrs, snap) {   // length so the timeline ends exactly at clip time `target` → true when reached
+  // total clip time grows with the length; moving the end also stretches every track's last segment, so a plain
+  // Newton step can overshoot: bracket the answer, then regula falsi (Illinois)
+  const tol = 1e-5 * Math.max(cur.dur, 0.1), f = (D) => { placeByClipTime(arrs, snap, D); return totalClipTime() - target; };
+  let D0 = S.dur, f0 = f(D0);
+  if (Math.abs(f0) < tol) return true;
+  const lut = S.speedLUT, n = lut.length, m = Math.min(96, n - 1), r = Math.max(1e-4, (lut[n - 1] - lut[n - 1 - m]) / (S.dur * m / (n - 1)));
+  let D1 = clamp(D0 - f0 / r, 0.2, 120); if (Math.abs(D1 - D0) < 1e-9) D1 = clamp(D0 * (f0 > 0 ? 0.9 : 1.1), 0.2, 120);
+  let f1 = f(D1);
+  for (let k = 0; k < 30 && Math.sign(f0) === Math.sign(f1); k++) {   // walk on until the target is between the two
+    if (Math.abs(f1) < tol) return true;
+    const step = D1 - D0; D0 = D1; f0 = f1; D1 = clamp(D1 + step * 2, 0.2, 120);
+    if (Math.abs(D1 - D0) < 1e-9) break;
+    f1 = f(D1);
+  }
+  if (Math.abs(f1) < tol) return true;
+  if (Math.sign(f0) === Math.sign(f1)) return false;   // cannot be reached inside 0.2…120 s
+  let lo = D0, flo = f0, hi = D1, fhi = f1;
+  for (let it = 0; it < 60; it++) {
+    const D = hi - (fhi * (hi - lo)) / (fhi - flo), fd = f(D);
+    if (Math.abs(fd) < tol || Math.abs(hi - lo) < 1e-9) return true;
+    if (Math.sign(fd) === Math.sign(fhi)) { hi = D; fhi = fd; flo /= 2; } else { lo = D; flo = fd; fhi /= 2; }
+  }
+  return Math.abs(totalClipTime() - target) < 1e-3 * cur.dur;
+}
+let lockBusy = false;
+const cycTxt = (c) => (Math.abs(c - Math.round(c)) < 1e-6 ? String(Math.round(c)) : c.toFixed(2));
+function lockCycles(quiet) {   // → false when the count cannot be held (the caller undoes the edit)
+  if (lockBusy || !cur || !(cur.dur > 0) || !(A && A.cycles > 0) || !S.speedLUT) return true;
+  const target = A.cycles * cur.dur;
+  if (Math.abs(totalClipTime() - target) < 1e-6 * cur.dur) return true;
+  lockBusy = true; let ok = true;
+  try {
+    const arrs = allPointArrays(); ok = fitToClipTime(target, arrs, snapClipTimes(arrs));
+    if (ok) rebuildSpeedLUT();   // (the exact end correction is applied in rebuildSpeedLUT)
+    if (!ok && !quiet) toast(`${cycTxt(A.cycles)} bars do not fit at these speeds (the timeline would pass 120 s).`);
+  } finally { lockBusy = false; }
+  moveEndCache = null; editVersion++; trailDirty = true; gridCache = null; syncLenInputs(); layoutLanes();
+  return ok;
+}
+// a timing edit that cannot keep the bar count is taken back: the count never gives way
+function holdCountOrUndo(what) {
+  const ok = lockCycles(true);
+  if (ok === false) { undo(); redoStack.pop(); toast(`${cycTxt(A.cycles)} bars do not fit in 120 s at that ${what || 'speed'}: the change was undone.`); }
+  return ok;
+}
+// every track starts at 0 and ends at the end line (those two points are fixed in time and cannot be deleted)
+function ensureEnds() {
+  if (!A) return;
+  for (const pts of allPointArrays()) {
+    if (!pts || !pts.length) continue;
+    pts.sort((a, b) => a.t - b.t);
+    if (pts[0].t > 1e-6) pts.unshift({ t: 0, v: pts[0].v, k: 0 }); else pts[0].t = 0;
+    const L = pts[pts.length - 1];
+    if (L.t < S.dur - 1e-6) pts.push({ t: S.dur, v: L.v, k: 0 }); else L.t = S.dur;
+  }
+}
+const isEndPt = (pts, i) => i === 0 || i === pts.length - 1;
+// the central check: whatever rebuilt the timing, if the count drifted it is put back (right after this edit)
+let lockQueued = false;
+function queueLock() {
+  if (lockQueued || lockBusy) return; lockQueued = true;
+  queueMicrotask(() => { lockQueued = false; if (viewFreeze || drag) return; if (cur && A && A.cycles > 0 && Math.abs(totalClipTime() - A.cycles * cur.dur) > 1e-6 * cur.dur) lockCycles(); });
+}
+// a track whose last segment is not flat keeps its shape: its end value gets its own point at the old end first
+function holdTails(arrs, snap, ctEnd) {
+  arrs.forEach((pts, i) => {
+    const n = pts.length; if (n < 2) return;
+    const last = pts[n - 1], prev = pts[n - 2];
+    if (snap[i][n - 1] != null || (Math.abs(prev.v - last.v) < 1e-9 && Math.abs(prev.k) < 1e-6)) return;
+    pts.splice(n - 1, 0, { t: last.t, v: last.v, k: 0 }); snap[i].splice(n - 1, 0, Math.max(0, ctEnd - 1e-6));
+  });
+}
+// fewer cycles typed: points past the new end go, each track ends on the value it had there
+function trimToClipTime(arrs, snap, target) {
+  const tEnd = timeOfClipTime(target);
+  arrs.forEach((pts, i) => {
+    const vEnd = evalPts(pts, tEnd);
+    for (let j = pts.length - 1; j >= 0; j--) if (snap[i][j] != null && snap[i][j] > target - 1e-6) { pts.splice(j, 1); snap[i].splice(j, 1); }
+    const last = pts[pts.length - 1]; if (last && snap[i][pts.length - 1] == null) last.v = vEnd;
+  });
+  const sl = segLen(); for (const q of Object.keys(A.barSpeed)) if (+q * sl >= target - 1e-6) delete A.barSpeed[q];
+}
+function finishRetime(msg) {
+  selPts = new Set(); moveEndCache = null; editVersion++; trailDirty = true; gridCache = null;
+  S.viewAll = true; rebuildSpeedLUT(); syncLenInputs(); layoutLanes(); save();
+  if (msg) toast(msg);
+}
+// the count typed into the Cycles field: more = bars added at the end, fewer = bars cut from the end
+function setCycles(c) {
+  if (!cur || !(cur.dur > 0) || !S.speedLUT) return;
+  c = clamp(+c || A.cycles || 1, 0.25, 400);
+  const target = c * cur.dur, now = totalClipTime();
+  if (Math.abs(target - now) < 1e-6) { A.cycles = c; syncLenInputs(); save(); return; }
+  pushUndo();
+  const arrs = allPointArrays(), snap = snapClipTimes(arrs);
+  if (target < now) trimToClipTime(arrs, snap, target); else holdTails(arrs, snap, now);
+  const was = A.cycles; A.cycles = c;
+  lockBusy = true; let ok = true;
+  try { ok = fitToClipTime(target, arrs, snap); } finally { lockBusy = false; }
+  if (!ok) { A.cycles = was; undo(); redoStack.pop(); toast(`${cycTxt(c)} bars do not fit in 120 s at these speeds: kept ${cycTxt(was)}.`); syncLenInputs(); return; }
+  finishRetime(null);
+}
+// + Bars: n whole bars at the end, or right after bar boundary ctB (clip time); later points move n bars on,
+// the new bars hold the value every track had at that spot
+function addBars(n, ctB) {
+  if (!cur || !(cur.dur > 0) || !S.speedLUT) return;
+  n = Math.round(clamp(+n || 1, 1, 200));
+  pushUndo();
+  const arrs = allPointArrays(), snap = snapClipTimes(arrs), sh = n * cur.dur, total = totalClipTime();
+  const atEnd = ctB == null || ctB >= total - 1e-6;
+  if (atEnd) holdTails(arrs, snap, total);
+  else {
+    const tB = timeOfClipTime(ctB);
+    arrs.forEach((pts, i) => {
+      const sn = snap[i], vB = evalPts(pts, tB);
+      let at = sn.findIndex((c) => c == null || c > ctB + 1e-6); if (at < 0) at = pts.length;
+      for (let j = 0; j < sn.length; j++) if (sn[j] != null && sn[j] > ctB + 1e-6) sn[j] += sh;
+      if (pts.length && !isFlat(pts, pts[0].v)) {
+        const kPrev = at > 0 ? pts[at - 1].k : 0;
+        pts.splice(at, 0, { t: tB, v: vB, k: 0 }, { t: tB, v: vB, k: kPrev }); sn.splice(at, 0, ctB, ctB + sh);
+        if (at > 0 && pts[at - 1].k) { /* the curve into the split keeps its bend */ }
+      }
+    });
+    const q0 = Math.round(ctB / segLen()), bs = {};
+    for (const [q, v] of Object.entries(A.barSpeed)) bs[+q >= q0 ? +q + 4 * n : +q] = v;
+    A.barSpeed = bs;
+  }
+  const target = total + sh, was = A.cycles;
+  A.cycles = +((A.cycles || total / cur.dur) + n).toFixed(4);
+  lockBusy = true; let ok = true;
+  try { ok = fitToClipTime(target, arrs, snap); } finally { lockBusy = false; }
+  if (!ok) { A.cycles = was; undo(); redoStack.pop(); toast(`${n} more bar${n > 1 ? 's do' : ' does'} not fit in 120 s at these speeds.`); syncLenInputs(); return; }
+  const where = atEnd ? 'at the end' : `after bar ${Math.round(ctB / cur.dur)}`;
+  finishRetime(`Added ${n} bar${n > 1 ? 's' : ''} ${where}: ${cycTxt(A.cycles)} bars.`);
+}
+function openBarsDlg(ctB) {
+  const dlg = $('barsDlg'); dlg.hidden = false;
+  const k = cur && cur.dur > 0 ? Math.floor(clipTime(S.t) / cur.dur + 1e-6) + 1 : 1;
+  $('barsWhere').options[1].textContent = `After bar ${k} (the playhead's bar)`;
+  if (ctB != null) { $('barsWhere').value = 'at'; $('barsWhere').options[2].textContent = `After bar ${Math.round(ctB / cur.dur)} (where you clicked)`; $('barsWhere').options[2].hidden = false; dlg.dataset.ct = ctB; }
+  else { $('barsWhere').options[2].hidden = true; if ($('barsWhere').value === 'at') $('barsWhere').value = 'end'; delete dlg.dataset.ct; }
+  $('barsN').focus(); $('barsN').select();
+}
+$('btnAddBars').onclick = () => openBarsDlg(null);
+$('barsCancel').onclick = () => { $('barsDlg').hidden = true; };
+$('barsOk').onclick = () => {
+  const dlg = $('barsDlg'), w = $('barsWhere').value, n = +$('barsN').value || 1; dlg.hidden = true;
+  const k = Math.floor(clipTime(S.t) / cur.dur + 1e-6) + 1;
+  addBars(n, w === 'end' ? null : w === 'after' ? k * cur.dur : +dlg.dataset.ct);
+};
+$('barsDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('barsDlg').hidden = true; if (e.key === 'Enter') $('barsOk').click(); });
+// ruler right-click: insert bars at the bar boundary right after the click
+$('ruler').addEventListener('contextmenu', (e) => {
+  e.preventDefault(); if (!cur || !(cur.dur > 0)) return;
+  const b = $('ruler').getBoundingClientRect(), t = clamp(tOfDisp(S.v0 + clamp((e.clientX - b.left) / timeAreaCss(), 0, 1) * vSpan()), 0, S.dur);
+  const k = Math.min(Math.floor(clipTime(t) / cur.dur + 1e-6) + 1, Math.ceil(totalClipTime() / cur.dur - 1e-6)), ctB = k * cur.dur, atEnd = ctB >= totalClipTime() - 1e-6;
+  openMenu(e.clientX, e.clientY, [
+    { label: atEnd ? 'Add 1 bar at the end' : `Insert 1 bar after bar ${k}`, action: () => addBars(1, atEnd ? null : ctB) },
+    { label: atEnd ? 'Add bars at the end…' : `Insert bars after bar ${k}…`, action: () => openBarsDlg(atEnd ? null : ctB) },
+  ]);
+});
 const vLut = () => (viewFreeze ? viewFreeze.lut : S.speedLUT), vNom = () => (viewFreeze ? viewFreeze.nom : S.speedLUTNom);
 function freezeView() { if (!viewFreeze) viewFreeze = { lut: S.speedLUT.slice(), nom: S.speedLUTNom.slice(), grid: timeGrid(), bs: barSpace() }; }
 function thawView() { if (!viewFreeze) return; viewFreeze = null; gridCache = null; rebuildSpeedLUT(); layoutLanes(); }
@@ -427,8 +602,19 @@ function dispOf(t) { return barSpace() ? timeOfClipTime(lutAt(vLut(), t), vNom()
 function tOfDisp(d) { return barSpace() ? timeOfClipTime(lutAt(vNom(), d), vLut()) : d; }
 function dispDur() { return barSpace() ? dispOf(S.dur) : S.dur; }
 const xT = (t, w) => ((dispOf(t) - S.v0) / vSpan()) * w;
-function xOf(r, t) { return xT(t, r.cv.width); }
-function tOf(r, x) { return clamp(tOfDisp(S.v0 + (x / r.cv.width) * vSpan()), 0, S.dur); }
+// The time area: the ruler and every lane map time onto the SAME width, the ruler's width less the tracks'
+// scrollbar and a small gutter, so the end of the timeline (the line after the last bar) is always in view,
+// left of the scrollbar, with a little room after it.
+const TL_GUT = 16;
+function timeAreaCss() { const rw = ruler.clientWidth || 300, sb = Math.max(0, tracksEl.offsetWidth - tracksEl.clientWidth); return Math.max(60, rw - sb - TL_GUT); }
+const twOf = (r) => timeAreaCss() * dprOf(r);
+function xOf(r, t) { return xT(t, twOf(r)); }
+function tOf(r, x) { return clamp(tOfDisp(S.v0 + (x / twOf(r)) * vSpan()), 0, S.dur); }
+function endLabel() { if (!cur || !(cur.dur > 0)) return 'end'; const nb = totalClipTime() / cur.dur; return Math.abs(nb - Math.round(nb)) < 0.01 ? `${Math.round(nb) + 1} · end` : 'end'; }
+function drawEndMark(x, w, h, xe, dpr, dark) {   // shade past the end, then the end line
+  if (xe < w) { x.fillStyle = dark; x.fillRect(Math.max(0, xe), 0, w - Math.max(0, xe), h); }
+  if (xe >= -2 && xe <= w + 2) { x.fillStyle = 'rgba(240,138,28,.9)'; x.fillRect(Math.round(xe) - Math.round(dpr / 2), 0, Math.max(1, Math.round(1.5 * dpr)), h); }
+}
 function yOf(r, v) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return p + (1 - (v - lo) / (hi - lo)) * (h - 2 * p); }
 function vOfRaw(r, y) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * dprOf(r); return lo + (1 - (y - p) / (h - 2 * p)) * (hi - lo); }
 function vOf(r, y) { return clamp(vOfRaw(r, y), r.range[0], r.range[1]); }
@@ -441,7 +627,7 @@ function drawLane(r) {
   // time grid in the chosen unit (seconds, frames, clip cycles or foot steps)
   const G = timeGrid();
   if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.09)' : 'rgba(255,138,74,.08)'; const a = xOf(r, sp.t0), b = xOf(r, sp.t1); x.fillRect(a, 0, Math.max(1, b - a), h); x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.55)' : 'rgba(255,138,74,.55)'; x.fillRect(a, sp.S === 'L' ? h - 3 * dpr : h - 6 * dpr, Math.max(1, b - a), 2 * dpr); }
-  for (const g of visibleGrid(G, w, dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#34403a' : g.level === 1 ? '#2b3430' : '#232a26'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
+  for (const g of visibleGrid(G, twOf(r), dpr)) { x.fillStyle = g.S ? (g.S === 'L' ? '#5a4460' : '#65452f') : g.level === 2 ? '#34403a' : g.level === 1 ? '#2b3430' : '#232a26'; x.fillRect(Math.round(xOf(r, g.t)) + 0.5, 0, 1, h); }
   // foot landings: a line in the foot's colour
   for (const [t, Sd] of footMarks()) { const px = Math.round(xOf(r, t)); if (px < -2 || px > w + 2) continue; x.fillStyle = Sd === 'L' ? 'rgba(201,139,214,.75)' : 'rgba(255,138,74,.75)'; x.fillRect(px, 0, Math.max(1, Math.round(dpr)), h); }
   // value grid with labels once the track is tall enough
@@ -465,17 +651,18 @@ function drawLane(r) {
   x.lineTo(w, ry); x.lineTo(0, ry); x.closePath(); x.globalAlpha = 0.16; x.fillStyle = r.color; x.fill(); x.globalAlpha = 1;
   // tension rings, then points
   for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; if (b.t - a.t < 1e-3 || (Math.abs(b.v - a.v) < 1e-6 && Math.abs(a.k) < 1e-3)) continue; const tm = (a.t + b.t) / 2; x.beginPath(); x.arc(xOf(r, tm), yOf(r, evalPts(pts, tm)), 3 * dpr, 0, Math.PI * 2); x.strokeStyle = r.color; x.lineWidth = dpr; x.stroke(); }
-  for (const p of pts) { x.beginPath(); x.arc(xOf(r, p.t), yOf(r, p.v), 4 * dpr, 0, Math.PI * 2); x.fillStyle = '#111513'; x.fill(); x.strokeStyle = r.color; x.lineWidth = 1.6 * dpr; x.stroke(); }
+  pts.forEach((p, i) => { x.beginPath(); const px = xOf(r, p.t), py = yOf(r, p.v); if (isEndPt(pts, i)) x.rect(px - 4 * dpr, py - 4 * dpr, 8 * dpr, 8 * dpr); else x.arc(px, py, 4 * dpr, 0, Math.PI * 2); x.fillStyle = '#111513'; x.fill(); x.strokeStyle = r.color; x.lineWidth = 1.6 * dpr; x.stroke(); });
   // selection ring + box-select rectangle
   if (r === selRow && selPts.size) for (const i of selPts) { const p = pts[i]; if (!p) continue; x.beginPath(); x.arc(xOf(r, p.t), yOf(r, p.v), 6.5 * dpr, 0, Math.PI * 2); x.strokeStyle = '#ffffff'; x.lineWidth = dpr; x.stroke(); }
   x.restore();
   if (boxSel && boxSel.r === r) { x.save(); x.strokeStyle = 'rgba(255,255,255,.55)'; x.setLineDash([3 * dpr, 3 * dpr]); x.strokeRect(Math.min(boxSel.x0, boxSel.x1), Math.min(boxSel.y0, boxSel.y1), Math.abs(boxSel.x1 - boxSel.x0), Math.abs(boxSel.y1 - boxSel.y0)); x.restore(); }
+  drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
   if (zoomed) { x.font = `600 ${10 * dpr}px "Barlow", sans-serif`; x.textBaseline = 'top'; x.textAlign = 'right'; x.fillStyle = 'rgba(240,138,28,.8)'; x.fillText(`zoom ${+(lo * r.scale).toFixed(2)}…${+(hi * r.scale).toFixed(2)}`, w - 4 * dpr, 3 * dpr); x.textAlign = 'left'; }
 }
 function evXY(r, e) { const b = r.cv.getBoundingClientRect(), k = r.cv.width / b.width; return [(e.clientX - b.left) * k, (e.clientY - b.top) * k, k]; }
 function hitPoint(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); let best = null, bd = 8 * k; pts.forEach((p, i) => { const d = Math.hypot(xOf(r, p.t) - px, yOf(r, p.v) - py); if (d < bd) { bd = d; best = i; } }); return best; }
 function hitRing(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); for (let i = 0; i < pts.length - 1; i++) { const tm = (pts[i].t + pts[i + 1].t) / 2; if (Math.hypot(xOf(r, tm) - px, yOf(r, evalPts(pts, tm)) - py) < 7 * k) return i; } return null; }
-function deletePoint(r, i) { const pts = r.get(); if (pts.length <= 1) return; confirmDelete(`Delete this point (${pts[i].t.toFixed(2)} s, ${r.fmt(pts[i].v)}) from ${trackName(r)}?`, () => { pushUndo(); pts.splice(i, 1); edited(r); }); }
+function deletePoint(r, i) { const pts = r.get(); if (pts.length <= 1) return; if (isEndPt(pts, i)) { toast('The start and end points stay (drag them up or down to change their value).'); return; } confirmDelete(`Delete this point (${pts[i].t.toFixed(2)} s, ${r.fmt(pts[i].v)}) from ${trackName(r)}?`, () => { pushUndo(); pts.splice(i, 1); edited(r); }); }
 let drag = null, boxSel = null, selRow = null, selPts = new Set();
 function onLaneDown(e, r) {
   if (e.button !== 0) return;
@@ -516,7 +703,7 @@ function onDrag(e) {
   if (e.ctrlKey || e.metaKey) v = Math.round(v / r.snap) * r.snap;
   if (r.flag) v = v >= 0.5 ? 1 : 0;
   const lo = drag.i > 0 ? pts[drag.i - 1].t : 0, hi = drag.i < pts.length - 1 ? pts[drag.i + 1].t : S.dur;
-  p.t = clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
+  p.t = drag.i === 0 ? 0 : drag.i === pts.length - 1 ? S.dur : clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
   // a playback / cycle speed point: it goes to the bar under the cursor (as the frozen ruler shows it), and stays
   // on that bar however its own value re-times the bars before it
   if (BAR_DRIVERS.has(r.key)) {
@@ -524,6 +711,7 @@ function onDrag(e) {
     if (drag.ct0 == null) drag.ct0 = clipTime(p.t);   // its bar when grabbed
     pinDrag = { p, ct: clamp(sideways ? lutAt(vLut(), p.t) : drag.ct0, ctLo, ctHi) };
   }
+  if (BAR_DRIVERS.has(r.key)) { freezeView(); drawLane(r); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)} · updates on release`); return; }
   edited(r, true); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}`);
 }
 function finalizeBoxSelect() {
@@ -555,8 +743,10 @@ function edited(r, live = false) {
   if (live) syncMirrors();
   if (TIMING_KEYS.has(r.key)) {
     const bar = BAR_DRIVERS.has(r.key);
-    if (live) { freezeView(); if (bar) pinPointsToBar(); else rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
-    else { viewFreeze = null; if (bar) pinPointsToBar(); else rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
+    // playback / cycle speed: while dragging nothing is re-timed (the point stays where the frozen ruler shows it,
+    // only its value moves); on release the point, the ruler, the bars and every other track update at once
+    if (live) { freezeView(); if (!bar) rebuildSpeedLUT(); drawLane(r); }
+    else { viewFreeze = null; if (bar) pinPointsToBar(); else rebuildSpeedLUT(); if (holdCountOrUndo(r.key === 'cyc' ? 'cycle speed' : 'speed') === false) return; gridCache = null; layoutLanes(); }
   } else drawLane(r);
   refreshSummary(r);
   editVersion++; trailDirty = true;
@@ -570,7 +760,7 @@ function openNumEdit(r, i, e) {
   const box = $('numEdit'), pts = r.get(), p = i != null ? pts[i] : null;
   $('numTL').hidden = false;
   numTarget = { r, i };
-  $('numT').value = (p ? p.t : S.t).toFixed(3);
+  $('numT').value = (p ? p.t : S.t).toFixed(3); $('numT').disabled = !!(p && isEndPt(pts, i));
   $('numV').value = +((p ? p.v : evalPts(pts, S.t)) * r.scale).toFixed(3);
   $('numV').step = r.flag ? 1 : r.snap * r.scale;
   $('numVL').textContent = r.unit;
@@ -593,7 +783,7 @@ function applyNumEdit() {
   if (!isFinite(t) || !isFinite(raw)) { closeNumEdit(); return; }
   let v = clamp(raw / r.scale, r.range[0], r.range[1]); if (r.flag) v = v >= 0.5 ? 1 : 0;
   pushUndo();
-  if (i != null && pts[i]) { const p = pts.splice(i, 1)[0]; p.v = v; p.t = t; let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length; pts.splice(at, 0, p); }
+  if (i != null && pts[i]) { const end = isEndPt(pts, i), last = i === pts.length - 1, p = pts.splice(i, 1)[0]; p.v = v; p.t = end ? (last ? S.dur : 0) : clamp(t, 1e-3, S.dur - 1e-3); let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length; pts.splice(at, 0, p); }
   else keyAtFlat(pts, t, v);
   closeNumEdit(); edited(r);
 }
@@ -668,8 +858,9 @@ function openGroupMenu(e, gid) {
 }
 function openEffMenu(e, id) {
   const ef = A.ik[id]; if (!ef) return;
-  const to = mirrorEffId(id);
+  const to = mirrorEffId(id), cust = EFF_BY_ID[id].custom;
   openMenu(e.clientX, e.clientY, [
+    ...(cust ? [{ label: 'Edit controller…', action: () => editController(id) }, { label: 'Duplicate controller', action: () => duplicateController(id) }, { sep: true }] : []),
     { label: 'Show / hide tracks…', action: () => openAddDialog({ type: 'eff', id }, ef.show) },
     { sep: true },
     { label: 'Reset effector', action: () => { pushUndo(); const show = ef.show; A.ik[id] = newEffAuto(id, S.dur); A.ik[id].show = show; rebuildRows(); save(); } },
@@ -735,7 +926,7 @@ function pasteSelection() {
   if (!selRow || !clipboard || clipboard.type !== 'points') return;
   pushUndo();
   const pts = selRow.get(), t0 = clipboard.data[0].t, base = S.t;
-  for (const p of clipboard.data) { const np = { t: clamp(base + (p.t - t0), 0, S.dur), v: clamp(p.v, selRow.range[0], selRow.range[1]), k: p.k }; let at = pts.findIndex((q) => q.t > np.t); if (at < 0) at = pts.length; pts.splice(at, 0, np); }
+  for (const p of clipboard.data) { const np = { t: clamp(base + (p.t - t0), 1e-3, S.dur - 1e-3), v: clamp(p.v, selRow.range[0], selRow.range[1]), k: p.k }; let at = pts.findIndex((q) => q.t > np.t); if (at < 0) at = pts.length; pts.splice(at, 0, np); }
   selPts = new Set(); edited(selRow);
 }
 function deleteSelection() {
@@ -747,8 +938,8 @@ function deleteSelectionNow() {
   if (!selRow || !selPts.size) return;
   const pts = selRow.get();
   pushUndo();
-  const keep = pts.filter((_, i) => !selPts.has(i));
-  selRow.set(keep.length ? keep : flat(selRow.ref, S.dur));
+  const keep = pts.filter((_, i) => !selPts.has(i) || isEndPt(pts, i));   // the start and end points stay
+  selRow.set(keep.length >= 2 ? keep : flat(selRow.ref, S.dur));
   selPts = new Set(); edited(selRow);
 }
 function nudgeSelection(key, big) {
@@ -757,12 +948,12 @@ function nudgeSelection(key, big) {
   const pts = selRow.get(), [lo, hi] = selRow.range;
   const dt = (big ? 0.1 : 0.01) * (key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0);
   const dv = (big ? 10 : 1) * selRow.snap * (key === 'ArrowUp' ? 1 : key === 'ArrowDown' ? -1 : 0);
-  const moved = [...selPts].map((i) => pts[i]).filter(Boolean);
-  for (const p of moved) { p.t = clamp(p.t + dt, 0, S.dur); p.v = clamp(p.v + dv, lo, hi); }
+  const moved = [...selPts].map((i) => pts[i]).filter(Boolean), ends = new Set([pts[0], pts[pts.length - 1]]);
+  for (const p of moved) { if (!ends.has(p)) p.t = clamp(p.t + dt, 1e-3, S.dur - 1e-3); p.v = clamp(p.v + dv, lo, hi); }
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('barsDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }
@@ -830,24 +1021,27 @@ function drawRuler() {
   const x = ruler.getContext('2d'), W = ruler.width, H = ruler.height;
   x.fillStyle = '#181d1a'; x.fillRect(0, 0, W, H);
   x.font = `500 ${11 * dpr}px "IBM Plex Mono", monospace`; x.textBaseline = 'top';
-  const G = timeGrid(), vis = visibleGrid(G, W, dpr);
-  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = xT(sp.t0, W - 1), b = xT(sp.t1, W - 1); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
-  const taken = [];   // labels: the major ones first, then the rest where they fit
+  const TW = timeAreaCss() * dpr, G = timeGrid(), vis = visibleGrid(G, TW, dpr);
+  if (S.unit === 'step') for (const sp of G.spans) { x.fillStyle = sp.S === 'L' ? 'rgba(201,139,214,.28)' : 'rgba(255,138,74,.25)'; const a = xT(sp.t0, TW), b = xT(sp.t1, TW); x.fillRect(a, sp.S === 'L' ? H * 0.62 : H * 0.8, Math.max(1, b - a), H * 0.14); }
+  const taken = [];   // labels: the end first, then the major ones, then the rest where they fit
+  const xe = xT(S.dur, TW);
+  { const lb = endLabel(), tw = x.measureText(lb).width, a0 = Math.round(xe) - tw - 5 * dpr; x.fillStyle = '#f5b46b'; x.fillText(lb, a0, 5 * dpr); taken.push([a0 - 2 * dpr, xe + 2 * dpr]); }
   for (const g of vis) {
-    const px = Math.round(xT(g.t, W - 1)) + 0.5;
+    const px = Math.round(xT(g.t, TW)) + 0.5;
     x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : g.level === 2 ? '#7d8882' : g.level === 1 ? '#56615b' : '#3a443f';
     x.fillRect(px, g.level === 2 ? H * 0.45 : g.level === 1 ? H * 0.6 : H * 0.72, 1, H);
   }
   for (const pass of [2, 1, 0]) for (const g of vis) {
     if (g.level !== pass || !g.label || g.t >= S.dur - 1e-6) continue;
-    const px = Math.round(xT(g.t, W - 1)) + 0.5, a0 = px + 4 * dpr, a1 = a0 + x.measureText(g.label).width + 6 * dpr;
+    const px = Math.round(xT(g.t, TW)) + 0.5, a0 = px + 4 * dpr, a1 = a0 + x.measureText(g.label).width + 6 * dpr;
     if (a1 < 0 || a0 > W || taken.some(([l, r]) => a0 < r && a1 > l)) continue;
     taken.push([a0, a1]);
     x.fillStyle = g.S ? (g.S === 'L' ? COL.timing : '#ff8a4a') : pass === 2 ? '#d4dbd6' : '#8d9892';
     x.fillText(g.label, a0, 5 * dpr);
   }
   // clip cycle marks (where one loop / move of the clip ends, at the current speeds)
-  if (cur && vLut()) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = vLut(); for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, W - 1)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
+  if (cur && vLut()) { x.fillStyle = 'rgba(240,138,28,.55)'; let n = 1; const lut = vLut(); for (let i = 1; i < lut.length; i++) { if (lut[i] >= n * cur.dur) { x.fillRect(Math.round(xT((i / (lut.length - 1)) * S.dur, TW)), H - 6 * dpr, 2, 6 * dpr); n++; } } }
+  drawEndMark(x, W, H, xe, dpr, 'rgba(10,12,11,.55)');
 }
 // ---------------------------------------------------------------- time units
 // grid lines { t, level 0-2, label, S? } for the chosen unit; foot steps also give the contact spans
@@ -910,13 +1104,13 @@ function unitReadout(t) {
 $('unitSel').onchange = () => { S.unit = $('unitSel').value; gridCache = null; layoutLanes(); trailDirty = true; save(); };
 $('btnMagnet').onclick = () => { S.magnet = !S.magnet; $('btnMagnet').setAttribute('aria-pressed', S.magnet); trailDirty = true; save(); };
 
-function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp(tOfDisp(S.v0 + clamp((e.clientX - b.left) / b.width, 0, 1) * vSpan()), 0, S.dur); }
+function scrub(e) { const b = ruler.getBoundingClientRect(); S.t = clamp(tOfDisp(S.v0 + clamp((e.clientX - b.left) / timeAreaCss(), 0, 1) * vSpan()), 0, S.dur); }
 ruler.addEventListener('pointerdown', (e) => { rulerDrag = true; ruler.setPointerCapture(e.pointerId); scrub(e); });
 function placePlayhead() {
   const tl = document.querySelector('.tl').getBoundingClientRect(), rb = ruler.getBoundingClientRect();
   const f = (dispOf(S.t) - S.v0) / vSpan();
   playhead.hidden = f < -0.001 || f > 1.001;
-  playhead.style.left = (rb.left - tl.left + f * rb.width - 1) + 'px';
+  playhead.style.left = (rb.left - tl.left + f * timeAreaCss() - 1) + 'px';
 }
 // resizable timeline
 const grip = $('grip'); let gripDrag = false;

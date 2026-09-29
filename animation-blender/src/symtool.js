@@ -8,8 +8,84 @@
 // ============================================================================
 const ST = { clip: null, src: undefined, saved: false, res: null, fk: null, busy: false };
 const ST_M = 240;   // working samples per cycle
+// Steadiness: per centre bone, how much of its in-cycle motion to take out (0 = as is, 100 % = still), measured
+// against the cycle's average pose. World = the bone holds still in the world (the bones below compensate, e.g. a level
+// gaze while the body rocks); Local = only the bone's own rotation calms down. Pitch / turn / tilt pick the axes
+// (character axes: pitch about the side-to-side axis, turn about the vertical, tilt about the forward axis).
+const ST_STEADY = [['hips', 'Hips', 'world'], ['spine', 'Spine', 'local'], ['spine1', 'Spine1', 'local'], ['spine2', 'Chest', 'local'], ['neck', 'Neck', 'world'], ['head', 'Head', 'world']];
+function buildSteadyUI() {
+  const g = $('stSteady'); g.textContent = '';
+  const add = (html) => { const t = document.createElement('template'); t.innerHTML = html; g.append(...t.content.childNodes); };
+  add('<span class="hd">Bone</span><span class="hd">Amount</span><span class="hd">Space</span><span class="hd" title="Pitch: nod forward / back">P</span><span class="hd" title="Turn: left / right">T</span><span class="hd" title="Tilt: side to side">L</span>');
+  for (const [k, label, sp] of ST_STEADY) add(`<label><input type="checkbox" data-s="${k}" data-f="on"> ${label}</label><span class="amt"><input type="range" min="0" max="100" step="5" value="60" data-s="${k}" data-f="amt"><b>60%</b></span><select data-s="${k}" data-f="space"><option value="world"${sp === 'world' ? ' selected' : ''}>World</option><option value="local"${sp === 'local' ? ' selected' : ''}>Local</option></select><input type="checkbox" checked data-s="${k}" data-f="pitch" title="Pitch"><input type="checkbox" checked data-s="${k}" data-f="turn" title="Turn"><input type="checkbox" checked data-s="${k}" data-f="tilt" title="Tilt">`);
+  add('<span class="hd">Hips move</span><span class="wide"><span class="amt">Bob <input type="range" min="0" max="100" step="5" value="0" data-s="bob"><b>0%</b></span><span class="amt">Sway <input type="range" min="0" max="100" step="5" value="0" data-s="sway"><b>0%</b></span><label title="Legs are IK-solved so the feet keep their spots when the hips are steadied"><input type="checkbox" checked data-s="feet"> Feet stay planted (leg IK)</label></span>');
+  for (const el of g.querySelectorAll('input[type=range]')) el.oninput = () => { el.nextElementSibling.textContent = el.value + '%'; };
+  for (const el of g.querySelectorAll('input, select')) el.onchange = stRun;
+}
+function steadyOpts() {
+  const g = $('stSteady'), q = (s, f) => g.querySelector(`[data-s="${s}"]${f ? `[data-f="${f}"]` : ''}`), o = {};
+  if (!g.children.length) return { bob: 0, sway: 0, feet: true };
+  for (const [k] of ST_STEADY) o[k] = { on: q(k, 'on').checked, amt: clamp(+q(k, 'amt').value / 100, 0, 1), space: q(k, 'space').value, pitch: q(k, 'pitch').checked, turn: q(k, 'turn').checked, tilt: q(k, 'tilt').checked };
+  o.bob = clamp(+q('bob').value / 100, 0, 1); o.sway = clamp(+q('sway').value / 100, 0, 1); o.feet = q('feet').checked;
+  return o;
+}
+function meanQuat(qs) {   // average rotation (signs aligned to the first)
+  const a = qs[0], m = new THREE.Quaternion(0, 0, 0, 0);
+  for (const q of qs) { const s = a.x * q.x + a.y * q.y + a.z * q.z + a.w * q.w < 0 ? -1 : 1; m.x += s * q.x; m.y += s * q.y; m.z += s * q.z; m.w += s * q.w; }
+  return m.normalize();
+}
+function stSteady(Qo, Ho, N, st) {   // → a short report, or null when nothing was asked
+  const bonesOf = { hips: rig.b.hips, spine: rig.b.spine, spine1: rig.b.spine1, spine2: rig.b.spine2, neck: rig.b.neck, head: rig.b.head };
+  const list = ST_STEADY.filter(([k]) => st[k] && st[k].on && st[k].amt > 0 && bonesOf[k]);
+  if (!list.length && !(st.bob > 0) && !(st.sway > 0)) return null;
+  const fk = ST.fk, origQ = Qo.slice(), origH = Ho.slice(), q = new Float32Array(B * 4), h = V3(), rv = V3(), rep = [];
+  const frameFK = (j) => { q.set(Qo.subarray(j * B * 4, (j + 1) * B * 4)); h.fromArray(Ho, j * 3); fk.run(q, h); };
+  if (st.bob > 0 || st.sway > 0) {   // hips height bob / side sway toward the cycle's average
+    let mx = 0, my = 0; for (let j = 0; j < N; j++) { mx += Ho[j * 3]; my += Ho[j * 3 + 1]; } mx /= N; my /= N;
+    let bob0 = 0, sw0 = 0; for (let j = 0; j < N; j++) { bob0 = Math.max(bob0, Math.abs(Ho[j * 3 + 1] - my)); sw0 = Math.max(sw0, Math.abs(Ho[j * 3] - mx)); Ho[j * 3] -= st.sway * (Ho[j * 3] - mx); Ho[j * 3 + 1] -= st.bob * (Ho[j * 3 + 1] - my); }
+    if (st.bob > 0) rep.push(`hips bob ±${(bob0 * 100).toFixed(1)} → ±${(bob0 * (1 - st.bob) * 100).toFixed(1)} cm`);
+    if (st.sway > 0) rep.push(`sway ±${(sw0 * 100).toFixed(1)} → ±${(sw0 * (1 - st.sway) * 100).toFixed(1)} cm`);
+  }
+  for (const [k, label] of list) {   // top of the chain down, each one against its parent as already steadied
+    const bone = bonesOf[k], i = boneIdx.get(bone.name), o = st[k], pb = bone.parent, pi = pb && pb.isBone && boneIdx.has(pb.name) ? boneIdx.get(pb.name) : -1;
+    const W = [], P = [], L = [];
+    for (let j = 0; j < N; j++) { frameFK(j); W.push(fk.Q[i].clone()); P.push(pi >= 0 ? fk.Q[pi].clone() : hipsParentQ.clone()); L.push(new THREE.Quaternion().fromArray(Qo, (j * B + i) * 4)); }
+    const world = o.space === 'world', src = world ? W : L, mean = meanQuat(src), Wm = meanQuat(W), Wmi = Wm.clone().invert(), meanI = mean.clone().invert();
+    const kx = 1 - o.amt * (o.pitch ? 1 : 0), ky = 1 - o.amt * (o.turn ? 1 : 0), kz = 1 - o.amt * (o.tilt ? 1 : 0);
+    let peak0 = 0, peak1 = 0;
+    for (let j = 0; j < N; j++) {
+      let Ln;
+      if (world) { logQ(src[j].clone().multiply(meanI), rv); }            // deviation in character axes
+      else { logQ(meanI.clone().multiply(src[j]), rv); rv.applyQuaternion(Wm); }   // local deviation, seen in character axes
+      peak0 = Math.max(peak0, rv.length());
+      rv.set(rv.x * kx, rv.y * ky, rv.z * kz); peak1 = Math.max(peak1, rv.length());
+      if (world) { const Wn = expV(rv.x, rv.y, rv.z, new THREE.Quaternion()).multiply(mean); Ln = P[j].clone().invert().multiply(Wn); }
+      else { rv.applyQuaternion(Wmi); Ln = mean.clone().multiply(expV(rv.x, rv.y, rv.z, new THREE.Quaternion())); }
+      Ln.normalize().toArray(Qo, (j * B + i) * 4);
+    }
+    rep.push(`${label.toLowerCase()} ±${(peak0 / DEG).toFixed(1)}° → ±${(peak1 / DEG).toFixed(1)}°`);
+  }
+  // hips steadied: the legs are re-solved so each foot keeps its spot and its turn from the original frame
+  const hipsTouched = st.bob > 0 || st.sway > 0 || list.some(([k]) => k === 'hips');
+  if (hipsTouched && st.feet) {
+    const Hv = V3(), fe = {};
+    for (let j = 0; j < N; j++) {
+      applyPose(origQ.subarray(j * B * 4, (j + 1) * B * 4), Hv.fromArray(origH, j * 3));
+      for (const Sd of ['L', 'R']) { const sd = rig.side[Sd]; fe[Sd] = { p: worldP(sd.foot), q: worldQ(sd.foot), k: worldP(sd.shin) }; }
+      applyPose(Qo.subarray(j * B * 4, (j + 1) * B * 4), Hv.fromArray(Ho, j * 3));
+      for (const Sd of ['L', 'R']) {
+        const sd = rig.side[Sd], f = fe[Sd];
+        const res = ikLimb(sd.leg, worldP(sd.thigh), f.p, f.k, V3(0, 0, 1));
+        rig.setDelta(sd.thigh, res.d1); rig.setDelta(sd.shin, res.d2); rig.setDelta(sd.foot, f.q.clone().multiply(rig.bq(sd.foot).clone().invert()));
+        for (const b of [sd.thigh, sd.shin, sd.foot]) b.quaternion.toArray(Qo, (j * B + boneIdx.get(b.name)) * 4);
+      }
+    }
+    rep.push('feet kept planted');
+  }
+  return rep;
+}
 function stOpts() {
-  return {
+  return { steady: steadyOpts(),
     arms: $('stArms').value, legs: $('stLegs').value, w: clamp(+$('stW').value / 100, 0, 1),
     split: clamp(+$('stSplit').value / 100, 0.3, 0.7), retime: $('stRetime').checked, start: $('stStart').value,
     center: $('stCenter').checked, swing: $('stSwing').checked, mode: $('stMode').value,
@@ -153,6 +229,7 @@ function stProcess() {
     if (o.mode === 'arms') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w, 'arms'); }   // phase matching + arm swing matched
     else if (o.mode === 'avg') { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, o.w); }
     else if (o.mode === 'copy' && o.center) { const [Qp, Hp] = fill((u) => base(cAt(u + 0.5)), N); stMirrorAverageAB(Qo, Ho, Qp, Hp, N, 1, 'centre'); }
+    const steadyRep = stSteady(Qo, Ho, N, o.steady);
     const after = stMeasure(Qo, Ho, N);
     if (easeInfo) { const nz = stLimbZ(Qo, Ho, N); easeInfo.hands.push(stEndsShare(nz.slice(0, 2), o.zone)); easeInfo.feet.push(stEndsShare(nz.slice(2), o.zone)); }
     const win = {};
@@ -161,7 +238,7 @@ function stProcess() {
     const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), steps = [];
     for (let j = 0; j < N; j++) { let mm = 0; for (let bI = 0; bI < B; bI++) { qa.fromArray(Qo, (j * B + bI) * 4); qb.fromArray(Qo, (((j + 1) % N) * B + bI) * 4); mm = Math.max(mm, qa.angleTo(qb)); } steps.push(mm); }
     const sorted = steps.slice().sort((x, y) => x - y), typical = sorted[Math.floor(N / 2)] || 1e-6;
-    ST.res = { ease: easeInfo, frames: N, minStep: sorted[0] / typical, seam: steps[N - 1] / typical, bk: { n: N, loop: true, fps: N / dur, q: Qo, hp: Ho, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, start: S0 };
+    ST.res = { steady: steadyRep, ease: easeInfo, frames: N, minStep: sorted[0] / typical, seam: steps[N - 1] / typical, bk: { n: N, loop: true, fps: N / dur, q: Qo, hp: Ho, win }, before: before.contact, after: after.contact, swingBefore: before.swing, swingAfter: after.swing, dur, start: S0 };
   } finally { cur = keepCur; if (keepBk) BAKED[clip.id] = keepBk; else delete BAKED[clip.id]; }
   return ST.res;
 }
@@ -195,7 +272,8 @@ function stDraw() {
     + (r.ease ? `Time in the outer ${Math.round(r.ease.zone * 100)} % of the swing — hands: <b>${Math.round(r.ease.hands[0] * 100)} % → ${Math.round(r.ease.hands[1] * 100)} %</b> · feet: <b>${Math.round(r.ease.feet[0] * 100)} % → ${Math.round(r.ease.feet[1] * 100)} %</b><br>` : '')
     + (r.ease && Math.abs(stOpts().ease) > 1e-3 ? '<span class="dim">Swing ease is applied last, so the even swing above is what is left after it (ease 0 = exact even swing).</span><br>' : '')
     + `Frames: <b>${r.frames}</b> per cycle (the clip's own) · smallest frame step <b class="${r.minStep > 0.3 ? 'ok' : 'warn'}">${Math.round(r.minStep * 100)} %</b> of a typical one ${r.minStep > 0.3 ? '· no repeated frames ✓' : '· a frame barely moves'}<br>`
-    + `Loop seam: <b class="${seamOk ? 'ok' : 'warn'}">${seamOk ? 'smooth ✓' : 'jump ×' + r.seam.toFixed(1) + ' — check the clip'}</b> (last → first frame vs a typical frame)`;
+    + `Loop seam: <b class="${seamOk ? 'ok' : 'warn'}">${seamOk ? 'smooth ✓' : 'jump ×' + r.seam.toFixed(1) + ' — check the clip'}</b> (last → first frame vs a typical frame)`
+    + (r.steady && r.steady.length ? `<br>Steadiness: <b>${r.steady.join(' · ')}</b>` : '');
 }
 function stRun() {   // process + live preview on the character
   if (!ST.clip || ST.busy) return;
@@ -297,6 +375,7 @@ $('stClip').onchange = () => stLoad($('stClip').value);
 for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing', 'stZone']) $(id).onchange = stRun;
 $('stEase').oninput = () => { $('stEasev').textContent = (+$('stEase').value > 0 ? '+' : '') + $('stEase').value; };
 $('stEase').onchange = stRun;
+buildSteadyUI();
 $('stMode').onchange = () => { stModeUI(); stRun(); };
 function stModeUI() { const m = $('stMode').value; for (const el of document.querySelectorAll('.copyonly')) el.hidden = m !== 'copy'; for (const el of document.querySelectorAll('.wonly')) el.hidden = m === 'phase'; }
 $('stW').oninput = () => { $('stWv').textContent = $('stW').value + '%'; };

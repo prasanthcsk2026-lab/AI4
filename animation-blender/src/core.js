@@ -120,7 +120,7 @@ const S = {
   t: 0, playing: false, loop: true, dur: 3, speedLUT: null,
   selected: null, selEff: null, selGroup: null,         // a bone name, an IK effector id, or a group id
   bones: true, ghost: false, showIK: true, trail: false,
-  inPlace: true, follow: true, autoKey: true, travelBase: V3(), realtime: false, v0: 0, v1: 10, limits: true, limitHits: new Set(), lenMode: 'length', unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
+  inPlace: true, follow: true, autoKey: true, travelBase: V3(), realtime: false, v0: 0, v1: 10, limits: true, limitHits: new Set(), lenMode: 'cycles', unit: 'sec', mirrorPref: true, magnet: true, falloff: 0.15,
 };
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
@@ -186,7 +186,7 @@ function restoreSnapshot(s) {
   if (o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
   A = normalizeAuto(o.A); S.dur = A.dur; S.v0 = clamp(S.v0, 0, S.dur); S.v1 = clamp(S.v1, S.v0 + 0.05, S.dur); syncLenInputs(); S.t = Math.min(S.t, S.dur);
   selPts = new Set(); selRow = null;
-  rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
+  rebuildSpeedLUT(); lockCycles(true); rebuildRows(); save(); updateSelChip();
 }
 function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); const s = undoStack.pop(); suppressUndo = true; restoreSnapshot(s); suppressUndo = false; }
 function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); const s = redoStack.pop(); suppressUndo = true; restoreSnapshot(s); suppressUndo = false; }
@@ -240,7 +240,7 @@ async function boot() {
   S.lockIn = store.ui && isFinite(store.ui.lockIn) ? clamp(+store.ui.lockIn, 0, 0.3) : 0.03; S.lockOut = store.ui && isFinite(store.ui.lockOut) ? clamp(+store.ui.lockOut, 0, 0.5) : 0.12;
   $('btnMagnet').setAttribute('aria-pressed', S.magnet); $('falloffIn').value = S.falloff;
   if (store.ui && ['sec', 'frame', 'cycle', 'step'].includes(store.ui.unit)) S.unit = store.ui.unit;
-  if (store.ui && ['length', 'cycles'].includes(store.ui.lenMode)) S.lenMode = store.ui.lenMode;
+  S.lenMode = 'cycles';   // the bar count is the master: always locked (the old Length mode is gone)
   if (store.ui && typeof store.ui.limits === 'boolean') S.limits = store.ui.limits;
   if (store.ui && typeof store.ui.realtime === 'boolean') S.realtime = store.ui.realtime;
   $('realtimeCb').checked = S.realtime;
@@ -335,6 +335,8 @@ function renderIKList(q) {
     const tn = document.createElement('span'); tn.className = 'tn'; tn.textContent = e.label; if (inTl) tn.style.color = COL.ik;
     const d = document.createElement('span'); d.className = 'note2'; d.textContent = inTl ? 'in timeline' : e.what; d.title = e.what;
     row.append(tn, d);
+    if (e.custom) { const pen = document.createElement('button'); pen.type = 'button'; pen.className = 'mini'; pen.textContent = '✎'; pen.title = 'Edit controller'; pen.style.marginLeft = 'auto';
+      pen.onclick = (ev) => { ev.stopPropagation(); $('boneDlg').hidden = true; if (inTl) editController(e.id); else openAddDialog({ type: 'eff', id: e.id }); }; row.append(pen); }
     row.onclick = () => { $('boneDlg').hidden = true; if (inTl) selectEff(e.id); else openAddDialog({ type: 'eff', id: e.id }); };
     root.append(row);
   }
@@ -390,11 +392,14 @@ function selectClip(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];
-  A = normalizeAuto(saved && saved.speed ? saved : newAuto(S.lenMode === 'cycles' ? +(5 * cur.dur).toFixed(3) : 10));
+  A = normalizeAuto(saved && saved.speed ? saved : newAuto(+(5 * cur.dur).toFixed(3), 5));
   S.dur = A.dur; syncLenInputs(); S.v0 = 0; S.v1 = S.dur; updateHScroll();
   S.t = 0; S.travelBase.set(0, 0, 0); selPts = new Set(); selRow = null; undoStack = []; redoStack = [];
   moveEndCache = null;
-  rebuildSpeedLUT(); rebuildRows(); save(); updateSelChip();
+  rebuildSpeedLUT();
+  ensureEnds();
+  if (cur.dur > 0) { if (!A.cycLocked) { const rc = realCycles(); if (Math.abs(rc - A.cycles) > 0.02) A.cycles = +(Math.round(rc * 100) / 100).toFixed(2); A.cycLocked = true; } lockCycles(true); syncLenInputs(); }
+  rebuildRows(); save(); updateSelChip();
 }
 // removing a linked source removes its twin too; removing a twin just ends the link
 // Deletes happen at once, with an "Undo" toast (Ctrl+Z works too). Only clearing a whole clip still asks first.
@@ -514,6 +519,15 @@ function openAddDialog(target, existingShow) {
   }
   const ok = $('addDlgOk'), cancel = $('addDlgCancel');
   ok.textContent = existingShow ? 'Apply' : 'Add';
+  {   // custom controller already on the timeline: "Edit controller", with Duplicate and Delete
+    const editing = isEff && def.custom && !!A.ik[def.id];
+    $('addDlgTitle').firstChild.textContent = editing ? 'Edit controller ' : 'Tracks for ';
+    let dup = $('addDlgDup'), del = $('addDlgDel');
+    if (!dup) { dup = document.createElement('button'); dup.type = 'button'; dup.id = 'addDlgDup'; dup.textContent = 'Duplicate'; del = document.createElement('button'); del.type = 'button'; del.id = 'addDlgDel'; del.textContent = 'Delete'; del.className = 'danger'; cancel.before(del, dup); }
+    dup.hidden = del.hidden = !editing;
+    dup.onclick = () => { dlg.hidden = true; duplicateController(def.id); };
+    del.onclick = () => { dlg.hidden = true; const lbl = (A.ik[def.id] && A.ik[def.id].label) || def.label; removeLinkedNow('eff', A.ik, 'ikOrder', def.id); toast(`Deleted "${lbl}".`); };
+  }
   ok.onclick = () => {
     const show = {}; for (const k in boxes) show[k] = boxes[k].checked;
     if (!Object.values(show).some(Boolean)) show[defaults[0]] = true;
@@ -553,6 +567,29 @@ function commitAddEff(id, show, mirror, ig) {
   setMirrorLink('eff', id, mirror);
   selectEff(id); save();
   const r = document.querySelector(`[data-eff="${CSS.escape(id)}"]`); if (r) r.scrollIntoView({ block: 'nearest' });
+}
+// ---- custom IK controllers: edit (name, members + shares, pivot, look, shown tracks), duplicate, delete;
+// the automation already written stays
+function editController(id) {
+  const d = EFF_BY_ID[id]; if (!d || !d.custom) return;
+  const e = A.ik[id];
+  openAddDialog({ type: 'eff', id }, e ? e.show : null);
+}
+function duplicateController(id) {
+  const src = A.ik[id]; if (!src) return;
+  pushUndo();
+  let n = 1; while (EFF_BY_ID['ig:c' + n]) n++;
+  const nid = 'ig:c' + n, label = (src.label || EFF_BY_ID[id].label) + ' copy';
+  registerIG(nid, label);
+  const c = JSON.parse(JSON.stringify(src)); delete c.mirror; delete c.mirrorOf; c.label = label;
+  A.ik[nid] = c; A.ikOrder.push(nid);
+  selectEff(nid); save(); toast(`Duplicated as "${label}".`);
+}
+function newControllerWith(members) {
+  let n = 1; while (EFF_BY_ID['ig:c' + n]) n++;
+  const id = 'ig:c' + n, d = registerIG(id, 'Controller ' + n);
+  d.members = { ...members };
+  openAddDialog({ type: 'eff', id });
 }
 function ensureEff(id) {
   if (!A.ik[id]) { A.ik[id] = newEffAuto(id, S.dur); A.ikOrder.push(id); }

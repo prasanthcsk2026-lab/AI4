@@ -46,9 +46,9 @@ function applySprintToJog(v) {
   for (const [gid, w] of [['g:Lleg', v.legs], ['g:Rleg', v.legs], ['g:Larm', v.arms], ['g:Rarm', v.arms], ['g:spine', v.torso]]) { const g = ensureGroup(gid); g.weight = ramp(1, w / 100); g.timing = flat(0, S.dur); g.show = { weight: true }; }
   const ch = ensureEff('chest'); for (const k of Object.keys(ch.tr)) ch.tr[k] = flat(TRK[k].ref, S.dur); ch.tr.rx = ramp(0, v.lean); ch.show = { rx: true };
   const hp = ensureEff('hips'); for (const k of Object.keys(hp.tr)) hp.tr[k] = flat(TRK[k].ref, S.dur); hp.tr.py = ramp(0, v.hips); hp.show = { py: true };
-  S.lenMode = 'cycles'; $('lenMode').value = 'cycles';
+  S.lenMode = 'cycles'; A.cycles = v.cycles; A.cycLocked = true;
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++;
-  rebuildSpeedLUT(); syncLenInputs(); rebuildRows(); save();
+  ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
   return `Sprint → Jog written: ${v.cycles} cycles (${S.dur.toFixed(2)} s), slowing from bar ${v.from} to bar ${v.to}. Run "Auto foot-lock" to plant the longer contacts.`;
 }
 function openTemplate() {
