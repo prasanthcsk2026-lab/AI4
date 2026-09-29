@@ -246,7 +246,7 @@ function followPlayhead() {   // while playing, keep the playhead in view
   if (d > S.v1 || d < S.v0) { const span = vSpan(); setView(d - span * 0.1, d - span * 0.1 + span); }
 }
 
-function barsEdited() { rebuildSpeedLUT(); layoutLanes(); trailDirty = true; save(); }
+function barsEdited() { pinPointsToBar(null); layoutLanes(); trailDirty = true; save(); }
 function drawBars(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), sl = segLen();
   x.clearRect(0, 0, w, h); x.fillStyle = '#1d1a20'; x.fillRect(0, 0, w, h);
@@ -357,6 +357,31 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
 const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd']);
+// Playback speed and cycle speed (with bar reach) are what turn clip time into real seconds — a "bar" is a fixed
+// point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
+// point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
+const BAR_DRIVERS = new Set(['speed', 'cyc']);
+function allPointArrays() {
+  const out = [A.speed, A.move, A.cyc, A.gnd];
+  for (const n of A.order) { const ba = A.bones[n]; out.push(ba.whole, ba.timing, ba.w.x, ba.w.y, ba.w.z, ba.a.x, ba.a.y, ba.a.z); }
+  for (const gid of A.groupOrder) { const g = A.groups[gid]; out.push(g.weight, g.timing); }
+  for (const id of A.ikOrder) { const e = A.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
+  for (const k of A.symOrder) { const sy = A.sym[k]; out.push(sy.weight, sy.offset); }
+  return out;
+}
+function pinPointsToBar(exceptArr) {
+  if (!cur || !S.speedLUT) { rebuildSpeedLUT(); return; }
+  const arrs = allPointArrays().filter((a) => a !== exceptArr);
+  // a point sitting exactly at the track's end is its end anchor (every track's last point sits at S.dur by
+  // convention), not "placed on a bar" — it stays at S.dur rather than following a clip time that may now fall
+  // short of (or past) the timeline's own length
+  const snap = arrs.map((pts) => pts.map((p) => (p.t >= S.dur - 1e-6 ? null : clipTime(p.t))));
+  rebuildSpeedLUT();
+  arrs.forEach((pts, i) => {
+    pts.forEach((p, j) => { p.t = snap[i][j] == null ? S.dur : clamp(timeOfClipTime(snap[i][j]), 0, S.dur); });
+    pts.sort((a, b) => a.t - b.t);
+  });
+}
 const vLut = () => (viewFreeze ? viewFreeze.lut : S.speedLUT), vNom = () => (viewFreeze ? viewFreeze.nom : S.speedLUTNom);
 function freezeView() { if (!viewFreeze) viewFreeze = { lut: S.speedLUT.slice(), nom: S.speedLUTNom.slice(), grid: timeGrid(), bs: barSpace() }; }
 function thawView() { if (!viewFreeze) return; viewFreeze = null; gridCache = null; rebuildSpeedLUT(); layoutLanes(); }
@@ -424,12 +449,19 @@ function onLaneDown(e, r) {
   if (e.shiftKey) { const [px, py] = evXY(r, e); boxSel = { r, x0: px, y0: py, x1: px, y1: py }; return; }
   const pts = r.get(); let i = hitPoint(r, e);
   if (i == null) { const ri = hitRing(r, e); if (ri != null) { pushUndo(); drag = { r, ring: ri, y0: e.clientY, k0: pts[ri].k }; return; } }
-  if (i == null) {   // new point at the clicked time and value
+  if (i == null) {
+    // a new point at the clicked time: its value starts as whatever the curve already reads there, so adding a
+    // point never bends the line by itself — drag it (mousemove, without releasing) to actually set a value
     pushUndo();
-    const [px, py] = evXY(r, e), t = S.magnet ? snapTime(tOf(r, px), r.cv.width, dprOf(r)) : tOf(r, px);
-    const p = { t, v: vOf(r, py), k: 0 }; let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length;
+    const [px] = evXY(r, e), tRaw = tOf(r, px), t = S.magnet ? snapTime(tRaw, r.cv.width, dprOf(r)) : tRaw;
+    let at = pts.findIndex((q) => q.t > t); if (at < 0) at = pts.length;
+    const lo = at > 0 ? pts[at - 1].t : 0, hi = at < pts.length ? pts[at].t : S.dur, tc = clamp(t, lo, hi);
+    const v0 = evalPts(pts, tc), p = { t: tc, v: r.flag ? (v0 >= 0.5 ? 1 : 0) : v0, k: 0 };
     pts.splice(at, 0, p); i = at; edited(r);
-  } else { pushUndo(); }
+    drag = { r, i };
+    return;
+  }
+  pushUndo();
   drag = { r, i };
   onDrag(e);
 }
@@ -478,8 +510,9 @@ function onLaneHover(e, r) {
 function edited(r, live = false) {
   if (live) syncMirrors();
   if (TIMING_KEYS.has(r.key)) {
-    if (live) { freezeView(); rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
-    else { viewFreeze = null; rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
+    const bar = BAR_DRIVERS.has(r.key);
+    if (live) { freezeView(); if (bar) pinPointsToBar(r.get()); else rebuildSpeedLUT(); drawLane(r); }   // preview the timing; the layout waits for release
+    else { viewFreeze = null; if (bar) pinPointsToBar(r.get()); else rebuildSpeedLUT(); gridCache = null; layoutLanes(); }
   } else drawLane(r);
   refreshSummary(r);
   editVersion++; trailDirty = true;
