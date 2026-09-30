@@ -279,6 +279,8 @@
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="frcT">
     <h2 id="frcT">Forcer settings</h2>
     <div class="frcform">
+      <div class="barsform"><label>X <input type="number" id="frc_px" step="0.05"> m</label><label>Y <input type="number" id="frc_py" step="0.05" min="0"> m</label><label>Z <input type="number" id="frc_pz" step="0.05"> m</label>
+        <label>Facing X <input type="number" id="frc_fx" step="1">°</label><label>Y <input type="number" id="frc_fy" step="1">°</label><label>Z <input type="number" id="frc_fz" step="1">°</label></div>
       <div class="barsform"><label>Name <input type="text" id="frcName" spellcheck="false"></label>
         <label>Falloff <select id="frcFall"><option value="inv2">Inverse square (full at 1 m)</option><option value="linear">Linear (gone at 4 m)</option><option value="none">None</option></select></label>
         <label class="cb"><input type="checkbox" id="frcShow" checked> Show it (speaker, cone, arrows)</label></div>

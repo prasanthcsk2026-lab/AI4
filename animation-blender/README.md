@@ -324,6 +324,13 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Forcers: placed in 3D, custom controllers, steady anchor
+- A forcer's **position and facing are no longer automated.** Select the speaker in the viewport and use **W** (move) or **E** (rotate); the change applies on release (auto-key on or off) and Ctrl+Z undoes it. ⚙ has number boxes for X / Y / Z (m) and Facing X / Y / Z (°).
+- The block keeps four tracks: **Force, Spread, Weight, Response**.
+- Older projects: position / facing tracks become the value they had at the playhead.
+- **Your own IK controllers** (New IK controller) are in the target list. A forcer pushes / pulls the controller's pivot and all its members move with it. Measured: −200 N on a controller holding the left hand moves the hand 18.9 cm.
+- A moving forcer now follows the runner's travel root, not the hips. The speaker no longer sways with each step or comes closer when the body leans (0 cm of wobble over a cycle while the hips sway 2.2 cm).
+
 ## Knees no longer fold backward
 The leg IK now aims the knee along the runner's facing (from the hips), not from the shin. A strongly tilted pelvis (big forward lean, hip rotation, a strong forcer push) used to fold it backward: 73 / 480 frames with a 300 N push, 330 / 480 with lean and hip rotation +25°. Both are now 0.
 

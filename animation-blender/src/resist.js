@@ -16,23 +16,16 @@
 //  follows by IK. Adds to the Run controls; never overwrites their tracks.
 // ============================================================================
 const GRAV = 9.81;
-const RES_KEYS = ['px', 'py', 'pz', 'fx', 'fy', 'fz', 'force', 'spread', 'weight', 'resp'];
+const RES_KEYS = ['force', 'spread', 'weight', 'resp'];   // automated; position and facing are set in 3D (W / E on the speaker)
+const POS_KEYS = ['px', 'py', 'pz'], FACE_KEYS = ['fx', 'fy', 'fz'];
+const POS_DEF = { moving: { px: 0, py: 1.2, pz: 1, fx: 0, fy: 180, fz: 0 }, fixed: { px: 0, py: 1.2, pz: 10, fx: 0, fy: 180, fz: 0 } };
 const RES_SPEC = {
-  px: { range: [-50, 50], ref: 0, color: '#e07a7a', scale: 1, unit: 'm', fmt: (v) => sgn(v, 2, ' m'), snap: 0.05 },
-  py: { range: [0, 5], ref: 1.2, color: '#7ad07a', scale: 1, unit: 'm', fmt: (v) => v.toFixed(2) + ' m', snap: 0.05 },
-  pz: { range: [-50, 200], ref: 1, color: '#7aa8e0', scale: 1, unit: 'm', fmt: (v) => sgn(v, 2, ' m'), snap: 0.05 },
-  fx: { range: [-90, 90], ref: 0, color: '#d09a9a', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
-  fy: { range: [-180, 180], ref: 180, color: '#9ad09a', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
-  fz: { range: [-180, 180], ref: 0, color: '#9ab4d0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
   force: { range: [-3000, 3000], ref: 0, color: '#e8b04a', scale: 1, unit: 'N', fmt: (v) => sgn(v, 0, ' N'), snap: 10 },
   spread: { range: [5, 180], ref: 90, color: '#c08ae0', scale: 1, unit: '°', fmt: (v) => Math.round(v) + '°', snap: 1 },
   weight: { range: [0, 2], ref: 1, color: '#d0d07a', scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   resp: { range: [0, 1], ref: 0, color: '#ff8a8a', scale: 100, unit: '%', fmt: pct, snap: 0.05 },
 };
 const RES_LABEL = (mode) => ({
-  px: `X position <i>m ${mode === 'fixed' ? 'from the start · world' : 'from the root'} · + right</i>`, py: 'Y position <i>m above the ground</i>',
-  pz: `Z position <i>m ${mode === 'fixed' ? 'from the start · world' : 'from the root'} · + in front</i>`,
-  fx: 'Facing X <i>° tilt · + down</i>', fy: 'Facing Y <i>° turn · 180 = back toward the start</i>', fz: 'Facing Z <i>° roll (a round cone: no effect)</i>',
   force: 'Force <i>N · + push / − pull · 736 N = 75 kg body weight</i>', spread: 'Spread <i>° full cone angle</i>', weight: 'Weight <i>% of the body\'s reaction</i>', resp: 'Response <i>% · 0 resist (lean into it) → 100 yield (pushed along the arrows)</i>',
 });
 const RESK = { sideSign: 1, widthSign: -1, stepPerLoad: 0.75, cadDropPerLoad: 0.25, armPerLoad: 0.6, widthCmPerDeg: 0.6, vertCmPerG: 8, sideHipShare: 0.4, headDegPerN: 0.05, legCadPerLoad: 1.2, legKneePerLoad: 1.0 };
@@ -40,12 +33,12 @@ const RESK = { sideSign: 1, widthSign: -1, stepPerLoad: 0.75, cadDropPerLoad: 0.
 const YIELD_K = { chest: { part: 'chest', k: 0.15 }, head: { part: 'head', k: 0.15 }, hips: { part: 'pelvis', k: 0.05 }, Lhand: { part: 'Larm', k: 1.0 }, Rhand: { part: 'Rarm', k: 1.0 } };
 const FORCER_COLORS = ['#ff9a3c', '#3cd2ff', '#b67cff', '#7cff9a', '#ff6fa5', '#ffe066'];
 // IK controllers a forcer can move (the ones with a position)
-const forcerIKList = () => EFFECTORS.filter((d) => d.kind !== 'igroup' && d.tracks.includes('px') && !d.custom);
+const forcerIKList = () => EFFECTORS.filter((d) => d.tracks.includes('px') && (d.custom || d.kind !== 'igroup'));   // built-in controllers with a position, and your own controllers
 function newForcer(mode, dur, n) {
   const f = { id: 'f' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), name: 'Forcer ' + n, mode, collapsed: false, falloff: 'inv2', show: true, color: FORCER_COLORS[(n - 1) % FORCER_COLORS.length],
     target: { whole: true, ik: [], stiff: 10, maxMove: 40, useCone: true, bodyReacts: true } };
   for (const k of RES_KEYS) f[k] = flat(RES_SPEC[k].ref, dur);
-  if (mode === 'fixed') f.pz = flat(10, dur);   // 10 m down the track from the start
+  f.at = { ...POS_DEF[mode] };   // position (m) and facing (°): set in 3D, not automated
   return f;
 }
 function normalizeForcers(a) {
@@ -61,14 +54,18 @@ function normalizeForcers(a) {
       f.px = flat(-pull[0], dur); f.py = flat(1.0 - pull[1], dur); f.pz = flat(-pull[2], dur);
       f.fy = flat(Math.atan2(pull[0], pull[2]) / DEG, dur); f.fx = flat(-Math.asin(clamp(pull[1], -1, 1)) / DEG, dur);
       f.force = r.force && r.force.length ? r.force : flat(F, dur); f.spread = flat(120, dur);
-    } else for (const k of RES_KEYS) if (Array.isArray(r[k]) && r[k].length) f[k] = r[k];
+    } else for (const k of [...RES_KEYS, ...POS_KEYS, ...FACE_KEYS]) if (Array.isArray(r[k]) && r[k].length) f[k] = r[k];
+    if (f.px) delete f.at;   // its position / facing come from those tracks (below)
     if (r.falloff) f.falloff = r.falloff; if (r.bypass) f.bypass = true;
     if (r.mass > 0) a.body.mass = r.mass; if (r.keepSpeed != null) a.body.keepSpeed = r.keepSpeed;
     a.forcers.push(f); if (a.rowOrder) a.rowOrder = a.rowOrder.map((k) => (k === 'res:main' ? 'frc:' + f.id : k));
     delete a.resist;
   }
+  const tNow = typeof S !== 'undefined' && S ? Math.min(S.t || 0, dur) : 0;
   a.forcers.forEach((f, i) => {
     const d = newForcer(f.mode === 'fixed' ? 'fixed' : 'moving', dur, i + 1);
+    if (!f.at) { f.at = { ...d.at }; for (const k of [...POS_KEYS, ...FACE_KEYS]) if (Array.isArray(f[k]) && f[k].length) f.at[k] = evalPts(f[k], tNow); }   // tracks from before: the value at the playhead
+    for (const k of [...POS_KEYS, ...FACE_KEYS]) { delete f[k]; if (!(typeof f.at[k] === 'number' && isFinite(f.at[k]))) f.at[k] = d.at[k]; }
     for (const k of RES_KEYS) if (!Array.isArray(f[k]) || !f[k].length) f[k] = d[k];
     for (const k of ['id', 'name', 'mode', 'falloff', 'color']) if (!f[k]) f[k] = d[k];
     if (f.show == null) f.show = true;
@@ -94,7 +91,9 @@ function resParts() {
 const toRoot = (v) => V3(v.x * resParts().rs, v.y, v.z);   // world axes ↔ root frame (the same mirror both ways)
 function runnerPath(t) { try { return trueTravel(t, V3()); } catch { return V3(); } }   // the runner's ground position (the last timing's travel)
 // the forcer's values at t (a live gizmo change wins)
-function forcerVals(f, t) { const p = typeof pending !== 'undefined' && pending && pending.kind === 'forcer' && pending.id === f.id ? pending.vals : null; const o = {}; for (const k of RES_KEYS) o[k] = p && p[k] != null ? p[k] : evalPts(f[k], t); return o; }
+function forcerVals(f, t) { const p = typeof pending !== 'undefined' && pending && pending.kind === 'forcer' && pending.id === f.id ? pending.vals : null; const o = {}, at = f.at || (f.at = { ...POS_DEF[f.mode === 'fixed' ? 'fixed' : 'moving'] }); for (const k of RES_KEYS) o[k] = evalPts(f[k], t); for (const k of [...POS_KEYS, ...FACE_KEYS]) o[k] = p && p[k] != null ? p[k] : at[k]; return o; }
+// the runner's steady root on the ground: its travel, not the hips (which sway, bob and lean every step)
+function runRoot(t) { const r = shownTravel(t, V3()); r.y = 0; return r; }
 function forcerDevice(f, t) {   // → { pos, dir } in the root frame, F, half (rad), weight
   const v = forcerVals(f, t);
   const dir = V3(0, 0, 1).applyEuler(new THREE.Euler(v.fx * DEG, v.fy * DEG, v.fz * DEG, 'YXZ')).normalize();
@@ -115,10 +114,11 @@ function forcerPartForces(f, t) {   // whole-body target: [{ ...part, f (N, root
 }
 // the IK controllers a forcer moves
 const IK_PART = { Lhand: 'Larm', Rhand: 'Rarm', Lfoot: 'Lshin', Rfoot: 'Rshin', head: 'head', chest: 'chest', spine: 'chest', spine1: 'chest', neck: 'head', hips: 'pelvis', Lshoulder: 'chest', Rshoulder: 'chest' };
+function effPosOf(id) { const b = effBoneOf(id); if (b) return worldP(b); const d = EFF_BY_ID[id]; return d && d.custom ? igPivotPos(id) : null; }
 function effBoneOf(id) { const d = EFF_BY_ID[id]; if (!d) return null; if (d.side) { const s = rig.side[d.side]; return { hand: s.hand, foot: s.foot, elbow: s.fore, knee: s.shin, shoulder: s.clav }[d.kind] || null; } return (d.seg && rig.b[d.seg]) || (id === 'hips' ? rig.b.hips : null); }
 function forcerIKPush(f, id, t, world = true) {   // the move of one controller by one forcer (m; world axes when world)
-  const B = resParts(), D = forcerDevice(f, t), bone = effBoneOf(id); if (!bone) return V3();
-  const hp = worldP(rig.b.hips), p = toRoot(worldP(bone).sub(V3(hp.x, 0, hp.z)));
+  const B = resParts(), D = forcerDevice(f, t), wp = effPosOf(id); if (!wp) return V3();
+  const p = toRoot(wp.sub(runRoot(t)));
   const ray = p.sub(D.pos), d = ray.length(); if (d < 1e-4) return V3();
   ray.divideScalar(d);
   const c = f.target.useCone ? coneW(ray, D) : 1, amt = D.F * D.weight * c * resFall(d, f.falloff) * (f.target.stiff / 100) / 100;   // m
@@ -207,8 +207,8 @@ function forcerVizCone(v, half, L) {
   const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); v.edge.geometry.dispose(); v.edge.geometry = eg;
 }
 function forcerWorldPose(f, t) {   // → { pos, dirW, D }: where it is drawn now
-  const B = resParts(), hp = worldP(rig.b.hips), D = forcerDevice(f, t);
-  return { pos: V3(hp.x, 0, hp.z).add(V3(D.pos.x * B.rs, D.pos.y, D.pos.z)), dirW: V3(D.dir.x * B.rs, D.dir.y, D.dir.z).normalize(), D };
+  const B = resParts(), D = forcerDevice(f, t);
+  return { pos: runRoot(t).add(V3(D.pos.x * B.rs, D.pos.y, D.pos.z)), dirW: V3(D.dir.x * B.rs, D.dir.y, D.dir.z).normalize(), D };
 }
 function updateResistViz() {
   const list = A && A.forcers ? A.forcers : [];
@@ -234,7 +234,7 @@ function updateResistViz() {
     // arrows: the body parts it reaches (whole body) and the controllers it moves
     const items = [], rs = resParts().rs;
     if (f.target.whole && forcerLive(f)) for (const q of forcerPartForces(f, S.t).parts) { const m = q.f.length(); if (m >= 2) items.push([worldP(q.bone), V3(q.f.x * rs, q.f.y, q.f.z), clamp(m / 120, 0.1, 0.7)]); }
-    if (forcerLive(f)) for (const id of f.target.ik) { const mv = forcerIKPush(f, id, S.t), b = effBoneOf(id); if (b && mv.length() > 1e-3) items.push([worldP(b), mv, clamp(mv.length() * 2, 0.12, 0.8)]); }
+    if (forcerLive(f)) for (const id of f.target.ik) { const mv = forcerIKPush(f, id, S.t), wp = effPosOf(id); if (wp && mv.length() > 1e-3) items.push([wp, mv, clamp(mv.length() * 2, 0.12, 0.8)]); }
     while (v.pool.length < items.length) { const a = new THREE.ArrowHelper(V3(0, 0, 1), V3(), 0.3, col, 0.08, 0.05); v.arrows.add(a); v.pool.push(a); }
     v.pool.forEach((a, i) => { const it = items[i]; if (!it) { a.visible = false; return; } a.visible = true; a.position.copy(it[0]); a.setDirection(it[1].normalize()); a.setLength(it[2], 0.07, 0.045); a.setColor(col); });
   }
@@ -255,20 +255,20 @@ function pickForcer(cx, cy) {   // a forcer's speaker near the pointer → its i
 function selectForcer(id) { S.selForcer = id; S.selected = null; S.selEff = null; S.selGroup = null; afterSelect(); if (!gizmoMode) setGizmoMode('move'); }   // a forcer is picked to be moved: its gizmo comes up
 // gizmo: a world position / facing → the forcer's track values at the playhead
 function forcerValsFromWorld(f, posW, dirW) {
-  const B = resParts(), hp = worldP(rig.b.hips), root = V3(hp.x, 0, hp.z), o = { ...forcerVals(f, S.t) };
+  const B = resParts(), root = runRoot(S.t), o = { ...forcerVals(f, S.t) };
   if (posW) {
     const rel = posW.clone().sub(root);
     if (f.mode === 'fixed') { const rp = runnerPath(S.t); o.px = (rel.x + rp.x) * B.rs; o.pz = rel.z + rp.z; } else { o.px = rel.x * B.rs; o.pz = rel.z; }
     o.py = rel.y;
   }
   if (dirW) { const d = V3(dirW.x * B.rs, dirW.y, dirW.z).normalize(); o.fx = -Math.asin(clamp(d.y, -1, 1)) / DEG; o.fy = Math.atan2(d.x, d.z) / DEG; }
-  for (const k of ['px', 'py', 'pz', 'fx', 'fy']) o[k] = clamp(o[k], RES_SPEC[k].range[0], RES_SPEC[k].range[1]);
+  o.py = Math.max(0, o.py); for (const k of ['fx', 'fy']) o[k] = clamp(o[k], -180, 180);
   return o;
 }
-function keyForcer(p) {
+function keyForcer(p) {   // a gizmo move / turn: the forcer's position / facing (not keys: they are not automated)
   const f = A.forcers.find((x) => x.id === p.id); if (!f) return;
   pushUndo();
-  for (const k of ['px', 'py', 'pz', 'fx', 'fy', 'fz']) { const old = evalPts(f[k], S.t); if (Math.abs(p.vals[k] - old) > 1e-4) setPointAt(f[k], S.t, p.vals[k]); }
+  for (const k of [...POS_KEYS, ...FACE_KEYS]) f.at[k] = +p.vals[k].toFixed(4);
   forcerChanged();
 }
 
@@ -313,6 +313,7 @@ function forcerChanged() { moveEndCache = null; editVersion++; trailDirty = true
 let dlgForcer = null;
 function openForcerDlg(id) {
   const f = A.forcers.find((x) => x.id === id); if (!f) return; dlgForcer = id;
+  for (const k of [...POS_KEYS, ...FACE_KEYS]) $('frc_' + k).value = +f.at[k].toFixed(k[0] === 'p' ? 2 : 1);
   $('frcName').value = f.name; $('frcFall').value = f.falloff; $('frcShow').checked = f.show !== false;
   $('frcWhole').checked = !!f.target.whole; $('frcStiff').value = f.target.stiff; $('frcMax').value = f.target.maxMove; $('frcCone').checked = !!f.target.useCone; $('frcReact').checked = !!f.target.bodyReacts;
   const box = $('frcIK'); box.textContent = '';
@@ -323,6 +324,7 @@ function openForcerDlg(id) {
 function frcApply() {
   const f = A.forcers.find((x) => x.id === dlgForcer); if (!f) return;
   pushUndo();
+  for (const k of [...POS_KEYS, ...FACE_KEYS]) { const v = parseFloat($('frc_' + k).value); if (isFinite(v)) f.at[k] = k[0] === 'p' ? clamp(v, k === 'py' ? 0 : -200, 200) : clamp(v, -180, 180); }
   f.name = $('frcName').value.trim() || f.name; f.falloff = $('frcFall').value; f.show = $('frcShow').checked;
   f.target.whole = $('frcWhole').checked; f.target.stiff = clamp(+$('frcStiff').value || 10, 0, 100); f.target.maxMove = clamp(+$('frcMax').value || 40, 0, 150);
   f.target.useCone = $('frcCone').checked; f.target.bodyReacts = $('frcReact').checked;
@@ -330,7 +332,7 @@ function frcApply() {
   A.body = { mass: clamp(+$('resMass').value || 75, 20, 200), keepSpeed: $('resKeep').checked };
   forcerChanged();
 }
-for (const id of ['frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep']) $(id).onchange = frcApply;
+for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep']) $(id).onchange = frcApply;
 $('frcIK').addEventListener('change', frcApply);
 $('frcClose').onclick = () => { $('frcDlg').hidden = true; };
 $('frcDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('frcDlg').hidden = true; });

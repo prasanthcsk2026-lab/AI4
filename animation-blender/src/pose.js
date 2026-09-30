@@ -649,6 +649,7 @@ function applyLimits(before) {
 const CARRIERS = { spine: ['hips'], spine1: ['spine', 'hips'], chest: ['spine1', 'spine', 'hips'], neck: ['chest', 'spine1', 'spine', 'hips'], head: ['neck', 'chest', 'spine1', 'spine', 'hips'], Lhand: ['chest', 'spine1', 'spine', 'hips'], Rhand: ['chest', 'spine1', 'spine', 'hips'], Lfoot: ['hips'], Rfoot: ['hips'] };
 function makeGroupCtx(t, pend) {
   const ids = A.ikOrder.filter((id) => EFF_BY_ID[id] && EFF_BY_ID[id].kind === 'igroup' && A.ik[id] && !A.ik[id].bypass);
+  for (const d of EFFECTORS) if (d.kind === 'igroup' && d.custom && !ids.includes(d.id) && forcerIKOn(d.id)) ids.push(d.id);   // your controllers a forcer moves
   if (pend && pend.kind === 'eff' && EFF_BY_ID[pend.id] && EFF_BY_ID[pend.id].kind === 'igroup' && !ids.includes(pend.id)) ids.push(pend.id);
   const pivots = new Map();
   const ctx = {

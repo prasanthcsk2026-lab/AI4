@@ -9,7 +9,7 @@ let pending = null;
 function cancelPending() { pending = null; updateGizPanel(); }
 function pendingIsZero(p) {
   if (!p) return true;
-  if (p.kind === 'forcer') { const f = (A.forcers || []).find((x) => x.id === p.id); return !f || ['px', 'py', 'pz', 'fx', 'fy', 'fz'].every((k) => Math.abs(p.vals[k] - evalPts(f[k], S.t)) < 1e-4); }
+  if (p.kind === 'forcer') { const f = (A.forcers || []).find((x) => x.id === p.id); return !f || ['px', 'py', 'pz', 'fx', 'fy', 'fz'].every((k) => Math.abs(p.vals[k] - f.at[k]) < 1e-4); }
   if (p.kind === 'bone') return AXES.every((a) => Math.abs(p.deg[a]) < 0.05);
   return (!p.dpos || p.dpos.length() < 5e-4) && (!p.drot || Math.abs(p.drot.w) > 0.99999) && Math.abs(p.dswivel || 0) < 0.05;
 }
@@ -142,7 +142,7 @@ function startGizDrag() {
 }
 function endGizDrag() {
   gizDragging = false; gizEndedAt = performance.now();
-  if (S.autoKey && pending) keyPending();
+  if (pending && (S.autoKey || pending.kind === 'forcer')) keyPending();   // a forcer's place is not a key: it always applies
   updateGizPanel();
 }
 function onGizChange() {
