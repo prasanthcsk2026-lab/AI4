@@ -532,14 +532,22 @@ $('btnFrame').onclick = () => frameCamera(false);
 // ---------------------------------------------------------------- toggles
 function syncToggles() {
   const set = (id, v) => $(id).setAttribute('aria-pressed', v);
-  set('btnBones', S.bones); set('btnGhost', S.ghost); set('btnIK', S.showIK); set('btnTrail', S.trail);
+  set('btnBones', S.bones); set('btnGhost', S.ghost); set('btnIK', S.showIK); set('btnTrail', S.trail); set('btnForcers', S.showResist !== false); set('btnHideAll', !!S.hideAll);
   $('falloffBox').hidden = !S.trail;
   set('btnLimits', S.limits); set('btnInPlace', S.inPlace); set('btnFollow', S.follow); set('btnAutoKey', S.autoKey); set('btnLoop', S.loop);
 }
-$('btnBones').onclick = () => { S.bones = !S.bones; syncToggles(); };
-$('btnGhost').onclick = () => { S.ghost = !S.ghost; syncToggles(); };
-$('btnIK').onclick = () => { S.showIK = !S.showIK; syncToggles(); save(); };
-$('btnTrail').onclick = () => { S.trail = !S.trail; trailDirty = true; syncToggles(); $('falloffBox').hidden = !S.trail; };
+$('btnBones').onclick = () => { S.bones = !S.bones; S.hideAll = null; syncToggles(); };
+$('btnGhost').onclick = () => { S.ghost = !S.ghost; S.hideAll = null; syncToggles(); };
+$('btnIK').onclick = () => { S.showIK = !S.showIK; S.hideAll = null; syncToggles(); save(); };
+$('btnForcers').onclick = () => { S.showResist = S.showResist === false; S.hideAll = null; syncToggles(); save(); };
+// hide all: bones, IK handles, forcers, ghost and trail off at once; a second click brings back what was on
+$('btnHideAll').onclick = () => {
+  const keys = ['bones', 'showIK', 'showResist', 'ghost', 'trail'];
+  if (S.hideAll) { for (const k of keys) S[k] = S.hideAll[k]; S.hideAll = null; }
+  else { S.hideAll = {}; for (const k of keys) { S.hideAll[k] = k === 'showResist' ? S[k] !== false : !!S[k]; S[k] = false; } }
+  trailDirty = true; syncToggles(); $('falloffBox').hidden = !S.trail; save();
+};
+$('btnTrail').onclick = () => { S.trail = !S.trail; S.hideAll = null; trailDirty = true; syncToggles(); $('falloffBox').hidden = !S.trail; };
 $('btnInPlace').onclick = () => { S.inPlace = !S.inPlace; S.travelBase.set(0, 0, 0); trailDirty = true; holdCache.clear(); syncToggles(); save(); };
 $('btnLimits').onclick = () => { S.limits = !S.limits; S.limitHits = new Set(); editVersion++; trailDirty = true; syncToggles(); save(); };
 $('btnFollow').onclick = () => { S.follow = !S.follow; syncToggles(); save(); };

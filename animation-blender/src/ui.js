@@ -48,6 +48,8 @@ const MENUS = {
     { sep: true },
     { label: 'Bones', checked: !!S.bones, action: clickId('btnBones') },
     { label: 'IK handles', checked: !!S.showIK, action: clickId('btnIK') },
+    { label: 'Forcers', checked: S.showResist !== false, action: clickId('btnForcers') },
+    { label: 'Hide all (bones, IK, forcers, ghost, trail)', checked: !!S.hideAll, action: clickId('btnHideAll') },
     { label: 'Ghost (untouched clip)', checked: !!S.ghost, action: clickId('btnGhost') },
     { label: 'Joint limits', checked: !!S.limits, action: clickId('btnLimits') },
     { label: 'Trail', checked: !!S.trail, action: clickId('btnTrail') },

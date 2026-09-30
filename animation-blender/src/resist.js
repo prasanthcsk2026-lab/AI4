@@ -17,6 +17,7 @@
 // ============================================================================
 const GRAV = 9.81;
 const RES_KEYS = ['force', 'spread', 'weight', 'resp'];   // automated; position and facing are set in 3D (W / E on the speaker)
+const BONE_REGIONS = [['spine', 'Spine'], ['head', 'Neck + head'], ['Larm', 'Left arm'], ['Rarm', 'Right arm'], ['Lleg', 'Left leg'], ['Rleg', 'Right leg']];
 const POS_KEYS = ['px', 'py', 'pz'], FACE_KEYS = ['fx', 'fy', 'fz'];
 const POS_DEF = { moving: { px: 0, py: 1.2, pz: 1, fx: 0, fy: 180, fz: 0 }, fixed: { px: 0, py: 1.2, pz: 10, fx: 0, fy: 180, fz: 0 } };
 const RES_SPEC = {
@@ -36,7 +37,7 @@ const FORCER_COLORS = ['#ff9a3c', '#3cd2ff', '#b67cff', '#7cff9a', '#ff6fa5', '#
 const forcerIKList = () => EFFECTORS.filter((d) => d.tracks.includes('px') && (d.custom || d.kind !== 'igroup'));   // built-in controllers with a position, and your own controllers
 function newForcer(mode, dur, n) {
   const f = { id: 'f' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), name: 'Forcer ' + n, mode, collapsed: false, falloff: 'inv2', show: true, color: FORCER_COLORS[(n - 1) % FORCER_COLORS.length],
-    target: { whole: true, ik: [], stiff: 10, maxMove: 40, useCone: true, bodyReacts: true } };
+    target: { whole: true, ik: [], stiff: 10, maxMove: 40, useCone: true, bodyReacts: true, bones: BONE_REGIONS.map(([id]) => id), boneFlex: 100 } };
   for (const k of RES_KEYS) f[k] = flat(RES_SPEC[k].ref, dur);
   f.at = { ...POS_DEF[mode] };   // position (m) and facing (°): set in 3D, not automated
   return f;
@@ -70,6 +71,7 @@ function normalizeForcers(a) {
     for (const k of ['id', 'name', 'mode', 'falloff', 'color']) if (!f[k]) f[k] = d[k];
     if (f.show == null) f.show = true;
     f.target = { ...d.target, ...(f.target || {}) }; f.target.ik = (f.target.ik || []).filter((id) => EFF_BY_ID[id]);
+    f.target.bones = (Array.isArray(f.target.bones) ? f.target.bones : d.target.bones).filter((id) => BONE_REGIONS.some(([r]) => r === id)); if (!(f.target.boneFlex >= 0)) f.target.boneFlex = 100;
   });
   return a;
 }
@@ -102,7 +104,8 @@ function forcerDevice(f, t) {   // → { pos, dir } in the root frame, F, half (
   return { pos, dir, F: v.force, half: clamp(v.spread, 5, 180) / 2 * DEG, weight: v.weight };
 }
 const resFall = (d, mode) => (mode === 'none' ? 1 : mode === 'linear' ? clamp(1 - d / 4, 0, 1) : Math.min(4, 1 / Math.max(0.35, d) ** 2));
-function coneW(ray, D) { const a = Math.acos(clamp(ray.dot(D.dir), -1, 1)), edge = D.half * 0.8; return a <= edge ? 1 : a >= D.half ? 0 : 1 - smoothB((a - edge) / Math.max(1e-6, D.half - edge)); }
+// the cone: 100 % on its centre line, easing down (cosine) to 0 at the edge: half the spread → 50 %
+function coneW(ray, D) { const u = Math.acos(clamp(ray.dot(D.dir), -1, 1)) / Math.max(1e-6, D.half); return u >= 1 ? 0 : 0.5 * (1 + Math.cos(Math.PI * u)); }
 function forcerPartForces(f, t) {   // whole-body target: [{ ...part, f (N, root frame) }] (weighted)
   const B = resParts(), D = forcerDevice(f, t), out = [];
   for (const q of B.parts) {
@@ -145,6 +148,58 @@ function forcerIKAdd(id, k, t) {   // cm on the controller's Move X / Y / Z
   if ((k !== 'px' && k !== 'py' && k !== 'pz') || !forcerIKOn(id)) return 0;
   const v = V3(); for (const f of A.forcers) if (forcerLive(f) && f.target.ik.includes(id)) v.add(forcerIKPush(f, id, t));
   return v[k[1]] * 100;
+}
+
+// ---------------------------------------------------------------- every bone: bent by the force on it and on what it carries
+// Each chain (spine, neck + head, arms, legs) takes the force at its joints (a share each, the cone and the falloff
+// as for the body); a bone turns by the torque about its joint from the forces on it and below it (deg per N·m, its
+// compliance: the spine is stiff, a hand light). A leg only while its foot is off the ground (a planted foot stays).
+// Runs after the IK, before the joint limits (so a knee or an elbow never bends the wrong way).
+const BONEK = { share: 0.12, maxDeg: 50 };
+let fbChains = null;
+function forcerBoneChains() {
+  if (fbChains && fbChains.rig === rig) return fbChains;
+  const b = rig.b, tipOf = (bone) => bone.children.find((x) => x.isBone) || bone, ch = [];
+  const mk = (region, list, extra = []) => { const bones = list.filter(([x]) => x); ch.push({ region, bones: bones.map(([bone, k]) => ({ bone, k })), pts: [...bones.map(([x]) => tipOf(x)), ...extra] }); };
+  mk('spine', [[b.spine, 0.12], [b.spine1, 0.12], [b.spine2, 0.12]], [b.head]);
+  mk('head', [[b.neck, 0.5], [b.head, 0.8]]);
+  for (const Sd of ['L', 'R']) {
+    const s = rig.side[Sd];
+    mk(Sd + 'arm', [[s.clav, 0.3], [s.upper, 1.0], [s.fore, 1.6], [s.hand, 3.0]]);
+    mk(Sd + 'leg', [[s.thigh, 0.35], [s.shin, 0.7], [s.foot, 1.5]]);
+  }
+  fbChains = { rig, ch }; return fbChains;
+}
+const boneTargets = (f) => (Array.isArray(f.target.bones) ? f.target.bones : BONE_REGIONS.map(([id]) => id));
+const bonesOn = () => !!(A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.boneFlex > 0 && boneTargets(f).length));
+function legSwingW(Sd, t) { if (!cur || cur.kind !== 'loop') return 0.5; const lp = legPhase(Sd, clipTime(t)); return !lp ? 0.5 : lp.c ? 0 : Math.sin(Math.PI * lp.s); }
+function forcerBonePass(t) {
+  if (!rig || !bonesOn()) return;
+  const C = forcerBoneChains().ch, list = A.forcers.filter((f) => forcerLive(f) && f.target.boneFlex > 0), rec = [];
+  const devs = list.map((f) => { const W = forcerWorldPose(f, t); return { f, W, flex: (f.target.boneFlex / 100) * (0.5 + 0.5 * clamp(evalPts(f.resp, t), 0, 1)), regs: new Set(boneTargets(f)) }; });
+  for (const c of C) {
+    const legW = /leg$/.test(c.region) ? legSwingW(c.region[0], t) : 1; if (legW < 1e-3) continue;
+    const pts = c.pts.map((x) => worldP(x)), frc = pts.map(() => V3());
+    let any = false;
+    for (const d of devs) {
+      if (!d.regs.has(c.region)) continue;
+      const D = d.W.D, dir = d.W.dirW;
+      pts.forEach((p, i) => {
+        const ray = p.clone().sub(d.W.pos), dist = ray.length(); if (dist < 1e-4) return; ray.divideScalar(dist);
+        const m = D.F * D.weight * BONEK.share * coneW(ray, { dir, half: D.half }) * resFall(dist, d.f.falloff) * d.flex * legW;
+        if (Math.abs(m) > 1e-6) { frc[i].addScaledVector(ray, m); any = true; }
+      });
+    }
+    if (!any) continue;
+    const joints = c.bones.map((x) => worldP(x.bone)), rots = [];
+    c.bones.forEach((x, j) => {   // torque about this joint from the forces at its own tip and every point below it
+      const tq = V3(); for (let i = j; i < pts.length; i++) tq.add(V3().crossVectors(pts[i].clone().sub(joints[j]), frc[i]));
+      const a = Math.min(BONEK.maxDeg, tq.length() * x.k) * DEG; rots.push(a > 1e-5 ? new THREE.Quaternion().setFromAxisAngle(tq.normalize(), a) : null);
+      rec.push([x.bone.name, a / DEG]);
+    });
+    c.bones.forEach((x, j) => { if (rots[j]) rotateBoneWorld(x.bone, rots[j]); });
+  }
+  S.forcerBones = rec;
 }
 
 // ---------------------------------------------------------------- the sum on the body at time t
@@ -192,17 +247,18 @@ function forcerVizBuild(f) {
   const woofer = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.045, 0.05, 32, 1, true), new THREE.MeshStandardMaterial({ color: '#0f1013', side: THREE.DoubleSide, roughness: 0.9 }));
   woofer.rotation.x = Math.PI / 2; woofer.position.set(0, -0.06, -0.02); g.add(woofer);
   const tw = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), new THREE.MeshStandardMaterial({ color: '#9aa0aa', metalness: 0.7, roughness: 0.25 })); tw.position.set(0, 0.14, 0); tw.scale.z = 0.5; g.add(tw);
-  const cone = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.1, side: THREE.DoubleSide, depthWrite: false })); g.add(cone);
+  // the cone as nested shells (full, ¾, ½, ¼ of the spread): brightest on the centre line, fading to the edge
+  const cones = [1, 0.75, 0.5, 0.25].map((u) => { const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })); m.userData.u = u; g.add(m); return m; }), cone = cones[0];
   const edge = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 })); g.add(edge);
   const waves = []; for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(new THREE.TorusGeometry(1, 0.01, 6, 48), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.6, depthWrite: false })); g.add(m); waves.push(m); }
   const arrows = new THREE.Group(); scene.add(arrows); scene.add(g);
-  const v = { g, cabMat, trim, cone, edge, waves, arrows, pool: [], key: '' };
+  const v = { g, cabMat, trim, cone, cones, edge, waves, arrows, pool: [], key: '' };
   resViz.set(f.id, v); return v;
 }
 function forcerVizCone(v, half, L) {
   const key = `${half.toFixed(3)}|${L.toFixed(2)}`; if (v.key === key) return; v.key = key;
-  const R = L * Math.tan(Math.min(half, 1.45)), geo = new THREE.ConeGeometry(R, L, 40, 1, true); geo.translate(0, -L / 2, 0); geo.rotateX(-Math.PI / 2);
-  v.cone.geometry.dispose(); v.cone.geometry = geo;
+  const R = L * Math.tan(Math.min(half, 1.45));
+  for (const c of v.cones) { const r = L * Math.tan(Math.min(half * c.userData.u, 1.45)), geo = new THREE.ConeGeometry(Math.max(0.005, r), L, 40, 1, true); geo.translate(0, -L / 2, 0); geo.rotateX(-Math.PI / 2); c.geometry.dispose(); c.geometry = geo; }
   const pts = []; for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; pts.push(0, 0, 0, Math.cos(a) * R, Math.sin(a) * R, L); }
   const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); v.edge.geometry.dispose(); v.edge.geometry = eg;
 }
@@ -223,7 +279,7 @@ function updateResistViz() {
     v.g.position.copy(pos); v.g.lookAt(pos.clone().add(dirW));
     const L = clamp(D.pos.length() + 0.35, 0.8, 2.5); forcerVizCone(v, D.half, L);
     const push = D.F >= 0, col = push ? f.color : '#4aa3ff', mag = Math.min(1, Math.abs(D.F * D.weight) / 300), sel = S.selForcer === f.id;
-    v.cone.material.color.set(col); v.edge.material.color.set(col); v.cone.material.opacity = 0.04 + 0.12 * mag; v.trim.material.color.set(f.color);
+    for (const c of v.cones) { c.material.color.set(col); c.material.opacity = 0.015 + 0.045 * mag; } v.edge.material.color.set(col); v.trim.material.color.set(f.color);
     v.cabMat.emissive.set(sel ? '#ff4fa3' : '#15171b');
     const speed = 0.35 + 0.9 * mag;
     v.waves.forEach((m, i) => {
@@ -245,7 +301,7 @@ function pickForcer(cx, cy) {   // a forcer's speaker near the pointer → its i
   {   // a hit on the speaker itself (cabinet, woofer, trim) wins
     const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(((cx - b.left) / b.width) * 2 - 1, -((cy - b.top) / b.height) * 2 + 1), camera);
     let hit = null, hd = Infinity;
-    for (const f of A.forcers) { const v = resViz.get(f.id); if (!v || !v.g.visible) continue; const meshes = v.g.children.filter((m) => m.isMesh && m !== v.cone && !v.waves.includes(m)); const x = rc.intersectObjects(meshes, false)[0]; if (x && x.distance < hd) { hd = x.distance; hit = f.id; } }
+    for (const f of A.forcers) { const v = resViz.get(f.id); if (!v || !v.g.visible) continue; const meshes = v.g.children.filter((m) => m.isMesh && !v.cones.includes(m) && !v.waves.includes(m)); const x = rc.intersectObjects(meshes, false)[0]; if (x && x.distance < hd) { hd = x.distance; hit = f.id; } }
     if (hit) return hit;
   }
   let best = null, bd = 28;
@@ -288,7 +344,11 @@ function drawForcerBlock(id) {
   tracksEl.append(hr.el); rows.push(hr);
   if (f.collapsed) return;
   const lab = RES_LABEL(f.mode);
-  for (const k of RES_KEYS) addTrackRow(`f|${id}|${k}`, RES_SPEC[k], () => f[k], (p) => { f[k] = p; }, lab[k], { type: 'forcer', id, k });
+  const sub = [];
+  for (const k of RES_KEYS) sub.push(addTrackRow(`f|${id}|${k}`, RES_SPEC[k], () => f[k], (p) => { f[k] = p; }, lab[k], { type: 'forcer', id, k }));
+  addResultRow(true); sub.push(rows[rows.length - 1]);   // the moving speed with / without the forcers
+  for (const r of sub) if (r && r.el) r.el.classList.add('sub');
+  sub[sub.length - 1].el.classList.add('blockend');
 }
 function forcerSummary(hr) {
   const f = hr && A.forcers && A.forcers.find((x) => x.id === hr.forcer); if (!f || !hr.resSum) return;
@@ -316,6 +376,9 @@ function openForcerDlg(id) {
   for (const k of [...POS_KEYS, ...FACE_KEYS]) $('frc_' + k).value = +f.at[k].toFixed(k[0] === 'p' ? 2 : 1);
   $('frcName').value = f.name; $('frcFall').value = f.falloff; $('frcShow').checked = f.show !== false;
   $('frcWhole').checked = !!f.target.whole; $('frcStiff').value = f.target.stiff; $('frcMax').value = f.target.maxMove; $('frcCone').checked = !!f.target.useCone; $('frcReact').checked = !!f.target.bodyReacts;
+  const bx = $('frcBones'); bx.textContent = '';
+  for (const [id, label] of BONE_REGIONS) { const l = document.createElement('label'); l.className = 'cb'; l.innerHTML = `<input type="checkbox" value="${id}"${boneTargets(f).includes(id) ? ' checked' : ''}> ${label}`; bx.append(l); }
+  $('frcFlex').value = f.target.boneFlex;
   const box = $('frcIK'); box.textContent = '';
   for (const d of forcerIKList()) { const l = document.createElement('label'); l.className = 'cb'; l.innerHTML = `<input type="checkbox" value="${d.id}"${f.target.ik.includes(d.id) ? ' checked' : ''}> ${d.label}`; box.append(l); }
   $('resMass').value = (A.body || {}).mass || 75; $('resKeep').checked = (A.body || {}).keepSpeed !== false;
@@ -329,10 +392,11 @@ function frcApply() {
   f.target.whole = $('frcWhole').checked; f.target.stiff = clamp(+$('frcStiff').value || 10, 0, 100); f.target.maxMove = clamp(+$('frcMax').value || 40, 0, 150);
   f.target.useCone = $('frcCone').checked; f.target.bodyReacts = $('frcReact').checked;
   f.target.ik = [...$('frcIK').querySelectorAll('input:checked')].map((x) => x.value);
+  f.target.bones = [...$('frcBones').querySelectorAll('input:checked')].map((x) => x.value); f.target.boneFlex = clamp(isFinite(+$('frcFlex').value) ? +$('frcFlex').value : 100, 0, 300);
   A.body = { mass: clamp(+$('resMass').value || 75, 20, 200), keepSpeed: $('resKeep').checked };
   forcerChanged();
 }
-for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep']) $(id).onchange = frcApply;
-$('frcIK').addEventListener('change', frcApply);
+for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep', 'frcFlex']) $(id).onchange = frcApply;
+$('frcIK').addEventListener('change', frcApply); $('frcBones').addEventListener('change', frcApply);
 $('frcClose').onclick = () => { $('frcDlg').hidden = true; };
 $('frcDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('frcDlg').hidden = true; });

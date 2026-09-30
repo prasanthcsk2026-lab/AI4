@@ -77,13 +77,28 @@ function drawResult(r) {
   x.strokeStyle = RESULT_COLOR; x.lineWidth = 2 * dpr; x.beginPath();
   for (let i = 0; i <= s.n; i++) { const X = xOf(r, (i / s.n) * S.dur), Y = py(s.v[i]); if (i) x.lineTo(X, Y); else x.moveTo(X, Y); }
   x.stroke();
+  if (r.ghost) {   // a forcer block: the speed the forcers took away (dashed: without any forcer)
+    const g = speedNoForcers();
+    x.strokeStyle = 'rgba(200,200,210,.55)'; x.lineWidth = 1.25 * dpr; x.setLineDash([4 * dpr, 3 * dpr]); x.beginPath();
+    for (let i = 0; i <= g.n; i++) { const X = xOf(r, (i / g.n) * S.dur), Y = py(Math.min(top, g.v[i])); if (i) x.lineTo(X, Y); else x.moveTo(X, Y); }
+    x.stroke(); x.setLineDash([]);
+  }
   x.font = `500 ${9.5 * dpr}px "IBM Plex Mono", monospace`; x.fillStyle = '#8c8c93';
-  x.fillText(`${top.toFixed(1)} m/s`, 4 * dpr, 10 * dpr);
+  x.fillText(`${top.toFixed(1)} m/s${r.ghost ? ' · dashed: without forcers' : ''}`, 4 * dpr, 10 * dpr);
   drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
 }
-function addResultRow() {
-  const r = mkRow('track t-master result', 'result'); Object.assign(r, { kind: 'result' });
-  r.h.innerHTML = `<span class="sw" style="background:${RESULT_COLOR}"></span><span class="name">Moving speed <i>result · cadence × step length</i></span><b class="val resv"></b><div class="rz"></div>`;
+// the speed without the forcers: the forcers scale the cadence (cadK) and the step length (stepK), and the
+// ground speed is cadence × step length, so dividing them out gives what it would be
+let spdNoFCache = null;
+function speedNoForcers() {
+  const s = speedSeries(); if (spdNoFCache && spdNoFCache.s === s) return spdNoFCache;
+  const v = new Float32Array(s.n + 1);
+  for (let i = 0; i <= s.n; i++) { const R = resistAt((i / s.n) * S.dur); v[i] = s.v[i] / Math.max(0.05, R.cadK * R.stepK); }
+  spdNoFCache = { s, n: s.n, v }; return spdNoFCache;
+}
+function addResultRow(ghost = false) {
+  const r = mkRow('track t-master result', 'result'); Object.assign(r, { kind: 'result', ghost });
+  r.h.innerHTML = `<span class="sw" style="background:${RESULT_COLOR}"></span><span class="name">Moving speed <i>${ghost ? 'result · with the forcers (dashed: without)' : 'result · cadence × step length'}</i></span><b class="val resv"></b><div class="rz"></div>`;
   r.h.title = 'The character\'s speed over the ground (m/s): the result of cycle speed × step length. Speed lock (right-click) keeps it when you edit one of them.';
   r.resEl = r.h.querySelector('.resv');
   r.h.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, runMenu()); };
@@ -91,7 +106,7 @@ function addResultRow() {
   rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
   r.el.style.height = rowHeight(r) + 'px';
   const cv = document.createElement('canvas'); r.cv = cv; r.lane.append(cv);
-  cv.addEventListener('pointermove', (e) => { const [px] = evXY(r, e), t = tOf(r, px); tip(e, `${t.toFixed(2)} s · ${groundSpeedAt(t).toFixed(2)} m/s · ${(groundSpeedAt(t) * 3.6).toFixed(1)} km/h`); });
+  cv.addEventListener('pointermove', (e) => { const [px] = evXY(r, e), t = tOf(r, px), v = groundSpeedAt(t), R = ghost ? resistAt(t) : null; tip(e, `${t.toFixed(2)} s · ${v.toFixed(2)} m/s · ${(v * 3.6).toFixed(1)} km/h${R ? ` · without forcers ${(v / Math.max(0.05, R.cadK * R.stepK)).toFixed(2)} m/s` : ''}`); });
   cv.addEventListener('pointerleave', () => tip(null));
   cv.addEventListener('pointerdown', (e) => { const [px] = evXY(r, e); S.t = clamp(tOf(r, px), 0, S.dur); });
   tracksEl.append(r.el); rows.push(r);

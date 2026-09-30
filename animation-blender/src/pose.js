@@ -818,6 +818,8 @@ function solveIK(t, pend) {
       rotateBoneWorld(sd.toe, effRotQ(Sd + 'toes', t, pend));
     }
   }
+  // 8b. forcers bend every bone they reach (after the IK, so the limits below still hold)
+  forcerBonePass(t);
   // 9. anatomical limits, on the joints the IK changed (the clip's own pose is left alone)
   if (before) applyLimits(before);
   // 7. look-at: a controller can turn the head (neck + head, ≤ 70°) toward itself

@@ -184,5 +184,6 @@ function updateSpeedHud() {
   drawSpeedGraph();
   updateResistViz();
   for (const r of rows) if (r.kind === 'forcer') forcerSummary(r);
-  for (const r of rows) if (r.resEl) { r.resEl.textContent = `${v.toFixed(2)} m/s`; }
+  let v0 = null;
+  for (const r of rows) if (r.resEl) { if (r.ghost && v0 == null) { const R = resistAt(S.t); v0 = v / Math.max(0.05, R.cadK * R.stepK); } r.resEl.textContent = r.ghost ? `${v0.toFixed(2)} → ${v.toFixed(2)} m/s` : `${v.toFixed(2)} m/s`; }
 }
