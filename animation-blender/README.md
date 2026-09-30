@@ -311,6 +311,19 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - A fixed forcer 10 m down the track: 1 N at the start, 149 N at 9.2 m, 0 once passed.
 - Older projects: the single Resistance device becomes Forcer 1 (moving); its mass / keep speed become the body settings. A fixed forcer uses the runner's path from the last timing (keep speed off can lag it slightly).
 
+## Forcers: response, leg drag, ±3000 N, gizmo on click
+- **Force** range is now −3000 to +3000 N (snap 10). New forcers default to a **90°** spread.
+- **Response** track per forcer (0 – 100 %):
+  - 0 = resist: the runner leans into the force, as before.
+  - 100 = yield: the body gives way along the arrows. The chest bends back (0.15 cm per N on the chest), the head goes with it (0.15 cm/N), the hips shift (0.05 cm/N) and the arms fly (1 cm/N on each arm), each up to 40 cm. Feet stay planted.
+  - In between, it does both.
+  - Measured with 300 N at 1.2 m, 90°, on Sprint.fbx: 0 / 50 / 100 % gives lean 37.1° / 14.2° / −8.2°, chest back 0 / 11 / 22 cm, left hand back 0 / 10 / 31 cm.
+- **Leg drag:** force that lands on the thighs / shins (or on a foot IK target) slows the leg swing (cadence −1.2 % per 1 % of body weight) and lowers the knee lift, even with keep speed on, so the moving speed drops.
+  - Measured with 300 N at 5.5 m/s: on the legs (0.4 m high, 60°): 4.74 m/s, cadence 213, swing knee 52° → 66°. On the chest (1.45 m, 30°): 5.5 m/s held. On the legs with keep speed off: 4.2 m/s.
+  - A whole-body 90° forcer reaches the legs too: 150 N now gives 5.23 m/s instead of 5.5.
+  - The forcer summary shows leg drag %.
+- **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
+
 ## Knees no longer fold backward
 The leg IK now aims the knee along the runner's facing (from the hips), not from the shin. A strongly tilted pelvis (big forward lean, hip rotation, a strong forcer push) used to fold it backward: 73 / 480 frames with a 300 N push, 330 / 480 with lean and hip rotation +25°. Both are now 0.
 

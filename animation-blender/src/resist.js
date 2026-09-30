@@ -16,7 +16,7 @@
 //  follows by IK. Adds to the Run controls; never overwrites their tracks.
 // ============================================================================
 const GRAV = 9.81;
-const RES_KEYS = ['px', 'py', 'pz', 'fx', 'fy', 'fz', 'force', 'spread', 'weight'];
+const RES_KEYS = ['px', 'py', 'pz', 'fx', 'fy', 'fz', 'force', 'spread', 'weight', 'resp'];
 const RES_SPEC = {
   px: { range: [-50, 50], ref: 0, color: '#e07a7a', scale: 1, unit: 'm', fmt: (v) => sgn(v, 2, ' m'), snap: 0.05 },
   py: { range: [0, 5], ref: 1.2, color: '#7ad07a', scale: 1, unit: 'm', fmt: (v) => v.toFixed(2) + ' m', snap: 0.05 },
@@ -24,17 +24,20 @@ const RES_SPEC = {
   fx: { range: [-90, 90], ref: 0, color: '#d09a9a', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
   fy: { range: [-180, 180], ref: 180, color: '#9ad09a', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
   fz: { range: [-180, 180], ref: 0, color: '#9ab4d0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 },
-  force: { range: [-600, 600], ref: 0, color: '#e8b04a', scale: 1, unit: 'N', fmt: (v) => sgn(v, 0, ' N'), snap: 5 },
-  spread: { range: [5, 180], ref: 30, color: '#c08ae0', scale: 1, unit: '°', fmt: (v) => Math.round(v) + '°', snap: 1 },
+  force: { range: [-3000, 3000], ref: 0, color: '#e8b04a', scale: 1, unit: 'N', fmt: (v) => sgn(v, 0, ' N'), snap: 10 },
+  spread: { range: [5, 180], ref: 90, color: '#c08ae0', scale: 1, unit: '°', fmt: (v) => Math.round(v) + '°', snap: 1 },
   weight: { range: [0, 2], ref: 1, color: '#d0d07a', scale: 100, unit: '%', fmt: pct, snap: 0.05 },
+  resp: { range: [0, 1], ref: 0, color: '#ff8a8a', scale: 100, unit: '%', fmt: pct, snap: 0.05 },
 };
 const RES_LABEL = (mode) => ({
   px: `X position <i>m ${mode === 'fixed' ? 'from the start · world' : 'from the root'} · + right</i>`, py: 'Y position <i>m above the ground</i>',
   pz: `Z position <i>m ${mode === 'fixed' ? 'from the start · world' : 'from the root'} · + in front</i>`,
   fx: 'Facing X <i>° tilt · + down</i>', fy: 'Facing Y <i>° turn · 180 = back toward the start</i>', fz: 'Facing Z <i>° roll (a round cone: no effect)</i>',
-  force: 'Force <i>N · + push / − pull · 736 N = 75 kg body weight</i>', spread: 'Spread <i>° full cone angle</i>', weight: 'Weight <i>% of the body\'s reaction</i>',
+  force: 'Force <i>N · + push / − pull · 736 N = 75 kg body weight</i>', spread: 'Spread <i>° full cone angle</i>', weight: 'Weight <i>% of the body\'s reaction</i>', resp: 'Response <i>% · 0 resist (lean into it) → 100 yield (pushed along the arrows)</i>',
 });
-const RESK = { sideSign: 1, widthSign: -1, stepPerLoad: 0.75, cadDropPerLoad: 0.25, armPerLoad: 0.6, widthCmPerDeg: 0.6, vertCmPerG: 8, sideHipShare: 0.4, headDegPerN: 0.05 };
+const RESK = { sideSign: 1, widthSign: -1, stepPerLoad: 0.75, cadDropPerLoad: 0.25, armPerLoad: 0.6, widthCmPerDeg: 0.6, vertCmPerG: 8, sideHipShare: 0.4, headDegPerN: 0.05, legCadPerLoad: 1.2, legKneePerLoad: 1.0 };
+// yield: cm of push per N on the controllers the body gives way with (chest bends back, head, hips, the arms fly)
+const YIELD_K = { chest: { part: 'chest', k: 0.15 }, head: { part: 'head', k: 0.15 }, hips: { part: 'pelvis', k: 0.05 }, Lhand: { part: 'Larm', k: 1.0 }, Rhand: { part: 'Rarm', k: 1.0 } };
 const FORCER_COLORS = ['#ff9a3c', '#3cd2ff', '#b67cff', '#7cff9a', '#ff6fa5', '#ffe066'];
 // IK controllers a forcer can move (the ones with a position)
 const forcerIKList = () => EFFECTORS.filter((d) => d.kind !== 'igroup' && d.tracks.includes('px') && !d.custom);
@@ -75,7 +78,7 @@ function normalizeForcers(a) {
 }
 const forcerLive = (f) => !f.bypass && f.force.some((p) => Math.abs(p.v) > 1e-9) && f.weight.some((p) => Math.abs(p.v) > 1e-9);
 const forcersOn = () => !!(A && A.forcers && A.forcers.some(forcerLive));   // no cache: timing is rebuilt before an edit bumps editVersion
-const resistOn = () => forcersOn() && A.forcers.some((f) => forcerLive(f) && (f.target.whole || (f.target.bodyReacts && f.target.ik.length)));
+const resistOn = () => forcersOn() && A.forcers.some((f) => forcerLive(f) && (f.target.whole || f.target.ik.some((id) => id === 'Lfoot' || id === 'Rfoot') || (f.target.bodyReacts && f.target.ik.length)));
 
 // ---------------------------------------------------------------- body parts (bind pose, root frame: x right, y up, z forward)
 let resBody = null;
@@ -123,6 +126,21 @@ function forcerIKPush(f, id, t, world = true) {   // the move of one controller 
   return world ? V3(v.x * B.rs, v.y, v.z) : v;
 }
 const forcerIKOn = (id) => !!(A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.ik.includes(id)));
+// yield: the body gives way along the arrows (Response > 0, whole-body forcers)
+const yieldOn = (id) => !!(YIELD_K[id] && A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.whole && f.resp.some((p) => p.v > 1e-4)));
+function forcerYieldAdd(id, k, t) {
+  if ((k !== 'px' && k !== 'py' && k !== 'pz') || !yieldOn(id)) return 0;
+  const y = YIELD_K[id], v = V3(), rs = resParts().rs;
+  for (const f of A.forcers) {
+    if (!forcerLive(f) || !f.target.whole) continue;
+    const r = clamp(evalPts(f.resp, t), 0, 1); if (r < 1e-4) continue;
+    const q = forcerPartForces(f, t).parts.find((x) => x.id === y.part); if (q) v.add(V3(q.f.x * rs, q.f.y, q.f.z).multiplyScalar(r * y.k));
+  }
+  if (v.length() > 40) v.setLength(40);
+  return v[k[1]];
+}
+const forcerMoveOn = (id) => forcerIKOn(id) || yieldOn(id);
+const forcerMoveAdd = (id, k, t) => forcerIKAdd(id, k, t) + forcerYieldAdd(id, k, t);
 function forcerIKAdd(id, k, t) {   // cm on the controller's Move X / Y / Z
   if ((k !== 'px' && k !== 'py' && k !== 'pz') || !forcerIKOn(id)) return 0;
   const v = V3(); for (const f of A.forcers) if (forcerLive(f) && f.target.ik.includes(id)) v.add(forcerIKPush(f, id, t));
@@ -130,14 +148,19 @@ function forcerIKAdd(id, k, t) {   // cm on the controller's Move X / Y / Z
 }
 
 // ---------------------------------------------------------------- the sum on the body at time t
-const RES0 = { back: 0, side: 0, up: 0, load: 0, lean: 0, sideLean: 0, stepK: 1, cadK: 1, armK: 1, heightCm: 0, widthCm: 0, hipShare: 0.5, headRx: 0 };
+const RES0 = { back: 0, side: 0, up: 0, load: 0, lean: 0, sideLean: 0, stepK: 1, cadK: 1, armK: 1, heightCm: 0, widthCm: 0, hipShare: 0.5, headRx: 0, legLoad: 0, legKnee: 1 };
 function resistAt(t) {
   if (!resistOn()) return RES0;
-  const N = V3(); let upper = 0, all = 0, headZ = 0;
-  const addPart = (q, fv) => { N.add(fv); const m = fv.length(); all += m; if (q.upper) upper += m; if (q.id === 'head') headZ += fv.z; };
+  const N = V3(); let upper = 0, all = 0, headZ = 0, legSum = 0;
+  const addPart = (q, fv, rf = 1) => { const g = fv.clone().multiplyScalar(rf); N.add(g); const m = g.length(); all += m; if (q.upper) upper += m; if (q.id === 'head') headZ += g.z; };
   for (const f of A.forcers) {
     if (!forcerLive(f)) continue;
-    if (f.target.whole) for (const q of forcerPartForces(f, t).parts) addPart(q, q.f);
+    const rf = 1 - clamp(evalPts(f.resp, t), 0, 1);   // the part the runner resists (the rest it yields to)
+    if (f.target.whole) for (const q of forcerPartForces(f, t).parts) { addPart(q, q.f, rf); if (/thigh|shin/.test(q.id)) legSum += q.f.length(); }
+    for (const id of f.target.ik) if (id === 'Lfoot' || id === 'Rfoot') {   // a pushed foot drags the leg too
+      const D = forcerDevice(f, t), q = resParts().parts.find((x) => x.id === id[0] + 'shin'), ray = q.p.clone().sub(D.pos), d = ray.length(); if (d < 1e-4) continue; ray.divideScalar(d);
+      legSum += Math.abs(D.F * D.weight) * (f.target.useCone ? coneW(ray, D) : 1) * resFall(d, f.falloff) * 0.2;
+    }
     if (f.target.bodyReacts && f.target.ik.length && rig) {   // a pushed controller pulls the body along a little
       const parts = resParts().parts, D = forcerDevice(f, t);
       for (const id of f.target.ik) {
@@ -150,9 +173,10 @@ function resistAt(t) {
   const W = body.mass * GRAV, Weff = Math.max(0.2 * W, W - lift), load = back / W;
   const lean = Math.atan2(back, Weff) / DEG, sideLean = -Math.atan2(side, Weff) / DEG;   // lean against the push
   const stepK = load >= 0 ? clamp(1 - RESK.stepPerLoad * load, 0.5, 1) : clamp(1 - 0.3 * load, 1, 1.2);
-  const cadK = body.keepSpeed ? 1 / stepK : load >= 0 ? clamp(1 - RESK.cadDropPerLoad * load, 0.6, 1) : 1;
+  const legLoad = legSum / W, legCad = clamp(1 - RESK.legCadPerLoad * legLoad, 0.5, 1);   // leg drag: the legs swing slower (even with keep speed)
+  const cadK = (body.keepSpeed ? 1 / stepK : load >= 0 ? clamp(1 - RESK.cadDropPerLoad * load, 0.6, 1) : 1) * legCad;
   const upperFrac = all > 1e-6 ? upper / all : 0.5;
-  return { back, side, up: lift, load, lean, sideLean, stepK, cadK, armK: 1 + RESK.armPerLoad * Math.max(0, load), heightCm: RESK.vertCmPerG * (lift / W), widthCm: RESK.widthCmPerDeg * Math.abs(sideLean),
+  return { legLoad, legKnee: clamp(1 - RESK.legKneePerLoad * legLoad, 0.4, 1), back, side, up: lift, load, lean, sideLean, stepK, cadK, armK: 1 + RESK.armPerLoad * Math.max(0, load), heightCm: RESK.vertCmPerG * (lift / W), widthCm: RESK.widthCmPerDeg * Math.abs(sideLean),
     hipShare: 0.5 - 0.25 * upperFrac, headRx: RESK.headDegPerN * headZ };
 }
 function resistLeanParts(t) { const R = resistAt(t); return { spine: R.lean * (1 - R.hipShare), hip: R.lean * R.hipShare, side: R.sideLean, heightCm: R.heightCm, headRx: R.headRx }; }
@@ -217,11 +241,18 @@ function updateResistViz() {
 }
 function pickForcer(cx, cy) {   // a forcer's speaker near the pointer → its id
   if (!A || !A.forcers || !rig) return null;
-  const b = renderer.domElement.getBoundingClientRect(); let best = null, bd = 28;
+  const b = renderer.domElement.getBoundingClientRect();
+  {   // a hit on the speaker itself (cabinet, woofer, trim) wins
+    const rc = new THREE.Raycaster(); rc.setFromCamera(new THREE.Vector2(((cx - b.left) / b.width) * 2 - 1, -((cy - b.top) / b.height) * 2 + 1), camera);
+    let hit = null, hd = Infinity;
+    for (const f of A.forcers) { const v = resViz.get(f.id); if (!v || !v.g.visible) continue; const meshes = v.g.children.filter((m) => m.isMesh && m !== v.cone && !v.waves.includes(m)); const x = rc.intersectObjects(meshes, false)[0]; if (x && x.distance < hd) { hd = x.distance; hit = f.id; } }
+    if (hit) return hit;
+  }
+  let best = null, bd = 28;
   for (const f of A.forcers) { const v = resViz.get(f.id); if (!v || !v.g.visible) continue; const q = v.g.position.clone().project(camera); if (q.z > 1) continue; const d = Math.hypot((q.x + 1) / 2 * b.width + b.left - cx, (1 - q.y) / 2 * b.height + b.top - cy); if (d < bd) { bd = d; best = f.id; } }
   return best;
 }
-function selectForcer(id) { S.selForcer = id; S.selected = null; S.selEff = null; S.selGroup = null; afterSelect(); }
+function selectForcer(id) { S.selForcer = id; S.selected = null; S.selEff = null; S.selGroup = null; afterSelect(); if (!gizmoMode) setGizmoMode('move'); }   // a forcer is picked to be moved: its gizmo comes up
 // gizmo: a world position / facing → the forcer's track values at the playhead
 function forcerValsFromWorld(f, posW, dirW) {
   const B = resParts(), hp = worldP(rig.b.hips), root = V3(hp.x, 0, hp.z), o = { ...forcerVals(f, S.t) };
@@ -263,7 +294,7 @@ function forcerSummary(hr) {
   const f = hr && A.forcers && A.forcers.find((x) => x.id === hr.forcer); if (!f || !hr.resSum) return;
   const hits = forcerLive(f) && f.target.whole ? forcerPartForces(f, S.t).parts.filter((q) => q.f.length() >= 2).map((q) => q.id) : [];
   const R = resistAt(S.t), tgt = [f.target.whole ? 'whole body' : null, ...f.target.ik.map((id) => EFF_BY_ID[id].label)].filter(Boolean).join(' + ') || 'nothing';
-  hr.resSum.textContent = `${f.name} → ${tgt}${hits.length ? ' · reaches ' + hits.join(', ') : ''} · all forcers at the playhead: load ${Math.round(R.load * 100)} %, lean ${sgn(R.lean, 1, '°')}, side ${sgn(R.sideLean, 1, '°')}, step ${Math.round(R.stepK * 100)} %, cadence ${Math.round(R.cadK * 100)} %`;
+  hr.resSum.textContent = `${f.name} → ${tgt}${hits.length ? ' · reaches ' + hits.join(', ') : ''} · all forcers at the playhead: load ${Math.round(R.load * 100)} %, leg drag ${Math.round(R.legLoad * 100)} %, lean ${sgn(R.lean, 1, '°')}, side ${sgn(R.sideLean, 1, '°')}, step ${Math.round(R.stepK * 100)} %, cadence ${Math.round(R.cadK * 100)} %`;
 }
 function addForcer(mode) {
   pushUndo(); normalizeForcers(A);
