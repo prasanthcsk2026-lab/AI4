@@ -319,13 +319,15 @@ const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefi
 // (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
 function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1; }
 let armChain = null;
+let stepNm = null;
+function stepNames() { if (stepNm && stepNm.rig === rig) return stepNm; stepNm = { rig, knee: new Set(['L', 'R'].map((S) => rig.side[S].shin.name)), arm: new Set(['L', 'R'].map((S) => rig.side[S].upper.name)) }; return stepNm; }
 function armBones() { if (armChain && armChain.rig === rig) return armChain; armChain = { rig, set: new Set() }; for (const Sd of ['L', 'R']) for (const k of ['clav', 'upper', 'fore', 'hand']) armChain.set.add(rig.side[Sd][k].name); return armChain; }
 const shiftPool = [], HshiftScratch = V3(), _trav = V3();
 function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
-  const armK = A.strideArms !== false ? strideK(t) : 1;
+  const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK), armF = stepArmK(stepK), sn = stepNames();   // step length: knee lift + shoulder swing
   const gw = new Map(), gt = new Map();
   for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g || g.bypass) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
   const gF = gw.size ? rig.bones.map((b) => groupFactor(b.name, gw, gt)) : null;
@@ -353,7 +355,7 @@ function composePose(t, Qout, Hout, pend) {
     const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : legSd && gndArr[legSd] ? gndArr[legSd] : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
-    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (armK !== 1 && armBones().set.has(name) ? armK : 1);
+    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (stepK !== 1 ? (sn.knee.has(name) ? kneeF : sn.arm.has(name) ? armF : 1) : 1);
     if (!ba && !pd && Math.abs(W - 1) < 1e-6) { Qout.set(src.subarray(o, o + 4), o); continue; }
     qI.fromArray(QI, o);
     qD.copy(qI).invert().multiply(qC); if (qD.w < 0) { qD.x = -qD.x; qD.y = -qD.y; qD.z = -qD.z; qD.w = -qD.w; }
@@ -371,7 +373,7 @@ function composePose(t, Qout, Hout, pend) {
   const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
   if (A.symOrder.length) applySymmetrize(t, Qout, Hout);
-  if (A.steady) applySteady(t, Qout, Hout);
+  applySteady(t, Qout, Hout);
 }
 
 // ---------------------------------------------------------------- symmetrize (mirror with a half-cycle offset)
@@ -465,8 +467,9 @@ function ikLimb(limb, root, target, pole, fallback) {
   const d2 = basisQ(a2, h, new THREE.Quaternion()).multiply(limb.B2inv);
   return { d1, d2 };
 }
-const effActive = (id, pend) => (!!A.ik[id] && !A.ik[id].bypass) || !!(pend && pend.kind === 'eff' && pend.id === id);
-function effVal(id, k, t) { const e = A.ik[id]; return e && e.tr[k] ? evalPts(e.tr[k], t) : TRK[k].ref; }
+const effActive = (id, pend) => (!!A.ik[id] && !A.ik[id].bypass) || !!(pend && pend.kind === 'eff' && pend.id === id) || runLeanOn(id);
+// an effector's value: its own track (or the neutral value), plus what the Run controls' spine lean adds
+function effVal(id, k, t) { const e = A.ik[id], own = e && e.tr[k] ? evalPts(e.tr[k], t) : TRK[k].ref; return own + runLeanAdd(id, k, t); }
 const eulerQ = (xd, yd, zd, out = new THREE.Quaternion()) => out.setFromEuler(new THREE.Euler(xd * DEG, yd * DEG, zd * DEG, 'YXZ'));
 function effRotQ(id, t, pend, w = 1) {   // world rotation offset of an effector (tracks × blend, then the live gizmo change)
   const q = eulerQ(effVal(id, 'rx', t), effVal(id, 'ry', t), effVal(id, 'rz', t));
@@ -682,7 +685,7 @@ function makeGroupCtx(t, pend) {
 function solveIK(t, pend) {
   const sk = strideK(t), strideOn = Math.abs(sk - 1) > 1e-4;
   const sf = stdFeet;   // steadiness moved the hips: the feet go back to where the unsteadied pose had them
-  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn || sf;
+  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn || sf || leanActive();
   if (!active) return;
   const GX = makeGroupCtx(t, pend);
   const before = S.limits ? limitDefs().map((L) => L.bone.quaternion.clone()) : null;   // FK pose, to find what the IK changed

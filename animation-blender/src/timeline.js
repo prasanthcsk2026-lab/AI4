@@ -103,11 +103,12 @@ function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   // master tracks are optional (the "+" button); hidden ones keep working with their values
   if (A.showMaster.speed) addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
-  if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Moving speed <i>ground covered</i>', null);
-  if (A.showMaster.cycle) {
+  if (A.showMaster.run) drawRunBlock();
+  if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
+  if (A.showMaster.cycle && !A.showMaster.run) {
     addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
   }
-  if (A.showMaster.stride) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
+  if (A.showMaster.stride && !A.showMaster.run) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
   if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   const drawSym = (k) => {
@@ -225,15 +226,18 @@ function rebuildRows() {
 $('btnAddMaster').onclick = (e) => {
   const b = e.currentTarget.getBoundingClientRect(), tog = (k) => () => { A.showMaster[k] = !A.showMaster[k]; rebuildRows(); save(); };
   openMenu(b.left, b.bottom + 4, [
+    { label: 'Run controls: step length, cycle speed, spine lean, moving speed', checked: !!A.showMaster.run, action: tog('run') },
+    { sep: true },
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
-    { label: 'Moving speed (ground covered)', checked: !!A.showMaster.move, action: tog('move') },
+    { label: 'Travel trim (old moving speed ×)', checked: !!A.showMaster.move, action: tog('move') },
     { label: 'Cycle speed', checked: !!A.showMaster.cycle, action: tog('cycle') },
     { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
-    { label: 'Arm swing follows the stride', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
+    { label: 'Step length also moves knees, pelvis turn and arm swing', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
     { label: 'Steadiness (centre bones)', checked: !!A.steady, action: () => (A.steady ? confirmDelete('Remove Steadiness and its tracks?', () => { pushUndo(); removeSteadyNow(); }) : addSteady()) },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
+    { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);
@@ -382,6 +386,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
+  out.push(a.lean);
   return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
@@ -622,6 +627,7 @@ function vOfRaw(r, y) { const [lo, hi] = viewOf(r), h = r.cv.height, p = PAD * d
 function vOf(r, y) { return clamp(vOfRaw(r, y), r.range[0], r.range[1]); }
 function niceStep(span, n) { const raw = span / Math.max(1, n), p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p; }
 function drawLane(r) {
+  if (r.kind === 'result') return drawResult(r);
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r), pts = r.get();
   x.clearRect(0, 0, w, h);
   x.fillStyle = rows.indexOf(r) % 2 ? '#232326' : '#28282c'; x.fillRect(0, 0, w, h);
@@ -764,7 +770,7 @@ function onLaneHover(e, r) {
 }
 function edited(r, live = false) {
   const stdKeep = r && r.owner && r.owner.type === 'steady' && stdCache && stdCache.key.startsWith(editVersion + '|');
-  try { editedInner(r, live); } finally { if (stdKeep && stdCache) stdCache.key = stdCache.key.replace(/^\d+\|/, editVersion + '|'); }
+  try { editedInner(r, live); if (!live && r && (r.key === 'stride' || r.key === 'cyc')) speedLockAfter(r.key); } finally { if (stdKeep && stdCache) stdCache.key = stdCache.key.replace(/^\d+\|/, editVersion + '|'); }
 }
 function editedInner(r, live = false) {
   if (live) syncMirrors();

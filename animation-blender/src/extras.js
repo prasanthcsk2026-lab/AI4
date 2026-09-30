@@ -22,7 +22,7 @@ function curveItems(r, hit) {
 // there or inserting new bars first. Tracks are matched by name, so a copy goes to another clip too.
 let barClip = null;
 function pointArrayMap(a) {   // stable name → point array, for every track in an automation object
-  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride };
+  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride, lean: a.lean };
   for (const n of a.order) { const ba = a.bones[n]; if (!ba) continue; m[`b|${n}|whole`] = ba.whole; m[`b|${n}|timing`] = ba.timing; for (const x of AXES) { m[`b|${n}|w${x}`] = ba.w[x]; m[`b|${n}|a${x}`] = ba.a[x]; } }
   for (const g of a.groupOrder) { const gr = a.groups[g]; if (!gr) continue; m[`g|${g}|weight`] = gr.weight; m[`g|${g}|timing`] = gr.timing; }
   for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; for (const k in e.tr) m[`e|${id}|${k}`] = e.tr[k]; }
@@ -181,4 +181,5 @@ function updateSpeedHud() {
   $('shSpeed').textContent = v.toFixed(2); $('shKmh').textContent = `${(v * 3.6).toFixed(1)} km/h`;
   $('shMove').textContent = `moving ${Math.round(m * 100)} %${S.inPlace ? ' · in place' : ''}`;
   drawSpeedGraph();
+  for (const r of rows) if (r.resEl) { r.resEl.textContent = `${v.toFixed(2)} m/s`; }
 }

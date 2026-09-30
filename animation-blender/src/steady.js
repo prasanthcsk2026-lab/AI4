@@ -79,9 +79,11 @@ function stdMeanAt(ct) {   // the average pose at clip time ct: blended between 
 const _sq = { a: new THREE.Quaternion(), b: new THREE.Quaternion(), c: new THREE.Quaternion() }, _sv = V3();
 function applySteady(t, Qout, Hout) {
   stdFeet = null;
-  if (stdSkip || !steadyOn() || !cur || !(cur.dur > 0)) return;
-  const st = A.steady, amt = {};
-  let any = false; for (const k of STD_KEYS) { amt[k] = clamp(evalPts(st.tr[k], t), 0, 1); if (amt[k] > 1e-4) any = true; }
+  if (stdSkip || !cur || !(cur.dur > 0)) return;
+  const turnA = stepTurnAmt(strideK(t));   // Run controls: a shorter step turns the pelvis less
+  if (!steadyOn() && turnA < 1e-4) return;
+  const st = steadyOn() ? A.steady : { tr: {}, set: {}, feet: false }, amt = {};
+  let any = turnA > 1e-4; for (const k of STD_KEYS) { amt[k] = st.tr[k] ? clamp(evalPts(st.tr[k], t), 0, 1) : 0; if (amt[k] > 1e-4) any = true; }
   if (!any) return;
   const m = stdMeanAt(clipTime(t));
   const hipsTouched = amt.hips > 1e-4 || amt.bob > 1e-4 || amt.sway > 1e-4;
@@ -116,6 +118,12 @@ function applySteady(t, Qout, Hout) {
       Ln = m.L[k].clone().multiply(expV(rv.x, rv.y, rv.z, new THREE.Quaternion()));
     }
     Ln.normalize().toArray(Qout, i * 4);
+  }
+  if (turnA > 1e-4) {   // pelvis turn only, local, against the bar's average
+    const i = boneIdx.get(rig.b.hips.name), Lc = _sq.a.fromArray(Qout, i * 4), dq = m.L.hips.clone().invert().multiply(Lc);
+    if (dq.w < 0) { dq.x = -dq.x; dq.y = -dq.y; dq.z = -dq.z; dq.w = -dq.w; }
+    logQ(dq, rv); rv.applyQuaternion(m.W.hips); rv.y *= 1 - turnA; rv.applyQuaternion(m.W.hips.clone().invert());
+    m.L.hips.clone().multiply(expV(rv.x, rv.y, rv.z, new THREE.Quaternion())).normalize().toArray(Qout, i * 4);
   }
 }
 

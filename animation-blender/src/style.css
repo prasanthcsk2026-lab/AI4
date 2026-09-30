@@ -427,3 +427,6 @@
 
 /* steadiness settings */
 .stdgrid { grid-template-columns: auto 1fr auto auto auto; }
+
+/* run controls: the moving speed result */
+.row .resv { font: 600 11px var(--mono); color: #f08a1c; margin-left: auto; padding: 0 6px; }

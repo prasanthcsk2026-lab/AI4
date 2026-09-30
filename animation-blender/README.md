@@ -278,3 +278,12 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - Order: clip → groups / bones → symmetrize → **steadiness** → IK (Chest / Head / Hips effectors and foot lock act on top).
 - Saved with the project, in undo, JSON export / import, templates, bar copy / paste, and the whole-timeline FBX export. The Symmetrize tool's own Steadiness is unchanged.
 - Measured on Sprint.fbx: Head world 80 % → head pitch range 10.3° → 2.1°; a 0 → 100 % ramp gives 10.1° / 6.0° / 1.9° at bars 1 / 3 / 5; with hips steadied the planted feet stay within 0 cm of their unsteadied spots. With feet planted, Hips bob 50 % only takes the bob from 4.1 to 3.1 cm: the legs cannot reach higher at mid-stance, so the pelvis comes back down.
+
+## Run controls (4 controls)
+"+" menu → **Run controls**: one block with four rows.
+- **Step length** (%, the stride track): the feet reach further or less far from the hips (feet planted; the ground covered follows). With **"Step length also moves knees, pelvis turn and arm swing"** on (block ⋯ menu, on by default), a shorter step also lowers the knee lift (knee weight 1 − 0.65 × the drop), turns the pelvis less, and shortens the shoulder swing (upper-arm weight 1 − 0.85 × the drop). The elbow bend stays.
+- **Cycle speed** (%, cadence): timing only.
+- **Spine lean** (°, + forward / − back): the chest tips (about 2° of chest rotation per degree, spread over the spine), the head counters 80 % of it, and the hips shift about 0.2 cm per degree to keep the weight over the feet. The hips also go up or down with it: straightening to −12° rises 1.5 cm, a stronger backward (braking) lean crouches 0.9 cm per degree, and a forward lean crouches 0.2 cm per degree. Feet stay planted. Measured on Sprint.fbx: −6 / −12 / −18 / +10 give a trunk change of −6.1° / −12.2° / −18.3° / +10.2°.
+- **Moving speed** (m/s): the result, cadence × step length, drawn over the timeline. **Speed lock** (⋯ menu): editing step length rewrites the cadence so the speed stays, and editing the cadence rewrites the step length (within 50–150 %).
+- The old "Moving speed" multiplier is now **Travel trim** (it can make the feet slide).
+- **Template: Run → Jog (4 controls)** (⋯ menu or "+" menu): uses only these four. 10 bars; bars 3–7 slow down: step length 100 → 53 %, cadence 225 → 165 steps/min, lean 0 → −18° (bar 5.5, braking) → −12°. Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk 20° → 2.2° (bar 5) → 7.8°, hips 87 → 83.6 (bar 5) → 88.6 cm, swing knee 52° → 83°, slip 4.6–6.2 cm per bar (the sprint clip itself: 6).
