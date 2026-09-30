@@ -290,24 +290,32 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - The old "Moving speed" multiplier is now **Travel trim** (it can make the feet slide).
 - **Template: Run → Jog (4 controls)** (⋯ menu or "+" menu): 10 bars; bars 3–7 slow down: step length 100 → 53 %, cadence 225 → 165 steps/min, spine lean 0 → −8°, hip rotation 0 → −4°, hard braking 70 % over bars 4–6. Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk 20° → 7.9°, hips 87 → 88.7 cm, swing knee 52° → 83°, slip 4.2–8 cm per bar (the sprint clip itself: 6).
 
-## Resistance (a force on the runner)
-"+" menu → **Resistance**. A formula-based block (no simulation; the same result every time) that adds to the Run controls without overwriting them.
-- **Tracks:** **Force** (N; body weight = mass × 9.81, 75 kg = 736 N); **Direction** (° the force pulls the runner toward, around the runner: 0 forward, 90 right, 180 back (a rope behind, a headwind), 270 left); **Vertical** (° + pulls up, − pulls down; a sled rope is about −20 to −30°). Don't cross 0 / 360 inside one ramp: it interpolates the long way round.
-- **Settings (⚙):** body mass; attached at the hips (the lean is split half pelvis, half spine) or the chest (a quarter at the pelvis); **Keep speed**.
+## Resistance device (speaker)
+"+" menu → **Resistance device**. A speaker-like force source that always moves with the runner. It is formula based (no simulation; the same result every time) and adds to the Run controls without overwriting them.
+- **Tracks:**
+  - **X / Y / Z position** (m from the root, the ground point under the hips turned with the runner: X + right, Y height, Z + in front; default 0 / 1.2 / 1).
+  - **Facing X / Y / Z** (°: tilt, turn, roll; Y 180 points it back at the runner from in front; roll has no effect on the round cone).
+  - **Force** (N: + pushes away like a fan, − pulls toward it like a magnet; 736 N = a 75 kg body weight).
+  - **Spread** (° full cone angle).
+- **Settings (⚙):** body mass, falloff (inverse square with full force at 1 m, linear to 4 m, or none), keep speed, show the speaker.
 - **What it does:**
-  - The body leans against the pull: forward / back = atan(back pull / effective weight), side = atan(side pull / effective weight), away from the pull. The head counters it.
-  - Load = back pull / weight. Steps shorten 0.75 % per 1 % load (sled-towing studies) and the shoulder swing grows.
-  - **Keep speed** on: the cadence rises to hold the speed. Off: the cadence drops a little and the speed falls.
-  - An upward pull lightens the body (hips a little higher); a downward pull loads it (hips lower, knees bent).
-  - A side pull widens the steps.
-- **Measured at 5.5 m/s (Sprint.fbx, 75 kg, hips):**
+  - Each body part (head 8 %, chest 30 %, pelvis 20 %, thighs 10 % each, shins 6 % each, arms 5 % each) inside the cone gets its share of the force along the ray from the speaker (smooth at the cone's edge, falling off with distance).
+  - The body leans against the sum: forward / back and sideways, away from the push. Force high on the body bends the spine more; low on it tilts the pelvis. The head is pushed with the force on it.
+  - Load = back push / weight: steps shorten 0.75 % per 1 % load, the shoulder swing grows. Keep speed raises the cadence to hold the speed.
+  - An up push lightens the body (hips higher), a down push loads it (hips lower); a side push widens the steps.
+- **Viewport:** the speaker (cabinet, woofer, tweeter), the force cone, waves travelling out (push, orange) or in (pull, blue) with speed and brightness by force, and arrows on the body parts it reaches.
+- **Measured at 5.5 m/s (Sprint.fbx, 75 kg):**
 
-| Case | Load | Trunk lean | Step | Cadence | Speed |
+| Speaker | Parts reached | Net push | Trunk lean | Step | Cadence |
 |---|---|---|---|---|---|
-| none | 0 % | 20.0° | 100 % | 225 | 5.5 |
-| headwind 35 N, 180°, 0° | 5 % | 22.8° | 96 % | 233 | 5.5 |
-| band 100 N, 180°, +10° | 13 % | 27.9° | 90 % | 250 | 5.5 |
-| sled 150 N, 180°, −25° | 18 % | 29.8° | 86 % | 261 | 5.5 (4.52 with keep speed off) |
-| side gust 60 N, 90°, 0° | 0 % | side −4.4° (leans left, away from the pull) | 100 % | 225 | 5.5; step width 13 → 17 cm |
+| none | – | 0 | 20.0° | 100 % | 225 |
+| 1 m front, 1.2 m high, push 150 N, 30° | chest, pelvis | 49 N | 23.9° | 95 % | 237 |
+| same, 90° | whole body | 114 N | 28.9° | 88 % | 255 |
+| 1 m front, 0.5 m high, push 150 N, 60° | pelvis, legs | 66 N | 25.2° | 93 % | 241 |
+| 1 m behind, pull −150 N, 90° | whole body | 119 N | 29.4° | 88 % | 256 |
+| 1 m right, push 100 N, 90° | whole body | 85 N (sideways) | side +6.3° (leans right, into the push) | 100 % | 226 |
+
+Speed stays 5.5 m/s in every row (keep speed on).
+- An older project's Resistance (force / direction / vertical) is converted to a speaker 1 m back along the pull, pushing along it, spread 120°.
 
 Also fixed: the timing no longer uses a stale "is this track active" check right after a Hard braking edit.

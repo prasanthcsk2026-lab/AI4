@@ -56,7 +56,7 @@ function runLeanAdd(id, k, t) {
   if (id === 'chest' && k === 'rz') return RUN.chestK * side * (1 - RESK.sideHipShare);
   if (id === 'head' && k === 'rz') return -RUN.headK * (RUN.chestK * side * (1 - RESK.sideHipShare) + side * RESK.sideHipShare);
   if (id === 'chest' && k === 'rx') return RUN.chestK * l;
-  if (id === 'head' && k === 'rx') return -RUN.headK * (RUN.chestK * l + hr);
+  if (id === 'head' && k === 'rx') return -RUN.headK * (RUN.chestK * l + hr) + (R ? R.headRx : 0);
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }

@@ -234,7 +234,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
     { label: 'Step length also moves knees, pelvis turn and arm swing', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
-    { label: 'Resistance (a force on the runner)', checked: !!A.resist, action: () => (A.resist ? confirmDelete('Remove Resistance and its tracks?', () => { pushUndo(); removeResistNow(); }) : addResist()) },
+    { label: 'Resistance device (speaker: push / pull)', checked: !!A.resist, action: () => (A.resist ? confirmDelete('Remove Resistance and its tracks?', () => { pushUndo(); removeResistNow(); }) : addResist()) },
     { label: 'Steadiness (centre bones)', checked: !!A.steady, action: () => (A.steady ? confirmDelete('Remove Steadiness and its tracks?', () => { pushUndo(); removeSteadyNow(); }) : addSteady()) },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
@@ -375,11 +375,11 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'brake', 'r|force', 'r|dir', 'r|vert']);
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'brake', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
-const BAR_DRIVERS = new Set(['speed', 'cyc', 'brake', 'r|force', 'r|dir', 'r|vert']);
+const BAR_DRIVERS = new Set(['speed', 'cyc', 'brake', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 function allPointArrays() { return allPointArraysOf(A); }
 function allPointArraysOf(a) {   // every point array of an automation object, in one fixed order
   const out = [a.speed, a.move, a.cyc, a.gnd, a.stride];
@@ -389,7 +389,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
   out.push(a.lean, a.hipRot, a.brake);
-  if (a.resist) out.push(a.resist.force, a.resist.dir, a.resist.vert);
+  if (a.resist) for (const k of RES_KEYS) out.push(a.resist[k]);
   return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
