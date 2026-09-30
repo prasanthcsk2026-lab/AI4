@@ -371,6 +371,7 @@ function composePose(t, Qout, Hout, pend) {
     Qout[o] = qO.x; Qout[o + 1] = qO.y; Qout[o + 2] = qO.z; Qout[o + 3] = qO.w;
   }
   for (const arr of shiftArr.values()) shiftPool.push(arr);
+  if (armSwingOn()) applyArmSwing(t, Qout);   // arm swing: about the clip's average arm pose
   const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
   if (A.symOrder.length) applySymmetrize(t, Qout, Hout);
@@ -699,6 +700,9 @@ function solveIK(t, pend) {
     const sd = rig.side[Sd];
     fkRef[Sd] = { foot: worldP(sd.foot), footQ: rig.delta(sd.foot), hand: worldP(sd.hand), handQ: rig.delta(sd.hand) };
   }
+  // 0. hip motion (about the clip's average; the feet stay at their FK spots above) and the arms' shape
+  if (hipMotionOn()) applyHipMotion(t);
+  if (armShapeOn()) applyArmShape(t);
   const hz0 = worldP(b.hips).z;   // stride scales the planted-foot spots about the hips as they were before the hips moved
   // 1. hips
   let feetPin = 1;
@@ -711,10 +715,10 @@ function solveIK(t, pend) {
     rig.setDelta(b.hips, gx.q.clone().multiply(effRotQ('hips', t, pend, w)).multiply(rig.delta(b.hips)));
   }
   // 1b. knee depth: the hips come down / up (a smooth function of the Knee depth track); the feet keep their spots
-  const kDrop = kneeDepthOn() ? kneeHipDrop(kneeDepthAt(t)) : 0;
+  const kDrop = kneeDepthOn() ? kneeHipDrop(kneeDepthAt(t), t) : 0;
   if (Math.abs(kDrop) > 1e-6) { rig.setHipsWorld(worldP(b.hips).add(V3(0, -kDrop, 0))); b.hips.updateMatrixWorld(true); }
   // 2. leg targets (needed now: the hips come down if planted feet are out of reach)
-  const legT = {};
+  const legT = {}, heelOn = kDrop < -1e-6 || runIKActive();   // a planted foot out of reach rolls onto its toe (before the hips would be pulled down)
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
     const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive() || resistOn() || Math.abs(kDrop) > 1e-6;
@@ -733,6 +737,11 @@ function solveIK(t, pend) {
     const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
     const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
     baseQ = gx.q.clone().multiply(baseQ);
+    if (heelOn) {   // a planted foot out of reach rolls up onto its toe: from just before touchdown, easing out before toe-off
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null;
+      const hw = !lp ? 1 : lp.c ? smoothB((1 - lp.u) / 0.15) : smoothB((lp.s - 0.88) / 0.12);   // fades in before touchdown, out before toe-off
+      if (hw > 1e-4) heelLift(sd, target, baseQ, hw, !!(lp && !lp.c));
+    }
     legT[Sd] = { target, baseQ, w, gx };
   }
   if (on('hips') || sk > 1.001 || sf) {   // lower the pelvis just enough that both planted feet stay reachable (a longer stride too)
@@ -744,7 +753,7 @@ function solveIK(t, pend) {
       // continuous: a foot that is too far out sideways / ahead to be reached by lowering fades out (no step in the hips)
       // only a planted foot pulls the hips down (a swinging leg just stretches): full in contact, easing out over the
       // first 8 % of the swing and in over the last 8 % (no step at toe-off / touchdown, no dip in the flight)
-      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null, cw = !lp || lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null, cw = !lp ? 1 : heelOn ? (lp.c ? Math.min(smoothB(lp.u / 0.1), smoothB((1 - lp.u) / 0.15)) : 0) : lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));   // with the heel lift a planted foot mostly reaches by itself: only mid-contact pulls, eased in / out; a leg in the air never pulls
       if (h.lengthSq() > reach * reach && horiz2 < reach * reach) drop = Math.max(drop, cw * (h.y - Math.sqrt(reach * reach - horiz2)) * smoothB((reach * reach - horiz2) / (0.15 * reach * reach)));
     }
     drop = clamp(drop, 0, 0.25);

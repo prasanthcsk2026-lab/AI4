@@ -228,7 +228,7 @@ $('btnAddMaster').onclick = (e) => {
   const b = e.currentTarget.getBoundingClientRect(), tog = (k) => () => { A.showMaster[k] = !A.showMaster[k]; rebuildRows(); save(); };
   openMenu(b.left, b.bottom + 4, [
     { label: 'Moving speed (result of all the tracks and forcers)', checked: A.showMaster.mspeed !== false, action: () => { A.showMaster.mspeed = A.showMaster.mspeed === false; rebuildRows(); save(); } },
-    { label: 'Run controls: step length, cycle speed, spine lean, hip rotation, braking, knee depth', checked: !!A.showMaster.run, action: tog('run') },
+    { label: 'Run controls: step length, cycle speed, lean, hip rotation, braking, arm swing, elbow, crossing, hip motion, knee depth', checked: !!A.showMaster.run, action: tog('run') },
     { sep: true },
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
     { label: 'Travel trim (old moving speed ×)', checked: !!A.showMaster.move, action: tog('move') },
@@ -391,7 +391,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion);
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
 }

@@ -60,7 +60,7 @@ function runLeanAdd(id, k, t) {
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn() || kneeDepthOn();
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn() || kneeDepthOn() || hipMotionOn() || armShapeOn();
 const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && runIKActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);
@@ -77,47 +77,89 @@ function stepTurnAmt(k) { return stepCouple() && k < 1 ? clamp(RUN.turnK * (1 - 
 const KNEE_SPEC = { range: [50, 150], ref: 100, color: '#7ac7e0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
 const kneeDepthOn = () => !!(A && A.kneeDepth && cur && cur.kind === 'loop' && A.kneeDepth.some((p) => Math.abs(p.v - 100) > 1e-6));
 const kneeDepthAt = (t) => (kneeDepthOn() ? clamp(evalPts(A.kneeDepth, t), KNEE_SPEC.range[0], KNEE_SPEC.range[1]) / 100 : 1);
+const HEEL_MAX = 40 * DEG;
 let kneeGeo = null;
-function kneeGeometry() {   // → per leg the hip → foot geometry through its contact in the clip (in place)
+function kneeGeometry() {   // → per leg the hip → foot geometry: mid-contact samples, and the room to rise at every phase
   const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`;
   if (kneeGeo && kneeGeo.key === key && kneeGeo.rig === rig) return kneeGeo;
-  const vfk = new VirtualFK(rig), Q = new Float32Array(B * 4), H = V3(), legs = [];
+  const vfk = new VirtualFK(rig), Q = new Float32Array(B * 4), H = V3(), legs = [], NP = 96, room = new Float32Array(NP).fill(1);
   for (const Sd of ['L', 'R']) {
     const w = clipWin(Sd); if (!w) continue;
     const sd = rig.side[Sd], iT = rig.bones.indexOf(sd.thigh), iK = rig.bones.indexOf(sd.shin), iF = rig.bones.indexOf(sd.foot), l1 = sd.leg.l1, l2 = sd.leg.l2, len = mod1(w[1] - w[0]) || 1, smp = [];
+    const reach = (l1 + l2) * 0.985, iO = sd.toe ? rig.bones.indexOf(sd.toe) : -1;
     let swingMax = 0;
-    for (let j = 0; j < 48; j++) {   // the whole cycle: every pose must stay reachable when the hips rise; the deepest knee fold
-      const ph = mod1(w[0] + j / 48), inC = mod1(ph - w[0]) <= len + 1e-9;
+    for (let j = 0; j < NP; j++) {   // every phase: how far the hips could rise before this leg (if it is on the ground) locks straight
+      const ph = j / NP, du = mod1(ph - w[0]), inC = du <= len + 1e-9, sw = inC ? 0 : (du - len) / Math.max(1e-6, 1 - len);
+      const cw = inC ? 1 : Math.max(1 - smoothB(sw / 0.08), smoothB((sw - 0.92) / 0.08));
       sampleClip(ph * cur.dur, Q, H); vfk.run(Q, H);
       const v = vfk.P[iT].clone().sub(vfk.P[iF]), a = vfk.P[iT].clone().sub(vfk.P[iK]), c = vfk.P[iF].clone().sub(vfk.P[iK]);
       swingMax = Math.max(swingMax, Math.PI - a.angleTo(c));
-      smp.push({ h: Math.hypot(v.x, v.z), y: v.y, mid: false, inC });
+      // the most the hips can rise with the foot rolled up onto its toe by up to HEEL_MAX (as heelLift does)
+      let m = 0;
+      const ank = vfk.P[iF], toe = iO >= 0 ? vfk.P[iO] : null, r0 = toe ? ank.clone().sub(toe) : null;
+      const ax = r0 ? heelAxis(r0) : null;
+      for (let k = 0; k <= (ax ? 8 : 0); k++) {
+        const A2 = ax ? toe.clone().add(r0.clone().applyAxisAngle(ax, HEEL_MAX * k / 8)) : ank, u = vfk.P[iT].clone().sub(A2), h = Math.hypot(u.x, u.z);
+        m = Math.max(m, Math.sqrt(Math.max(0, reach * reach - h * h)) - u.y);
+      }
+      room[j] = Math.min(room[j], m + (1 - cw) * 0.5);   // a leg in the air does not hold the hips down
     }
-    for (let j = 0; j <= 4; j++) {   // the contact's middle (3 samples around it): the depth the hips follow
+    for (let j = 0; j <= 4; j++) {   // the contact's middle: the depth the hips follow
       sampleClip(mod1(w[0] + len * (0.4 + 0.05 * j)) * cur.dur, Q, H); vfk.run(Q, H);
-      const v = vfk.P[iT].clone().sub(vfk.P[iF]); smp.push({ h: Math.hypot(v.x, v.z), y: v.y, mid: true, inC: true });
+      const v = vfk.P[iT].clone().sub(vfk.P[iF]); smp.push({ h: Math.hypot(v.x, v.z), y: v.y });
     }
     legs.push({ side: Sd, l1, l2, smp, swingMax });
   }
-  kneeGeo = { key, rig, legs }; return kneeGeo;
+  // a smooth curve under the room: the lowest value within ±25 % of a cycle, then blurred over no more than that (so it stays under the room)
+  { const c = Float32Array.from(room), r = 24; for (let j = 0; j < NP; j++) { let m = Infinity; for (let k = -r; k <= r; k++) m = Math.min(m, c[(j + k + NP) % NP]); room[j] = m; } }
+  for (let it = 0; it < 3; it++) { const c = Float32Array.from(room), r = 8; for (let j = 0; j < NP; j++) { let a = 0; for (let k = -r; k <= r; k++) a += c[(j + k + NP) % NP]; room[j] = a / (2 * r + 1); } }
+  kneeGeo = { key, rig, legs, room, NP }; return kneeGeo;
 }
-function kneeHipDrop(K) {   // m the hips come down (− = up) for knee depth K
+// heel lift: the foot turns about its toe (heel up) just enough for the leg to reach it (0 while it reaches)
+function heelAxis(r0) {   // the foot's side axis (the heel lifts about it), from its horizontal direction (the runner's forward if the foot is steep)
+  const f = V3(-r0.x, 0, -r0.z); if (f.lengthSq() < 0.0004) f.set(0, 0, 1); f.normalize();
+  const ax = V3().crossVectors(f, V3(0, 1, 0)).normalize(); if (r0.clone().applyAxisAngle(ax, 0.1).y < r0.y) ax.negate(); return ax;
+}
+function heelLift(sd, target, baseQ, w = 1, air = false) {
+  if (!sd.toe) return;
+  const hip = worldP(sd.thigh), R = (sd.leg.l1 + sd.leg.l2) * 0.985, d0 = target.distanceTo(hip); if (d0 <= R) return;
+  const r0 = rig.bp(sd.foot).sub(rig.bp(sd.toe)).applyQuaternion(baseQ), toe = target.clone().sub(r0), ax = heelAxis(r0);
+  const at = (a) => toe.clone().add(r0.clone().applyAxisAngle(ax, a)), N = 16;
+  let best = -1, prev = 0;
+  for (let k = 1; k <= N; k++) {   // the least lift that reaches
+    const a = HEEL_MAX * k / N;
+    if (at(a).distanceTo(hip) <= R) { let lo = prev, hi = a; for (let it = 0; it < 14; it++) { const m = (lo + hi) / 2; if (at(m).distanceTo(hip) > R) lo = m; else hi = m; } best = hi; break; }
+    prev = a;
+  }
+  if (air) best = Math.min(best < 0 ? HEEL_MAX : best, 15 * DEG);   // just before touchdown: a little (never the search below: it can jump)
+  else if (best < 0) {   // out of reach even then: the lift that gets closest (a continuous search, so it does not jump)
+    let lo = 0, hi = HEEL_MAX; for (let it = 0; it < 30; it++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (at(m1).distanceTo(hip) <= at(m2).distanceTo(hip)) hi = m2; else lo = m1; }
+    best = (lo + hi) / 2;
+  }
+  best *= w; if (best <= 0) return;
+  target.copy(at(best)); baseQ.premultiply(qAxis(ax, best));
+}
+function kneeRoomAt(t) { const G = kneeGeometry(), f = mod1(clipTime(t) / cur.dur) * G.NP, i = Math.floor(f) % G.NP, u = f - Math.floor(f); return lerp(G.room[i], G.room[(i + 1) % G.NP], u); }
+const smin = (a, b, k) => -k * Math.log(Math.exp(-a / k) + Math.exp(-b / k));
+function kneeHipDrop(K, t) {   // m the hips come down (− = up) for knee depth K at time t
   if (Math.abs(K - 1) < 1e-6) return 0;
   const G = kneeGeometry(); if (!G.legs.length) return 0;
-  let sum = 0, n = 0, rise = Infinity;
+  let sum = 0, n = 0;
   for (const L of G.legs) {
-    const { l1, l2 } = L, reach = (l1 + l2) * 0.985;
+    const { l1, l2 } = L;
     for (const q of L.smp) {
       const d0 = clamp(Math.hypot(q.h, q.y), Math.abs(l1 - l2) + 1e-4, l1 + l2);
-      rise = Math.min(rise, Math.max(0, Math.sqrt(Math.max(0, reach * reach - q.h * q.h)) - q.y));   // how far up before this pose locks straight
-      if (!q.mid) continue;
       const flex0 = Math.PI - Math.acos(clamp((l1 * l1 + l2 * l2 - d0 * d0) / (2 * l1 * l2), -1, 1)), flex1 = clamp(flex0 * K, 2 * DEG, 150 * DEG);
       const d1 = Math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * Math.cos(flex1));
       sum += q.y - Math.sqrt(Math.max(0, d1 * d1 - q.h * q.h)); n++;
     }
   }
   const drop = n ? sum / n : 0;
-  return clamp(drop, -0.9 * rise, 0.3);
+  if (drop >= 0) return Math.min(drop, 0.3);
+  // shallower: the hips rise, most in mid-contact (bent knee), less where a leg on the ground is near straight
+  // (touchdown, toe-off); a smooth curve over the cycle, so no step
+  const room = t == null ? Math.min(...G.room) : kneeRoomAt(t);
+  return -Math.max(0, smin(-drop, 0.75 * room, 0.004));
 }
 function kneeSwingK(Sd, t) {   // the shin's extra fold in the air (1 in contact)
   const K = kneeDepthAt(t); if (K <= 1 + 1e-6) return 1;   // shallower: the swing is left as it is (a longer swinging leg would hit the ground)
@@ -128,6 +170,105 @@ function kneeSwingK(Sd, t) {   // the shin's extra fold in the air (1 in contact
     k = 1 + (room > 1e-4 ? room * Math.tanh((K - 1) / room) : 0);
   }
   const e = Math.sin(Math.PI * lp.s) ** 2; return 1 + (k - 1) * e;
+}
+
+// ---------------------------------------------------------------- arm swing, elbow bend, arm crossing, hip motion
+// Arm swing (%) scales the arms' motion about the clip's own average arm pose (not toward the idle pose, so the carry
+// and the elbow bend stay: no robot arms): collarbones (the shoulders' forward / back, up / down), upper arms and
+// forearms, and the spine / neck twist (the shoulder line turning against the hips).
+// Hip motion (%) scales the pelvis' turn, drop and tilt and the hips' bob and side sway about their average; the
+// feet stay planted (leg IK) and the chest keeps its turn in the world.
+// Both follow the moving speed by default (a slower run moves less): × (1 + k · (speed / clip speed − 1)), speed
+// averaged over one bar so it does not flicker inside a step. Elbow bend (°) and Arm crossing (°) are added on top.
+const ARMSW_SPEC = { range: [0, 200], ref: 100, color: '#e79ad0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const ELBOW_SPEC = { range: [-40, 60], ref: 0, color: '#b99af0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 };
+const CROSS_SPEC = { range: [-20, 30], ref: 0, color: '#8fb4f0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 };
+const HIPMO_SPEC = { range: [0, 200], ref: 100, color: '#f0b870', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const MOTK = { armAuto: 0.8, hipAuto: 0.6 };
+const trackOff = (pts, ref) => !pts || !pts.some((p) => Math.abs(p.v - ref) > 1e-6);
+let clipMean = null;
+function clipMeans() {   // the clip's average local rotation per bone and hips position over one cycle
+  const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`;
+  if (clipMean && clipMean.key === key && clipMean.rig === rig) return clipMean;
+  const Q = new Float32Array(B * 4), H = V3(), acc = new Float32Array(B * 4), h = V3(), N = 48;
+  for (let j = 0; j < N; j++) {
+    sampleClip((j / N) * cur.dur, Q, H); h.add(H);
+    for (let i = 0; i < B; i++) { const o = i * 4, sg = j && acc[o] * Q[o] + acc[o + 1] * Q[o + 1] + acc[o + 2] * Q[o + 2] + acc[o + 3] * Q[o + 3] < 0 ? -1 : 1; for (let k = 0; k < 4; k++) acc[o + k] += sg * Q[o + k]; }
+  }
+  const q = []; for (let i = 0; i < B; i++) q.push(new THREE.Quaternion().fromArray(acc, i * 4).normalize());
+  clipMean = { key, rig, q, h: h.divideScalar(N) }; return clipMean;
+}
+function avgSpeedAt(t) {   // m/s over one bar around t
+  const d = cur.dur, ct = clipTime(t), end = clipTime(S.dur);
+  const a = timeOfClipTime(Math.max(0, ct - d / 2)), b = timeOfClipTime(Math.min(end, ct + d / 2));
+  if (b - a < 1e-3) return groundSpeedAt(t);
+  const p0 = trueTravel(a).clone(), p1 = trueTravel(b); p0.y = p1.y = 0; return p1.distanceTo(p0) / (b - a);
+}
+function speedRatio(t) { const v0 = cur && cur.kind === 'loop' ? cur.c.speed : 0; return v0 > 0.05 ? clamp(avgSpeedAt(t) / v0, 0.2, 1.6) : 1; }
+let spdVar = null;
+function speedVaries() {   // does the bar-averaged moving speed leave the clip's own speed anywhere (> 3 %)?
+  const v0 = cur && cur.kind === 'loop' ? cur.c.speed : 0; if (!(v0 > 0.05) || !S.speedLUT) return false;
+  const key = `${editVersion}|${S.dur}|${cur.id}|${v0}`; if (spdVar && spdVar.key === key) return spdVar.v;
+  let v = false; for (let i = 0; i <= 24 && !v; i++) if (Math.abs(speedRatio((i / 24) * S.dur) - 1) > 0.03) v = true;
+  spdVar = { key, v }; return v;
+}
+const armAutoOn = () => !!(A && A.armAuto !== false && speedVaries()), hipAutoOn = () => !!(A && A.hipAuto !== false && speedVaries());
+const armSwingOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.armSwing, 100) || armAutoOn()));
+const hipMotionOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.hipMotion, 100) || hipAutoOn()));
+const armShapeOn = () => !!(A && (!trackOff(A.elbowBend, 0) || !trackOff(A.armCross, 0)));
+function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (A.armAuto !== false ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
+function hipScaleAt(t) { return (A.hipMotion ? evalPts(A.hipMotion, t) / 100 : 1) * (A.hipAuto !== false ? Math.max(0, 1 + MOTK.hipAuto * (speedRatio(t) - 1)) : 1); }
+let armSet = null;
+function armScaleBones() {
+  if (armSet && armSet.rig === rig) return armSet;
+  const b = rig.b, full = [], twist = [];
+  for (const Sd of ['L', 'R']) { const s = rig.side[Sd]; for (const x of [s.clav, s.upper, s.fore]) if (x) full.push(boneIdx.get(x.name)); }
+  for (const x of [b.spine, b.spine1, b.spine2, b.neck]) if (x) { const c = x.children.find((y) => y.isBone), a = c ? rig.bind.get(c).lp.clone().normalize() : V3(0, 1, 0); twist.push({ i: boneIdx.get(x.name), a }); }
+  armSet = { rig, full, twist }; return armSet;
+}
+const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v1 = V3();
+function scaleAbout(mean, q, k, out) {   // mean · (mean⁻¹ q)^k
+  _q1.copy(mean).invert().multiply(q); if (_q1.w < 0) _q1.set(-_q1.x, -_q1.y, -_q1.z, -_q1.w);
+  logQ(_q1, _v1); expV(_v1.x * k, _v1.y * k, _v1.z * k, _q2); return out.copy(mean).multiply(_q2);
+}
+function applyArmSwing(t, Qout) {   // in composePose: local rotations
+  const k = armScaleAt(t); if (Math.abs(k - 1) < 1e-4) return;
+  const M = clipMeans(), S0 = armScaleBones(), q = new THREE.Quaternion();
+  for (const i of S0.full) { q.fromArray(Qout, i * 4); scaleAbout(M.q[i], q, k, q).toArray(Qout, i * 4); }
+  for (const { i, a } of S0.twist) {   // only the twist about the bone: the lean and the bob stay
+    q.fromArray(Qout, i * 4); const d = M.q[i].clone().invert().multiply(q), pr = d.x * a.x + d.y * a.y + d.z * a.z;
+    let tw = new THREE.Quaternion(a.x * pr, a.y * pr, a.z * pr, d.w); if (tw.lengthSq() < 1e-12) continue; tw.normalize();
+    const sw = d.clone().multiply(tw.clone().invert());
+    tw = scaleAbout(new THREE.Quaternion(), tw, k, new THREE.Quaternion());
+    M.q[i].clone().multiply(sw).multiply(tw).toArray(Qout, i * 4);
+  }
+}
+function applyHipMotion(t) {   // in solveIK, before anything else moves the hips: turn / tilt and bob / sway about the average
+  const k = hipScaleAt(t); if (Math.abs(k - 1) < 1e-4) return;
+  const M = clipMeans(), b = rig.b, hi = boneIdx.get(b.hips.name), spQ = rig.delta(b.spine);
+  scaleAbout(M.q[hi], b.hips.quaternion, k, b.hips.quaternion); b.hips.updateMatrixWorld(true);
+  const tr = shownTravel(t, V3()), rel = worldP(b.hips).sub(tr);
+  rel.x = M.h.x + (rel.x - M.h.x) * k; rel.y = M.h.y + (rel.y - M.h.y) * k;
+  rig.setHipsWorld(rel.add(tr)); b.hips.updateMatrixWorld(true);
+  rig.setDelta(b.spine, spQ);   // the chest keeps its turn in the world (the arm swing sets the shoulder line)
+}
+function applyArmShape(t) {   // in solveIK: elbow bend and arm crossing (world)
+  const eb = A.elbowBend ? evalPts(A.elbowBend, t) : 0, cr = A.armCross ? evalPts(A.armCross, t) : 0;
+  if (Math.abs(eb) < 1e-3 && Math.abs(cr) < 1e-3) return;
+  const chest = worldP(rig.b.spine2);
+  for (const Sd of ['L', 'R']) {
+    const sd = rig.side[Sd];
+    if (Math.abs(cr) > 1e-3) {   // the arm turns in toward the body's middle line (+) or out (−)
+      const sh = worldP(sd.upper), v = worldP(sd.fore).sub(sh).normalize(), med = chest.clone().sub(sh); med.y = 0;
+      const ax = V3().crossVectors(v, med.normalize()); if (ax.lengthSq() > 1e-8) rotateBoneWorld(sd.upper, qAxis(ax.normalize(), cr * DEG));
+    }
+    if (Math.abs(eb) > 1e-3) {   // more (+) or less (−) bend at the elbow, kept within 3°…150°
+      const sh = worldP(sd.upper), el = worldP(sd.fore), u = el.clone().sub(sh), f = worldP(sd.hand).sub(el), ax = V3().crossVectors(u, f);
+      if (ax.lengthSq() < 1e-10) continue;
+      const a = u.angleTo(f), a2 = clamp(a + eb * DEG, 3 * DEG, 150 * DEG);
+      rotateBoneWorld(sd.fore, qAxis(ax.normalize(), a2 - a));
+    }
+  }
 }
 
 // ---------------------------------------------------------------- the "Moving speed" result row
@@ -182,6 +323,8 @@ function runMenu() {
     { label: 'Step length also moves knees, pelvis turn and arm swing', checked: stepCouple(), action: tog(() => { A.strideArms = !stepCouple(); }) },
     { sep: true },
     { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
+    { label: 'Arm swing follows the moving speed (slower → less swing)', checked: A.armAuto !== false, action: tog(() => { A.armAuto = A.armAuto === false; }) },
+    { label: 'Hip motion follows the moving speed (slower → less hip motion)', checked: A.hipAuto !== false, action: tog(() => { A.hipAuto = A.hipAuto === false; }) },
     { label: 'Hide the Run controls', action: tog(() => { A.showMaster.run = false; }) },
     { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
   ];
@@ -204,6 +347,10 @@ function drawRunBlock() {
   sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
   sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
   sub.push(addTrackRow('brake', BRAKE_SPEC, () => A.brake, (p) => { A.brake = p; }, 'Hard braking <i>% · in every foot contact</i>', null));
+  sub.push(addTrackRow('armSwing', ARMSW_SPEC, () => A.armSwing, (p) => { A.armSwing = p; }, `Arm swing <i>% · arms, shoulders, shoulder twist${A.armAuto !== false ? ' · × moving speed' : ''}</i>`, null));
+  sub.push(addTrackRow('elbowBend', ELBOW_SPEC, () => A.elbowBend, (p) => { A.elbowBend = p; }, 'Elbow bend <i>° · + more bent / − straighter</i>', null));
+  sub.push(addTrackRow('armCross', CROSS_SPEC, () => A.armCross, (p) => { A.armCross = p; }, 'Arm crossing <i>° · + in toward the middle / − out</i>', null));
+  sub.push(addTrackRow('hipMotion', HIPMO_SPEC, () => A.hipMotion, (p) => { A.hipMotion = p; }, `Hip motion <i>% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}</i>`, null));
   sub.push(addTrackRow('kneeDepth', KNEE_SPEC, () => A.kneeDepth, (p) => { A.kneeDepth = p; }, 'Knee depth <i>% · deeper knees, the hips come down (feet stay)</i>', null));
   for (const r of sub) r.el.classList.add('sub');
   sub[sub.length - 1].el.classList.add('blockend');

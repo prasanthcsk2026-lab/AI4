@@ -324,6 +324,16 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Arm swing, elbow bend, arm crossing, hip motion; shallower knee depth with heel lift
+New Run controls rows: **Arm swing %**, **Elbow bend °**, **Arm crossing °**, **Hip motion %** (Knee depth stays at the end).
+- **Arm swing** scales the arms' motion about the clip's own average arm pose, not toward the idle pose, so the carry and the elbow bend stay (no robot arms). It covers the collarbones (the shoulders' forward / back and up / down), upper arms, forearms and the spine / neck twist (the shoulder line turning). Sprint, 50 %: hand travel 73 → 47 cm, shoulder twist 42° → 26°, shoulder (collarbone) swing 15 → 9 cm, elbow carry 60.5° → 60.6° (unchanged).
+- **Elbow bend** +20° → mean elbow 60° → 80°. **Arm crossing** +15° → hand 30 → 20 cm from the middle line.
+- **Hip motion** scales the pelvis turn, drop and tilt and the hips' bob and side sway about their average. The feet stay planted (0.1 cm) and the chest keeps its turn in the world. Sprint, 50 %: pelvis turn 22° → 11°, drop 26° → 13°, bob 4.1 → 2.1 cm, sway 3.0 → 1.5 cm.
+- **Both follow the moving speed** (on by default, ⋯ menu to turn off): × (1 + k·(speed / clip speed − 1)), k = 0.8 for the arms and 0.6 for the hips, with the speed averaged over one bar. Run → Jog (5.5 → 2 m/s, ratio 0.37): arm 49 %, hip 62 %. Hand travel 52 → 31 cm, shoulder twist 44° → 24°, pelvis turn 14° → 8.5°, bob 4.1 → 2.5 cm.
+- **Knee depth < 100 %** now raises the hips by phase: most in mid-contact, less at touchdown / toe-off. A smooth curve kept under what the legs can reach, with a **heel lift**: a planted foot that would be out of reach rolls onto its toe (up to 40°). The lift fades in just before touchdown and out before toe-off. At 60 %: jog +3.8 cm, sprint +3.2 cm (before: 0).
+- The heel lift also replaces the hip dip that the run IK made when a planted foot was just out of reach (extra hip acceleration with a spine lean: jog 60 → 0, run slow 136 → 21 m/s²).
+- Limitation: on the sprint, 60 % still has a small hip jerk at toe-off (185 m/s² extra) and extra foot acceleration (≈ 600 m/s²); 80 % is 88 / 400. Keep a sprint at ≥ 80 %.
+
 ## Knee depth, Moving speed track, hip jerk fix
 - **Moving speed** is its own track at the top of the timeline (no longer inside Run controls or a forcer block). It is a read-only result: the ground speed from every track (playback / cycle speed, step length, hard braking, travel trim) and every forcer. With forcers on, a dashed line shows the speed without them and the value reads "without → with". Its scale fits the range the speed moves in. "+" → Moving speed shows / hides it.
 - **Knee depth** (Run controls, %, 100 = the clip, 50–150): deeper knees in every foot contact, and the hips come down by exactly the amount that keeps the planted foot where it was. That amount is worked out once per clip from the legs at mid-contact, so the hip height follows only the Knee depth track: no step at touchdown or toe-off.

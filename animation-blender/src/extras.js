@@ -22,7 +22,7 @@ function curveItems(r, hit) {
 // there or inserting new bars first. Tracks are matched by name, so a copy goes to another clip too.
 let barClip = null;
 function pointArrayMap(a) {   // stable name → point array, for every track in an automation object
-  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride, lean: a.lean, hipRot: a.hipRot, brake: a.brake, kneeDepth: a.kneeDepth };
+  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride, lean: a.lean, hipRot: a.hipRot, brake: a.brake, kneeDepth: a.kneeDepth, armSwing: a.armSwing, elbowBend: a.elbowBend, armCross: a.armCross, hipMotion: a.hipMotion };
   for (const n of a.order) { const ba = a.bones[n]; if (!ba) continue; m[`b|${n}|whole`] = ba.whole; m[`b|${n}|timing`] = ba.timing; for (const x of AXES) { m[`b|${n}|w${x}`] = ba.w[x]; m[`b|${n}|a${x}`] = ba.a[x]; } }
   for (const g of a.groupOrder) { const gr = a.groups[g]; if (!gr) continue; m[`g|${g}|weight`] = gr.weight; m[`g|${g}|timing`] = gr.timing; }
   for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; for (const k in e.tr) m[`e|${id}|${k}`] = e.tr[k]; }
@@ -147,9 +147,9 @@ let spdCache = null;
 function speedSeries() {
   const key = `${editVersion}|${S.dur}|${cur && cur.id}`;
   if (spdCache && spdCache.key === key) return spdCache;
-  const n = 240, v = new Float32Array(n + 1); let mx = 0;
-  for (let i = 0; i <= n; i++) { v[i] = groundSpeedAt((i / n) * S.dur); mx = Math.max(mx, v[i]); }
-  spdCache = { key, n, v, mx };
+  const n = 240, v = new Float32Array(n + 1); let mx = 0, mn = Infinity;
+  for (let i = 0; i <= n; i++) { v[i] = groundSpeedAt((i / n) * S.dur); mx = Math.max(mx, v[i]); mn = Math.min(mn, v[i]); }
+  spdCache = { key, n, v, mx, mn };
   return spdCache;
 }
 function drawSpeedGraph() {
