@@ -467,9 +467,9 @@ function ikLimb(limb, root, target, pole, fallback) {
   const d2 = basisQ(a2, h, new THREE.Quaternion()).multiply(limb.B2inv);
   return { d1, d2 };
 }
-const effActive = (id, pend) => (!!A.ik[id] && !A.ik[id].bypass) || !!(pend && pend.kind === 'eff' && pend.id === id) || runLeanOn(id);
+const effActive = (id, pend) => (!!A.ik[id] && !A.ik[id].bypass) || !!(pend && pend.kind === 'eff' && pend.id === id) || runLeanOn(id) || forcerIKOn(id);
 // an effector's value: its own track (or the neutral value), plus what the Run controls' spine lean adds
-function effVal(id, k, t) { const e = A.ik[id], own = e && e.tr[k] ? evalPts(e.tr[k], t) : TRK[k].ref; return own + runLeanAdd(id, k, t); }
+function effVal(id, k, t) { const e = A.ik[id], own = e && e.tr[k] ? evalPts(e.tr[k], t) : TRK[k].ref; return own + runLeanAdd(id, k, t) + forcerIKAdd(id, k, t); }
 const eulerQ = (xd, yd, zd, out = new THREE.Quaternion()) => out.setFromEuler(new THREE.Euler(xd * DEG, yd * DEG, zd * DEG, 'YXZ'));
 function effRotQ(id, t, pend, w = 1) {   // world rotation offset of an effector (tracks × blend, then the live gizmo change)
   const q = eulerQ(effVal(id, 'rx', t), effVal(id, 'ry', t), effVal(id, 'rz', t));
@@ -761,7 +761,7 @@ function solveIK(t, pend) {
     const sd = rig.side[Sd], hId = Sd + 'hand';
     if (!on(hId) && !on(Sd + 'elbow')) continue;
     const carried = worldP(sd.hand), carriedQ = rig.delta(sd.hand);
-    const w = A.ik[hId] || (pend && pend.id === hId) ? effVal(hId, 'blend', t) : 0, pin = w ? effVal(hId, 'pin', t) * w : 0;
+    const w = A.ik[hId] || (pend && pend.id === hId) || forcerIKOn(hId) ? effVal(hId, 'blend', t) : 0, pin = w ? effVal(hId, 'pin', t) * w : 0;
     let base = carried.clone().lerp(fkRef[Sd].hand, pin);
     let baseQ = carriedQ.clone().slerp(fkRef[Sd].handQ, pin);
     const e = A.ik[hId];
@@ -797,7 +797,11 @@ function solveIK(t, pend) {
     const sd = rig.side[Sd], l = legT[Sd];
     if (l) {
       const hip = worldP(sd.thigh);
-      let pole = worldP(sd.shin).addScaledVector(V3(0, 0, 1), 0.05);
+      // the knee points the way the runner faces (from the hips, not the shin: a strongly tilted pelvis would
+      // otherwise swing the pole behind the leg and fold the knee backward), a little outward
+      const oth = worldP(rig.side[Sd === 'L' ? 'R' : 'L'].thigh), across = hip.clone().sub(oth); across.y = 0;
+      const fwdB = across.lengthSq() > 1e-8 ? V3().crossVectors(Sd === 'L' ? across : across.clone().negate(), V3(0, 1, 0)).normalize() : V3(0, 0, 1);
+      let pole = hip.clone().add(l.target).multiplyScalar(0.5).addScaledVector(fwdB, 0.5).addScaledVector(across.normalize(), 0.06);
       if (l.gx.any) pole = l.gx.apply(pole);
       const sw = effSwivel(Sd + 'knee', t, pend);
       if (Math.abs(sw) > 1e-5) { const ax = l.target.clone().sub(hip).normalize(); pole = pole.sub(hip).applyAxisAngle(ax, sw).add(hip); }

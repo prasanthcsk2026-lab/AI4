@@ -202,13 +202,13 @@ function rebuildRows() {
   };
   // every bone / group / IK / symmetrize block in the order it was added (new ones at the end; drag a block's
   // ⋮⋮ grip to move it); A.rowOrder keeps that order, older projects start from the type order
-  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'res' ? !!A.resist : kind === 'std' ? !!A.steady : kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
-  const all = [...(A.resist ? ['res:main'] : []), ...(A.steady ? ['std:main'] : []), ...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
+  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'frc' ? !!(A.forcers && A.forcers.some((f) => f.id === id)) : kind === 'std' ? !!A.steady : kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
+  const all = [...(A.forcers || []).map((f) => 'frc:' + f.id), ...(A.steady ? ['std:main'] : []), ...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
   const seen = new Set(); A.rowOrder = (A.rowOrder || []).filter((k) => keyOk(k) && !seen.has(k) && seen.add(k));
   for (const k of all) if (!seen.has(k)) { seen.add(k); A.rowOrder.push(k); }
   for (const key of A.rowOrder) {
     const [kind, ...r] = key.split(':'), id = r.join(':'), n0 = rows.length;
-    if (kind === 'res') drawResistBlock(); else if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
+    if (kind === 'frc') drawForcerBlock(id); else if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
     const blk = rows.slice(n0); if (!blk.length) continue;
     blk[0].el.dataset.block = key; addBlockGrip(blk[0], key);
     for (const sub of blk.slice(1)) sub.el.classList.add('sub');
@@ -234,7 +234,8 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Stride length', checked: !!A.showMaster.stride, action: tog('stride') },
     { label: 'Step length also moves knees, pelvis turn and arm swing', checked: A.strideArms !== false, action: () => { pushUndo(); A.strideArms = A.strideArms === false; editVersion++; trailDirty = true; save(); } },
     { label: 'Foot on ground (braking)', checked: !!A.showMaster.gnd, action: tog('gnd') },
-    { label: 'Resistance device (speaker: push / pull)', checked: !!A.resist, action: () => (A.resist ? confirmDelete('Remove Resistance and its tracks?', () => { pushUndo(); removeResistNow(); }) : addResist()) },
+    { label: 'Moving forcer (moves with the runner)', action: () => addForcer('moving') },
+    { label: 'Fixed forcer (stays put in the world)', action: () => addForcer('fixed') },
     { label: 'Steadiness (centre bones)', checked: !!A.steady, action: () => (A.steady ? confirmDelete('Remove Steadiness and its tracks?', () => { pushUndo(); removeSteadyNow(); }) : addSteady()) },
     { label: 'Templates: save / open…', action: openTplLib },
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
@@ -318,7 +319,7 @@ function refreshSummary(r) {
   if (!r.owner) return;
   const o = r.owner;
   if (o.type === 'sym') return;
-  if (o.type === 'resist') { resistSummary(rows.find((x) => x.kind === 'resist')); return; }
+  if (o.type === 'forcer') { for (const x of rows) if (x.kind === 'forcer') forcerSummary(x); return; }
   if (o.type === 'steady') { const hr = rows.find((x) => x.kind === 'steady'); if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = steadySummary(); return; }
   const hr = o.type === 'bone' ? rows.find((x) => x.kind === 'bone' && x.bone === o.name) : o.type === 'group' ? rows.find((x) => x.kind === 'group' && x.group === o.id) : rows.find((x) => x.kind === 'eff' && x.eff === o.id);
   if (hr && hr.lane.firstChild) hr.lane.firstChild.textContent = o.type === 'bone' ? boneSummary(A.bones[o.name]) : o.type === 'group' ? groupSummary(o.id) : effSummary(o.id);
@@ -389,7 +390,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
   out.push(a.lean, a.hipRot, a.brake);
-  if (a.resist) for (const k of RES_KEYS) out.push(a.resist[k]);
+  for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
@@ -737,13 +738,13 @@ function onDrag(e) {
   p.t = drag.i === 0 ? 0 : drag.i === pts.length - 1 ? S.dur : clamp(t, lo, hi); p.v = clamp(v, r.range[0], r.range[1]);
   // a playback / cycle speed point: it goes to the bar under the cursor (as the frozen ruler shows it), and stays
   // on that bar however its own value re-times the bars before it
-  if (BAR_DRIVERS.has(r.key)) {
+  if (BAR_DRIVERS.has(r.key) || r.key.startsWith('f|')) {
     const ctLo = drag.i > 0 ? clipTime(pts[drag.i - 1].t) : 0, ctHi = drag.i < pts.length - 1 && pts[drag.i + 1].t < S.dur - 1e-6 ? clipTime(pts[drag.i + 1].t) : Infinity;
     if (drag.ct0 == null) drag.ct0 = clipTime(p.t);   // its bar when grabbed
     pinDrag = { p, ct: clamp(sideways ? lutAt(vLut(), p.t) : drag.ct0, ctLo, ctHi) };
   }
   const held = drag.stick ? ` · = ${drag.stick.why}` : '';
-  if (BAR_DRIVERS.has(r.key)) { freezeView(); drawLane(r); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}${held} · updates on release`); return; }
+  if (BAR_DRIVERS.has(r.key) || r.key.startsWith('f|')) { freezeView(); drawLane(r); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}${held} · updates on release`); return; }
   edited(r, true); tip(e, `${p.t.toFixed(3)} s · ${r.fmt(p.v)}${held}`);
 }
 function finalizeBoxSelect() {
@@ -777,8 +778,8 @@ function edited(r, live = false) {
 }
 function editedInner(r, live = false) {
   if (live) syncMirrors();
-  if (TIMING_KEYS.has(r.key)) {
-    const bar = BAR_DRIVERS.has(r.key);
+  if (TIMING_KEYS.has(r.key) || r.key.startsWith('f|')) {
+    const bar = BAR_DRIVERS.has(r.key) || r.key.startsWith('f|');
     // playback / cycle speed: while dragging nothing is re-timed (the point stays where the frozen ruler shows it,
     // only its value moves); on release the point, the ruler, the bars and every other track update at once
     if (live) { freezeView(); if (!bar) rebuildSpeedLUT(); drawLane(r); }
@@ -911,7 +912,7 @@ function openEffMenu(e, id) {
   ]);
 }
 // delete a track: its automation goes back to neutral and it leaves the timeline; an item with no tracks left goes too
-function trackName(r) { const el = r.h.querySelector('.name'); const own = r.owner ? (r.owner.type === 'bone' ? r.owner.name : r.owner.type === 'eff' ? EFF_BY_ID[r.owner.id].label : r.owner.type === 'group' ? groupLabel(r.owner.id) : r.owner.type === 'steady' ? 'Steadiness' : r.owner.type === 'resist' ? 'Resistance' : symLabel(r.owner.id)) : ''; return `"${el ? el.textContent.trim() : r.key}"${own ? ' of ' + own : ''}`; }
+function trackName(r) { const el = r.h.querySelector('.name'); const own = r.owner ? (r.owner.type === 'bone' ? r.owner.name : r.owner.type === 'eff' ? EFF_BY_ID[r.owner.id].label : r.owner.type === 'group' ? groupLabel(r.owner.id) : r.owner.type === 'steady' ? 'Steadiness' : r.owner.type === 'forcer' ? ((A.forcers || []).find((f) => f.id === r.owner.id) || { name: 'Forcer' }).name : symLabel(r.owner.id)) : ''; return `"${el ? el.textContent.trim() : r.key}"${own ? ' of ' + own : ''}`; }
 function deleteTrack(r) {
   const o = r.owner, last = (o && o.type === 'bone' && Object.values(A.bones[o.name].show).filter(Boolean).length === 1) || (o && o.type === 'eff' && Object.values(A.ik[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'group' && Object.values(A.groups[o.id].show).filter(Boolean).length === 1) || (o && o.type === 'steady' && Object.values(A.steady.show).filter(Boolean).length === 1);
   confirmDelete(`Delete the track ${trackName(r)}? Its automation is cleared.${last ? ' It is the last track, so the item leaves the timeline too.' : ''}`, () => deleteTrackNow(r));
@@ -995,7 +996,7 @@ function nudgeSelection(key, big) {
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('resDlg').hidden || !$('stdDlg').hidden || !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('frcDlg').hidden || !$('stdDlg').hidden || !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }

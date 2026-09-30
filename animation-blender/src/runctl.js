@@ -60,7 +60,7 @@ function runLeanAdd(id, k, t) {
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn();
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn();
 const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && runIKActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);

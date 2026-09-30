@@ -430,3 +430,8 @@
 
 /* run controls: the moving speed result */
 .row .resv { font: 600 11px var(--mono); color: #f08a1c; margin-left: auto; padding: 0 6px; }
+
+/* forcer settings */
+.frcform { overflow: auto; }
+.frcik { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; font-size: 12px; }
+.row.resb.selected .h { outline: 1px solid #ff4fa3; }

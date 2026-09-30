@@ -146,7 +146,7 @@ function normalizeAuto(a) {
   a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
   if (a.steady) a.steady = normalizeSteady(a.steady, a.dur); else delete a.steady;
-  if (a.resist) a.resist = normalizeResist(a.resist, a.dur); else delete a.resist;
+  normalizeForcers(a);
   for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
@@ -453,10 +453,10 @@ function removeBone(name) { removeLinked('bone', A.bones, 'order', name); }
 function removeGroup(gid) { removeLinked('group', A.groups, 'groupOrder', gid); }
 function removeEff(id) { removeLinked('eff', A.ik, 'ikOrder', id); }
 
-function selectBone(name) { S.selected = name; S.selEff = null; S.selGroup = null; afterSelect(); }
-function selectEff(id) { S.selEff = id; S.selected = null; S.selGroup = null; afterSelect(); }
+function selectBone(name) { S.selected = name; S.selEff = null; S.selGroup = null; S.selForcer = null; afterSelect(); }
+function selectEff(id) { S.selEff = id; S.selected = null; S.selGroup = null; S.selForcer = null; afterSelect(); }
 function selectGroup(gid) { S.selGroup = gid; S.selected = null; S.selEff = null; afterSelect(); }
-function clearSelection() { S.selected = null; S.selEff = null; S.selGroup = null; afterSelect(); }
+function clearSelection() { S.selected = null; S.selEff = null; S.selGroup = null; S.selForcer = null; afterSelect(); }
 function afterSelect() { cancelPending(); rebuildRows(); updateSelChip(); updateGizmoTarget(); trailDirty = true; }
 
 // ---------------------------------------------------------------- add-tracks dialog (bones and effectors)

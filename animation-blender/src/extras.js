@@ -28,7 +28,7 @@ function pointArrayMap(a) {   // stable name → point array, for every track in
   for (const id of a.ikOrder) { const e = a.ik[id]; if (!e) continue; for (const k in e.tr) m[`e|${id}|${k}`] = e.tr[k]; }
   for (const k of a.symOrder) { const sy = a.sym[k]; if (!sy) continue; m[`s|${k}|weight`] = sy.weight; m[`s|${k}|offset`] = sy.offset; }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) m[`q|${k}`] = a.steady.tr[k];
-  if (a.resist) for (const k of RES_KEYS) m[`r|${k}`] = a.resist[k];
+  for (const f of a.forcers || []) for (const k of RES_KEYS) m[`f|${f.id}|${k}`] = f[k];
   for (const k of Object.keys(m)) if (!m[k]) delete m[k];
   return m;
 }
@@ -183,6 +183,6 @@ function updateSpeedHud() {
   $('shMove').textContent = `moving ${Math.round(m * 100)} %${S.inPlace ? ' · in place' : ''}`;
   drawSpeedGraph();
   updateResistViz();
-  for (const r of rows) if (r.kind === 'resist') resistSummary(r);
+  for (const r of rows) if (r.kind === 'forcer') forcerSummary(r);
   for (const r of rows) if (r.resEl) { r.resEl.textContent = `${v.toFixed(2)} m/s`; }
 }

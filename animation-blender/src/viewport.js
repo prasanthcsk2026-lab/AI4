@@ -9,10 +9,11 @@ let pending = null;
 function cancelPending() { pending = null; updateGizPanel(); }
 function pendingIsZero(p) {
   if (!p) return true;
+  if (p.kind === 'forcer') { const f = (A.forcers || []).find((x) => x.id === p.id); return !f || ['px', 'py', 'pz', 'fx', 'fy', 'fz'].every((k) => Math.abs(p.vals[k] - evalPts(f[k], S.t)) < 1e-4); }
   if (p.kind === 'bone') return AXES.every((a) => Math.abs(p.deg[a]) < 0.05);
   return (!p.dpos || p.dpos.length() < 5e-4) && (!p.drot || Math.abs(p.drot.w) > 0.99999) && Math.abs(p.dswivel || 0) < 0.05;
 }
-function keyPending() { const p = pending; pending = null; keyChange(p, S.t, 0); }
+function keyPending() { const p = pending; pending = null; if (p && p.kind === 'forcer') { if (!pendingIsZero(p)) keyForcer(p); updateGizPanel(); return; } keyChange(p, S.t, 0); }
 // write a change into the tracks at time t; falloff > 0 keeps the change local (anchors at t ± falloff)
 function keyChange(p0, t, falloff) {
   const p = redirectMirrored(p0);
@@ -79,6 +80,7 @@ function ensureGizmo() {
 // what the gizmo drives right now: { type: 'bone'|'eff', ... , mode: 'rotate'|'translate', space }
 function gizTarget() {
   if (!gizmoMode) return null;
+  if (S.selForcer && (A.forcers || []).some((f) => f.id === S.selForcer)) return { type: 'forcer', id: S.selForcer, mode: gizmoMode === 'rotate' ? 'rotate' : 'translate', space: 'world' };
   if (S.selected) {
     if (gizmoMode === 'rotate') return { type: 'bone', name: S.selected, mode: 'rotate', space: 'local' };
     if (S.selected === rig.b.hips.name) return { type: 'eff', id: 'hips', mode: 'translate', space: 'world' };
@@ -113,12 +115,18 @@ function gizBonePos(g) { return g.type === 'bone' ? worldP(rig.bones[boneIdx.get
 function syncGizmoProxy() {
   if (!tcontrols || !gizHelper || !gizHelper.visible || gizDragging) return;
   const g = gizTarget(); if (!g) return;
+  if (g.type === 'forcer') { const v = resViz.get(g.id); if (v) { gizProxy.position.copy(v.g.position); gizProxy.quaternion.copy(v.g.quaternion); } return; }
   gizProxy.position.copy(gizBonePos(g));
   if (g.type === 'bone') worldQ(rig.bones[boneIdx.get(g.name)], gizProxy.quaternion); else gizProxy.quaternion.identity();
 }
 function startGizDrag() {
   const g = gizTarget(); if (!g) return;
   gizDragging = true;
+  if (g.type === 'forcer') {   // a forcer: its world pose → its track values (a live change until keyed)
+    const f = A.forcers.find((x) => x.id === g.id);
+    pending = { kind: 'forcer', id: g.id, vals: forcerVals(f, S.t) };
+    gizStart = { g, f }; return;
+  }
   if (!pending || pending.kind !== (g.type === 'bone' ? 'bone' : 'eff') || pending.name !== g.name || pending.id !== g.id) {
     pending = g.type === 'bone' ? { kind: 'bone', name: g.name, deg: { x: 0, y: 0, z: 0 } } : { kind: 'eff', id: g.id, dpos: V3(), drot: new THREE.Quaternion(), dswivel: 0 };
   }
@@ -140,6 +148,11 @@ function endGizDrag() {
 function onGizChange() {
   if (!gizDragging || !gizStart || !pending) return;
   const st = gizStart, g = st.g;
+  if (g.type === 'forcer') {
+    const dirW = g.mode === 'rotate' ? V3(0, 0, 1).applyQuaternion(gizProxy.quaternion) : null;
+    pending.vals = { ...pending.vals, ...forcerValsFromWorld(st.f, g.mode === 'rotate' ? null : gizProxy.position.clone(), dirW) };
+    updateGizPanel(); return;
+  }
   if (g.type === 'bone') {
     const newLocal = st.parentQ.clone().invert().multiply(gizProxy.quaternion);
     logQ(st.localQ.clone().invert().multiply(newLocal), vv);
@@ -160,7 +173,8 @@ function updateGizPanel() {
   $('gizPanel').hidden = !(g || p);
   if (!(g || p)) return;
   let text = g ? (g.mode === 'rotate' ? 'rotate' : g.swivel ? 'swivel' : 'move') : 'change';
-  if (p && !pendingIsZero(p)) {
+  if (p && p.kind === 'forcer') { const v = p.vals; text = `${((A.forcers || []).find((f) => f.id === p.id) || { name: 'forcer' }).name}: ${v.px.toFixed(2)} / ${v.py.toFixed(2)} / ${v.pz.toFixed(2)} m · facing ${Math.round(v.fx)}° / ${Math.round(v.fy)}°`; }
+  else if (p && !pendingIsZero(p)) {
     if (p.kind === 'bone') {
       const lab = axisInfo[p.name] || {};
       let best = 'x'; for (const a of ['y', 'z']) if (Math.abs(p.deg[a]) > Math.abs(p.deg[best])) best = a;
@@ -263,6 +277,8 @@ renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4 || !skel || gizDragging) return;
   if (performance.now() - gizEndedAt < 300 || (tcontrols && tcontrols.enabled && tcontrols.axis)) return;
+  const fid = pickForcer(e.clientX, e.clientY);
+  if (fid) { selectForcer(fid); return; }
   const best = pickViewport(e.clientX, e.clientY);
   if (!best) clearSelection(); else if (best.eff) selectEff(best.eff); else selectBone(best.bone);
 });

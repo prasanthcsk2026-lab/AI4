@@ -290,32 +290,28 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - The old "Moving speed" multiplier is now **Travel trim** (it can make the feet slide).
 - **Template: Run → Jog (4 controls)** (⋯ menu or "+" menu): 10 bars; bars 3–7 slow down: step length 100 → 53 %, cadence 225 → 165 steps/min, spine lean 0 → −8°, hip rotation 0 → −4°, hard braking 70 % over bars 4–6. Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk 20° → 7.9°, hips 87 → 88.7 cm, swing knee 52° → 83°, slip 4.2–8 cm per bar (the sprint clip itself: 6).
 
-## Resistance device (speaker)
-"+" menu → **Resistance device**. A speaker-like force source that always moves with the runner. It is formula based (no simulation; the same result every time) and adds to the Run controls without overwriting them.
-- **Tracks:**
-  - **X / Y / Z position** (m from the root, the ground point under the hips turned with the runner: X + right, Y height, Z + in front; default 0 / 1.2 / 1).
-  - **Facing X / Y / Z** (°: tilt, turn, roll; Y 180 points it back at the runner from in front; roll has no effect on the round cone).
-  - **Force** (N: + pushes away like a fan, − pulls toward it like a magnet; 736 N = a 75 kg body weight).
-  - **Spread** (° full cone angle).
-- **Settings (⚙):** body mass, falloff (inverse square with full force at 1 m, linear to 4 m, or none), keep speed, show the speaker.
-- **What it does:**
-  - Each body part (head 8 %, chest 30 %, pelvis 20 %, thighs 10 % each, shins 6 % each, arms 5 % each) inside the cone gets its share of the force along the ray from the speaker (smooth at the cone's edge, falling off with distance).
-  - The body leans against the sum: forward / back and sideways, away from the push. Force high on the body bends the spine more; low on it tilts the pelvis. The head is pushed with the force on it.
-  - Load = back push / weight: steps shorten 0.75 % per 1 % load, the shoulder swing grows. Keep speed raises the cadence to hold the speed.
-  - An up push lightens the body (hips higher), a down push loads it (hips lower); a side push widens the steps.
-- **Viewport:** the speaker (cabinet, woofer, tweeter), the force cone, waves travelling out (push, orange) or in (pull, blue) with speed and brightness by force, and arrows on the body parts it reaches.
-- **Measured at 5.5 m/s (Sprint.fbx, 75 kg):**
+## Forcers (force sources around the runner)
+"+" menu → **Moving forcer** or **Fixed forcer**. Add as many as you like; each one is its own timeline block (**MOVING** / **FIXED** tag in its colour).
+- **Moving forcer:** moves with the runner. X / Y / Z are from the root (the ground under the hips, turned with the runner: X + right, Y height, Z + in front); default 1 m in front, 1.2 m high, facing the runner.
+- **Fixed forcer:** stays put in the world. X / Y / Z are from the runner's start point; default 10 m down the track, facing back toward the start. The runner comes up to it and passes it.
+- **Tracks per forcer:** X / Y / Z position, Facing X / Y / Z (tilt / turn / roll), **Force** (N: + push, − pull), **Spread** (° cone), **Weight** (% of the body's reaction: 0 = shown but no effect, 100 = full, 200 = double).
+- **Settings (⚙ on the block):**
+  - Name, falloff, show.
+  - **Target:** Whole body and / or IK controllers (hips, spine, chest, neck, head, hands, feet). A ticked controller is moved along the ray from the forcer by Force × Weight × **Stiffness** (cm per 100 N), up to **Max move**, and its chain follows by IK.
+  - **Only inside the cone** (off = always hits) and **Body reacts too**.
+  - **Body (shared by all forcers):** mass, keep speed.
+- **Several forcers add up** on each body part (vector sum), then the body leans against the total, the steps shorten under load, and the cadence rises to keep the speed.
+- **Viewport:**
+  - Each forcer is drawn as a speaker (colour trim), with its cone, waves (out = push, in = pull, blue) and arrows on the parts or controllers it reaches.
+  - **Click a speaker to select it** (its block highlights). **W** gives move arrows, **E** rotation rings. Auto-key on keys X / Y / Z or Facing at the playhead when you let go; off leaves it live until Key.
+- **Measured at 5.5 m/s (Sprint.fbx):**
+  - One moving forcer, 150 N, 90°: lean 20° → 28.9°, step 88 %, cadence 255, 5.5 m/s. Weight 0 / 50 / 200 % gives lean 20.0° / 24.5° / 37.1°.
+  - Adding a side forcer adds 6.5° of side lean.
+  - A pull of −200 N on the left hand moves it 25 cm toward the forcer.
+  - A fixed forcer 10 m down the track: 1 N at the start, 149 N at 9.2 m, 0 once passed.
+- Older projects: the single Resistance device becomes Forcer 1 (moving); its mass / keep speed become the body settings. A fixed forcer uses the runner's path from the last timing (keep speed off can lag it slightly).
 
-| Speaker | Parts reached | Net push | Trunk lean | Step | Cadence |
-|---|---|---|---|---|---|
-| none | – | 0 | 20.0° | 100 % | 225 |
-| 1 m front, 1.2 m high, push 150 N, 30° | chest, pelvis | 49 N | 23.9° | 95 % | 237 |
-| same, 90° | whole body | 114 N | 28.9° | 88 % | 255 |
-| 1 m front, 0.5 m high, push 150 N, 60° | pelvis, legs | 66 N | 25.2° | 93 % | 241 |
-| 1 m behind, pull −150 N, 90° | whole body | 119 N | 29.4° | 88 % | 256 |
-| 1 m right, push 100 N, 90° | whole body | 85 N (sideways) | side +6.3° (leans right, into the push) | 100 % | 226 |
-
-Speed stays 5.5 m/s in every row (keep speed on).
-- An older project's Resistance (force / direction / vertical) is converted to a speaker 1 m back along the pull, pushing along it, spread 120°.
+## Knees no longer fold backward
+The leg IK now aims the knee along the runner's facing (from the hips), not from the shin. A strongly tilted pelvis (big forward lean, hip rotation, a strong forcer push) used to fold it backward: 73 / 480 frames with a 300 N push, 330 / 480 with lean and hip rotation +25°. Both are now 0.
 
 Also fixed: the timing no longer uses a stale "is this track active" check right after a Hard braking edit.

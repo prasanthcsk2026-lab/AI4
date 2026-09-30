@@ -275,14 +275,25 @@
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
   </div>
 </div>
-<div class="sheet" id="resDlg" hidden>
-  <div class="box" role="dialog" aria-modal="true" aria-labelledby="resT">
-    <h2 id="resT">Resistance device</h2>
-    <div class="barsform"><label>Body mass <input type="number" id="resMass" min="20" max="200" step="1" value="75"> kg</label>
-      <label>Falloff <select id="resFall"><option value="inv2">Inverse square (full at 1 m)</option><option value="linear">Linear (gone at 4 m)</option><option value="none">None</option></select></label>
-      <label class="cb"><input type="checkbox" id="resKeep" checked> Keep speed (the cadence rises as the steps shorten)</label>
-      <label class="cb"><input type="checkbox" id="resShow" checked> Show the speaker, its cone and the force arrows</label></div>
-    <div class="acts"><span class="note">The speaker moves with the runner: X + right, Y height, Z + in front of the root (the ground under the hips). Facing Y 180° points it back at the runner from in front. Force + pushes away (fan, wind), − pulls toward it (magnet, rope). Spread is the full cone angle; body parts inside the cone share the force. 736 N = a 75 kg body weight.</span><button type="button" class="primary" id="resClose">Close</button></div>
+<div class="sheet" id="frcDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="frcT">
+    <h2 id="frcT">Forcer settings</h2>
+    <div class="frcform">
+      <div class="barsform"><label>Name <input type="text" id="frcName" spellcheck="false"></label>
+        <label>Falloff <select id="frcFall"><option value="inv2">Inverse square (full at 1 m)</option><option value="linear">Linear (gone at 4 m)</option><option value="none">None</option></select></label>
+        <label class="cb"><input type="checkbox" id="frcShow" checked> Show it (speaker, cone, arrows)</label></div>
+      <h3 class="imph">Target</h3>
+      <div class="barsform"><label class="cb"><input type="checkbox" id="frcWhole" checked> Whole body (lean, steps, cadence)</label></div>
+      <div id="frcIK" class="frcik"></div>
+      <div class="barsform"><label>Stiffness <input type="number" id="frcStiff" min="0" max="100" step="1" value="10"> cm per 100 N</label>
+        <label>Max move <input type="number" id="frcMax" min="0" max="150" step="1" value="40"> cm</label>
+        <label class="cb"><input type="checkbox" id="frcCone" checked> Only inside the cone (off: always hits)</label>
+        <label class="cb"><input type="checkbox" id="frcReact" checked> Body reacts too</label></div>
+      <h3 class="imph">Body (all forcers)</h3>
+      <div class="barsform"><label>Body mass <input type="number" id="resMass" min="20" max="200" step="1" value="75"> kg</label>
+        <label class="cb"><input type="checkbox" id="resKeep" checked> Keep speed (the cadence rises as the steps shorten)</label></div>
+    </div>
+    <div class="acts"><span class="note">Moving forcer: X / Y / Z from the root (the ground under the hips, turned with the runner). Fixed forcer: X / Y / Z from the start, in the world. Force + pushes away (fan, wind), − pulls toward it (magnet, rope). Ticked IK controllers are moved along the ray from the forcer by Force × Weight × Stiffness, up to Max move.</span><button type="button" class="primary" id="frcClose">Close</button></div>
   </div>
 </div>
 <div class="sheet" id="stdDlg" hidden>
