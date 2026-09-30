@@ -199,7 +199,7 @@ function rebuildSpeedLUT() {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
     const cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
-    lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * dt;
+    lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * resistAt((t0 + t1) / 2).cadK * dt;
   }
   if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
     const tg = A.cycles * cur.dur, e = lut[n - 1];
@@ -317,7 +317,7 @@ const gndArr = { L: null, R: null }, gndH = V3();
 const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefined; };
 // Stride length (master track, % of the clip's own): each foot reaches that much further ahead of / behind the hips
 // (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
-function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1; }
+function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistAt(t).stepK, 0.4, 1.5) : 1; }   // resistance shortens the steps too
 let armChain = null;
 let stepNm = null;
 function stepNames() { if (stepNm && stepNm.rig === rig) return stepNm; stepNm = { rig, knee: new Set(['L', 'R'].map((S) => rig.side[S].shin.name)), arm: new Set(['L', 'R'].map((S) => rig.side[S].upper.name)) }; return stepNm; }
@@ -327,7 +327,7 @@ function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
-  const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK), armF = stepArmK(stepK), sn = stepNames();   // step length: knee lift + shoulder swing
+  const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK), armF = stepArmK(stepCouple() && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1) * resistAt(t).armK, sn = stepNames();   // step length: knee lift + shoulder swing
   const gw = new Map(), gt = new Map();
   for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g || g.bypass) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
   const gF = gw.size ? rig.bones.map((b) => groupFactor(b.name, gw, gt)) : null;
@@ -355,7 +355,7 @@ function composePose(t, Qout, Hout, pend) {
     const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : legSd && gndArr[legSd] ? gndArr[legSd] : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
-    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (stepK !== 1 ? (sn.knee.has(name) ? kneeF : sn.arm.has(name) ? armF : 1) : 1);
+    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (stepK !== 1 || armF !== 1 ? (sn.knee.has(name) ? kneeF : sn.arm.has(name) ? armF : 1) : 1);
     if (!ba && !pd && Math.abs(W - 1) < 1e-6) { Qout.set(src.subarray(o, o + 4), o); continue; }
     qI.fromArray(QI, o);
     qD.copy(qI).invert().multiply(qC); if (qD.w < 0) { qD.x = -qD.x; qD.y = -qD.y; qD.z = -qD.z; qD.w = -qD.w; }
@@ -712,7 +712,7 @@ function solveIK(t, pend) {
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive();
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive() || resistOn();
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
@@ -720,6 +720,7 @@ function solveIK(t, pend) {
     const pinW = sf ? 1 : on('hips') ? feetPin : 0;
     let base = carried.clone().lerp(fkFoot, pinW);
     const reach = brakeReachCm(Sd, t); if (reach) base.z += reach / 100;   // hard braking: the foot lands further ahead
+    const wid = resistOn() ? resistAt(t).widthCm : 0; if (wid) base.x += rig.side[Sd].s * RESK.widthSign * wid / 100;   // side pull: wider steps
     let baseQ = carriedQ.clone().slerp(sf ? sf[Sd].q : fkRef[Sd].footQ, pinW);
     const e = A.ik[fId];
     if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }

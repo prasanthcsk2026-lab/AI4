@@ -289,3 +289,25 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - **Moving speed** (m/s): the result, cadence × step length, drawn over the timeline. **Speed lock** (⋯ menu): editing step length rewrites the cadence so the speed stays, and editing the cadence rewrites the step length (within 50–150 %).
 - The old "Moving speed" multiplier is now **Travel trim** (it can make the feet slide).
 - **Template: Run → Jog (4 controls)** (⋯ menu or "+" menu): 10 bars; bars 3–7 slow down: step length 100 → 53 %, cadence 225 → 165 steps/min, spine lean 0 → −8°, hip rotation 0 → −4°, hard braking 70 % over bars 4–6. Measured on Sprint.fbx: 5.18 → 2.00 m/s, trunk 20° → 7.9°, hips 87 → 88.7 cm, swing knee 52° → 83°, slip 4.2–8 cm per bar (the sprint clip itself: 6).
+
+## Resistance (a force on the runner)
+"+" menu → **Resistance**. A formula-based block (no simulation; the same result every time) that adds to the Run controls without overwriting them.
+- **Tracks:** **Force** (N; body weight = mass × 9.81, 75 kg = 736 N); **Direction** (° the force pulls the runner toward, around the runner: 0 forward, 90 right, 180 back (a rope behind, a headwind), 270 left); **Vertical** (° + pulls up, − pulls down; a sled rope is about −20 to −30°). Don't cross 0 / 360 inside one ramp: it interpolates the long way round.
+- **Settings (⚙):** body mass; attached at the hips (the lean is split half pelvis, half spine) or the chest (a quarter at the pelvis); **Keep speed**.
+- **What it does:**
+  - The body leans against the pull: forward / back = atan(back pull / effective weight), side = atan(side pull / effective weight), away from the pull. The head counters it.
+  - Load = back pull / weight. Steps shorten 0.75 % per 1 % load (sled-towing studies) and the shoulder swing grows.
+  - **Keep speed** on: the cadence rises to hold the speed. Off: the cadence drops a little and the speed falls.
+  - An upward pull lightens the body (hips a little higher); a downward pull loads it (hips lower, knees bent).
+  - A side pull widens the steps.
+- **Measured at 5.5 m/s (Sprint.fbx, 75 kg, hips):**
+
+| Case | Load | Trunk lean | Step | Cadence | Speed |
+|---|---|---|---|---|---|
+| none | 0 % | 20.0° | 100 % | 225 | 5.5 |
+| headwind 35 N, 180°, 0° | 5 % | 22.8° | 96 % | 233 | 5.5 |
+| band 100 N, 180°, +10° | 13 % | 27.9° | 90 % | 250 | 5.5 |
+| sled 150 N, 180°, −25° | 18 % | 29.8° | 86 % | 261 | 5.5 (4.52 with keep speed off) |
+| side gust 60 N, 90°, 0° | 0 % | side −4.4° (leans left, away from the pull) | 100 % | 225 | 5.5; step width 13 → 17 cm |
+
+Also fixed: the timing no longer uses a stale "is this track active" check right after a Hard braking edit.

@@ -275,6 +275,15 @@
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
   </div>
 </div>
+<div class="sheet" id="resDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="resT">
+    <h2 id="resT">Resistance settings</h2>
+    <div class="barsform"><label>Body mass <input type="number" id="resMass" min="20" max="200" step="1" value="75"> kg</label>
+      <label>Attached at <select id="resAttach"><option value="hips">Hips (waist harness)</option><option value="chest">Chest / shoulders</option></select></label>
+      <label class="cb"><input type="checkbox" id="resKeep" checked> Keep speed (the cadence rises as the steps shorten)</label></div>
+    <div class="acts"><span class="note">Force in newtons: body weight = mass × 9.81 (75 kg = 736 N). Direction: where the force pulls the runner: 0° forward, 90° right, 180° back (a rope behind, a headwind), 270° left. Vertical: + pulls up, − pulls down (a sled rope: about −20 to −30°).</span><button type="button" class="primary" id="resClose">Close</button></div>
+  </div>
+</div>
 <div class="sheet" id="stdDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="stdT">
     <h2 id="stdT">Steadiness settings</h2>

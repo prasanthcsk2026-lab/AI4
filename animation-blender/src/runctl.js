@@ -18,15 +18,11 @@ const LEAN_SPEC = { range: [-40, 30], ref: 0, color: '#9ad08a', scale: 1, unit: 
 const RESULT_COLOR = '#f08a1c';
 // ---------------------------------------------------------------- spine lean → the chest / head / hips effectors
 let leanFlatCache = { v: -1, flat: true };
-function leanActive() {
-  if (!A || !A.lean) return false;
-  if (leanFlatCache.v !== editVersion) leanFlatCache = { v: editVersion, flat: isFlat(A.lean, 0) };
-  return !leanFlatCache.flat;
-}
+function leanActive() { return flatActive('lean'); }
 function leanHeightCm(l) {   // the up / down that goes with a lean: straightening (back) rises, forward crouches a little
   return l >= 0 ? -RUN.fwdCrouchPerDeg * l : RUN.backRisePerDeg * -l;
 }
-const flatActive = (key) => { const c = flatActive.c || (flatActive.c = {}); if (!A || !A[key]) return false; const e = c[key]; if (!e || e.v !== editVersion || e.a !== A[key]) c[key] = { v: editVersion, a: A[key], on: !isFlat(A[key], 0) }; return c[key].on; };
+const flatActive = (key) => !!(A && A[key] && A[key].some((p) => Math.abs(p.v) > 1e-9));   // no cache: timing is rebuilt before an edit bumps editVersion
 const hipRotActive = () => flatActive('hipRot'), brakeActive = () => flatActive('brake') && cur && cur.kind === 'loop';
 // ---------------------------------------------------------------- hard braking: per foot contact
 // u: 0 at touchdown → 1 at toe-off. The braking pulse rises fast to its peak at 30 % of the contact, gone by 90 %.
@@ -50,18 +46,22 @@ function brakeReachCm(Sd, t) {   // the foot lands further ahead: on through the
   return RUN.brakeReachCm * b * g;
 }
 function runLeanAdd(id, k, t) {
-  if (!leanActive() && !hipRotActive() && !brakeActive()) return 0;
-  const br = brakeActive() ? brakeAt(t) * brakePulseAt(clipTime(t)) : 0;
-  const l = (leanActive() ? evalPts(A.lean, t) : 0) + br * RUN.brakeLean, hr = hipRotActive() ? evalPts(A.hipRot, t) : 0;
+  if (!runIKActive()) return 0;
+  const br = brakeActive() ? brakeAt(t) * brakePulseAt(clipTime(t)) : 0, R = resistOn() ? resistLeanParts(t) : null;
+  const l0 = (leanActive() ? evalPts(A.lean, t) : 0) + (R ? R.spine : 0), l = l0 + br * RUN.brakeLean;
+  const hr = (hipRotActive() ? evalPts(A.hipRot, t) : 0) + (R ? R.hip : 0), side = R ? R.side * RESK.sideSign : 0;
   if (id === 'hips' && k === 'rx') return hr;
-  if (id === 'hips' && k === 'py') return leanHeightCm(l - br * RUN.brakeLean) + RUN.hipRisePerDeg * Math.max(0, -hr) - br * RUN.brakeDipCm;
+  if (id === 'hips' && k === 'py') return leanHeightCm(l0) + RUN.hipRisePerDeg * Math.max(0, -hr) - br * RUN.brakeDipCm + (R ? R.heightCm : 0);
+  if (id === 'hips' && k === 'rz') return side * RESK.sideHipShare;
+  if (id === 'chest' && k === 'rz') return RUN.chestK * side * (1 - RESK.sideHipShare);
+  if (id === 'head' && k === 'rz') return -RUN.headK * (RUN.chestK * side * (1 - RESK.sideHipShare) + side * RESK.sideHipShare);
   if (id === 'chest' && k === 'rx') return RUN.chestK * l;
   if (id === 'head' && k === 'rx') return -RUN.headK * (RUN.chestK * l + hr);
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && (leanActive() || hipRotActive() || brakeActive());
-const runIKActive = () => leanActive() || hipRotActive() || brakeActive();
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn();
+const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && runIKActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);
 function stepKneeK(k) { return k < 1 ? 1 - RUN.kneeK * (1 - k) : 1 + 0.3 * (k - 1); }
