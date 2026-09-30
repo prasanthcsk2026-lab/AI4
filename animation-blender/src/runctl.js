@@ -60,7 +60,7 @@ function runLeanAdd(id, k, t) {
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn();
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn() || kneeDepthOn();
 const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && runIKActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);
@@ -68,23 +68,87 @@ function stepKneeK(k) { return k < 1 ? 1 - RUN.kneeK * (1 - k) : 1 + 0.3 * (k - 
 function stepArmK(k) { return k < 1 ? 1 - RUN.armK * (1 - k) : 1 + 0.5 * (k - 1); }
 function stepTurnAmt(k) { return stepCouple() && k < 1 ? clamp(RUN.turnK * (1 - k), 0, 0.9) : 0; }
 
+// ---------------------------------------------------------------- knee depth: deeper / shallower knee bend, the hips follow
+// Knee depth (%, 100 = the clip). In each foot contact the knee bends that much more (or less) than in the clip; the
+// hips come down (or up) by the amount that keeps the planted foot where it was, worked out once per clip from the
+// legs' geometry at mid-contact, so the hip height follows only the Knee depth track: no step at touchdown or
+// toe-off (the feet stay planted by the leg IK). Shallower is capped where a leg in contact would lock straight.
+// In the air the shin folds that much more (knee lift), eased in after toe-off and out before touchdown (sin²).
+const KNEE_SPEC = { range: [50, 150], ref: 100, color: '#7ac7e0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const kneeDepthOn = () => !!(A && A.kneeDepth && cur && cur.kind === 'loop' && A.kneeDepth.some((p) => Math.abs(p.v - 100) > 1e-6));
+const kneeDepthAt = (t) => (kneeDepthOn() ? clamp(evalPts(A.kneeDepth, t), KNEE_SPEC.range[0], KNEE_SPEC.range[1]) / 100 : 1);
+let kneeGeo = null;
+function kneeGeometry() {   // → per leg the hip → foot geometry through its contact in the clip (in place)
+  const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`;
+  if (kneeGeo && kneeGeo.key === key && kneeGeo.rig === rig) return kneeGeo;
+  const vfk = new VirtualFK(rig), Q = new Float32Array(B * 4), H = V3(), legs = [];
+  for (const Sd of ['L', 'R']) {
+    const w = clipWin(Sd); if (!w) continue;
+    const sd = rig.side[Sd], iT = rig.bones.indexOf(sd.thigh), iK = rig.bones.indexOf(sd.shin), iF = rig.bones.indexOf(sd.foot), l1 = sd.leg.l1, l2 = sd.leg.l2, len = mod1(w[1] - w[0]) || 1, smp = [];
+    let swingMax = 0;
+    for (let j = 0; j < 48; j++) {   // the whole cycle: every pose must stay reachable when the hips rise; the deepest knee fold
+      const ph = mod1(w[0] + j / 48), inC = mod1(ph - w[0]) <= len + 1e-9;
+      sampleClip(ph * cur.dur, Q, H); vfk.run(Q, H);
+      const v = vfk.P[iT].clone().sub(vfk.P[iF]), a = vfk.P[iT].clone().sub(vfk.P[iK]), c = vfk.P[iF].clone().sub(vfk.P[iK]);
+      swingMax = Math.max(swingMax, Math.PI - a.angleTo(c));
+      smp.push({ h: Math.hypot(v.x, v.z), y: v.y, mid: false, inC });
+    }
+    for (let j = 0; j <= 4; j++) {   // the contact's middle (3 samples around it): the depth the hips follow
+      sampleClip(mod1(w[0] + len * (0.4 + 0.05 * j)) * cur.dur, Q, H); vfk.run(Q, H);
+      const v = vfk.P[iT].clone().sub(vfk.P[iF]); smp.push({ h: Math.hypot(v.x, v.z), y: v.y, mid: true, inC: true });
+    }
+    legs.push({ side: Sd, l1, l2, smp, swingMax });
+  }
+  kneeGeo = { key, rig, legs }; return kneeGeo;
+}
+function kneeHipDrop(K) {   // m the hips come down (− = up) for knee depth K
+  if (Math.abs(K - 1) < 1e-6) return 0;
+  const G = kneeGeometry(); if (!G.legs.length) return 0;
+  let sum = 0, n = 0, rise = Infinity;
+  for (const L of G.legs) {
+    const { l1, l2 } = L, reach = (l1 + l2) * 0.985;
+    for (const q of L.smp) {
+      const d0 = clamp(Math.hypot(q.h, q.y), Math.abs(l1 - l2) + 1e-4, l1 + l2);
+      rise = Math.min(rise, Math.max(0, Math.sqrt(Math.max(0, reach * reach - q.h * q.h)) - q.y));   // how far up before this pose locks straight
+      if (!q.mid) continue;
+      const flex0 = Math.PI - Math.acos(clamp((l1 * l1 + l2 * l2 - d0 * d0) / (2 * l1 * l2), -1, 1)), flex1 = clamp(flex0 * K, 2 * DEG, 150 * DEG);
+      const d1 = Math.sqrt(l1 * l1 + l2 * l2 + 2 * l1 * l2 * Math.cos(flex1));
+      sum += q.y - Math.sqrt(Math.max(0, d1 * d1 - q.h * q.h)); n++;
+    }
+  }
+  const drop = n ? sum / n : 0;
+  return clamp(drop, -0.9 * rise, 0.3);
+}
+function kneeSwingK(Sd, t) {   // the shin's extra fold in the air (1 in contact)
+  const K = kneeDepthAt(t); if (K <= 1 + 1e-6) return 1;   // shallower: the swing is left as it is (a longer swinging leg would hit the ground)
+  const lp = legPhase(Sd, clipTime(t)); if (!lp || lp.c) return 1;
+  let k = K;
+  if (K > 1) {   // soft cap: the deepest fold of the clip stays under 140° (the knee's limit is 155°): no hitting the stop
+    const L = kneeGeometry().legs.find((x) => x.side === Sd), room = L && L.swingMax > 0 ? Math.max(0, 140 * DEG / L.swingMax - 1) : 0.3;
+    k = 1 + (room > 1e-4 ? room * Math.tanh((K - 1) / room) : 0);
+  }
+  const e = Math.sin(Math.PI * lp.s) ** 2; return 1 + (k - 1) * e;
+}
+
 // ---------------------------------------------------------------- the "Moving speed" result row
 function drawResult(r) {
   const cv = r.cv, x = cv.getContext('2d'), w = cv.width, h = cv.height, dpr = dprOf(r);
   x.clearRect(0, 0, w, h); x.fillStyle = '#211d19'; x.fillRect(0, 0, w, h);
   if (!cur || !S.speedLUT) return;
-  const s = speedSeries(), top = Math.max(0.5, s.mx * 1.15), py = (v) => h - 3 * dpr - (v / top) * (h - 8 * dpr);
+  const s = speedSeries(), g = r.ghost ? speedNoForcers() : null;
+  let mn = Infinity, mx = -Infinity; for (const arr of [s.v, g && g.v]) if (arr) for (const v of arr) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  const pad = Math.max(0.25, (mx - mn) * 0.15), bot = Math.max(0, mn - pad), top = mx + pad;   // the range it moves in, so a change shows
+  const py = (v) => h - 3 * dpr - ((v - bot) / (top - bot)) * (h - 16 * dpr);
   x.strokeStyle = RESULT_COLOR; x.lineWidth = 2 * dpr; x.beginPath();
   for (let i = 0; i <= s.n; i++) { const X = xOf(r, (i / s.n) * S.dur), Y = py(s.v[i]); if (i) x.lineTo(X, Y); else x.moveTo(X, Y); }
   x.stroke();
   if (r.ghost) {   // a forcer block: the speed the forcers took away (dashed: without any forcer)
-    const g = speedNoForcers();
     x.strokeStyle = 'rgba(200,200,210,.55)'; x.lineWidth = 1.25 * dpr; x.setLineDash([4 * dpr, 3 * dpr]); x.beginPath();
     for (let i = 0; i <= g.n; i++) { const X = xOf(r, (i / g.n) * S.dur), Y = py(Math.min(top, g.v[i])); if (i) x.lineTo(X, Y); else x.moveTo(X, Y); }
     x.stroke(); x.setLineDash([]);
   }
   x.font = `500 ${9.5 * dpr}px "IBM Plex Mono", monospace`; x.fillStyle = '#8c8c93';
-  x.fillText(`${top.toFixed(1)} m/s${r.ghost ? ' · dashed: without forcers' : ''}`, 4 * dpr, 10 * dpr);
+  x.fillText(`${bot.toFixed(1)}–${top.toFixed(1)} m/s${r.ghost ? ' · dashed: without forcers' : ''}`, 4 * dpr, 10 * dpr);
   drawEndMark(x, w, h, xOf(r, S.dur), dpr, 'rgba(12,15,13,.62)');
 }
 // the speed without the forcers: the forcers scale the cadence (cadK) and the step length (stepK), and the
@@ -119,9 +183,10 @@ function runMenu() {
     { sep: true },
     { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
     { label: 'Hide the Run controls', action: tog(() => { A.showMaster.run = false; }) },
+    { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
   ];
 }
-// the block: a header, then Step length, Cycle speed, Spine lean and the Moving speed result
+// the block: a header, then Step length, Cycle speed, Spine lean, Hip rotation, Hard braking, Knee depth
 function drawRunBlock() {
   const hr = mkRow('bone sym runb'); Object.assign(hr, { kind: 'runhead' });
   const col = !!A.runCollapsed;
@@ -130,7 +195,7 @@ function drawRunBlock() {
   hr.h.querySelector('[data-act="menu"]').onclick = (e) => { const b = e.currentTarget.getBoundingClientRect(); openMenu(b.left, b.bottom + 4, runMenu()); };
   hr.h.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, runMenu()); };
   hr.lane.innerHTML = '<div class="summary"></div>';
-  hr.lane.firstChild.textContent = `Moving speed = cadence × step length${A.speedLock ? ' · speed lock ON' : ''}${stepCouple() ? ' · step length moves knees, pelvis and arms' : ''}`;
+  hr.lane.firstChild.textContent = `Moving speed (its own track) = cadence × step length${A.speedLock ? ' · speed lock ON' : ''}${stepCouple() ? ' · step length moves knees, pelvis and arms' : ''}`;
   tracksEl.append(hr.el); rows.push(hr);
   if (col) return;
   const sub = [];
@@ -139,7 +204,7 @@ function drawRunBlock() {
   sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
   sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
   sub.push(addTrackRow('brake', BRAKE_SPEC, () => A.brake, (p) => { A.brake = p; }, 'Hard braking <i>% · in every foot contact</i>', null));
-  addResultRow(); sub.push(rows[rows.length - 1]);
+  sub.push(addTrackRow('kneeDepth', KNEE_SPEC, () => A.kneeDepth, (p) => { A.kneeDepth = p; }, 'Knee depth <i>% · deeper knees, the hips come down (feet stay)</i>', null));
   for (const r of sub) r.el.classList.add('sub');
   sub[sub.length - 1].el.classList.add('blockend');
 }

@@ -327,6 +327,7 @@ function composePose(t, Qout, Hout, pend) {
   lib.sample(lib.idle, mod1(t / lib.idle.dur), Qi[0], Hi);
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
+  const kSw = kneeDepthOn() ? { [rig.side.L.shin.name]: kneeSwingK('L', t), [rig.side.R.shin.name]: kneeSwingK('R', t) } : null;   // knee depth: the shin folds more in the air
   const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK) * resistAt(t).legKnee, armF = stepArmK(stepCouple() && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1) * resistAt(t).armK, sn = stepNames();   // step length: knee lift + shoulder swing
   const gw = new Map(), gt = new Map();
   for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g || g.bypass) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
@@ -355,7 +356,7 @@ function composePose(t, Qout, Hout, pend) {
     const src = shiftKeyOf.has(name) ? shiftArr.get(shiftKeyOf.get(name)) : legSd && gndArr[legSd] ? gndArr[legSd] : QC;
     qC.fromArray(src, o);
     const pd = pb && pb.name === name ? pb.deg : null;
-    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (stepK !== 1 || armF !== 1 || kneeF !== 1 ? (sn.knee.has(name) ? kneeF : sn.arm.has(name) ? armF : 1) : 1);
+    const W = wholeEff(name, t) * (gF ? gF[i][0] : 1) * (stepK !== 1 || armF !== 1 || kneeF !== 1 ? (sn.knee.has(name) ? kneeF : sn.arm.has(name) ? armF : 1) : 1) * (kSw && kSw[name] ? kSw[name] : 1);
     if (!ba && !pd && Math.abs(W - 1) < 1e-6) { Qout.set(src.subarray(o, o + 4), o); continue; }
     qI.fromArray(QI, o);
     qD.copy(qI).invert().multiply(qC); if (qD.w < 0) { qD.x = -qD.x; qD.y = -qD.y; qD.z = -qD.z; qD.w = -qD.w; }
@@ -709,16 +710,20 @@ function solveIK(t, pend) {
     if (off.lengthSq() > 1e-12) rig.setHipsWorld(p0.add(off));
     rig.setDelta(b.hips, gx.q.clone().multiply(effRotQ('hips', t, pend, w)).multiply(rig.delta(b.hips)));
   }
+  // 1b. knee depth: the hips come down / up (a smooth function of the Knee depth track); the feet keep their spots
+  const kDrop = kneeDepthOn() ? kneeHipDrop(kneeDepthAt(t)) : 0;
+  if (Math.abs(kDrop) > 1e-6) { rig.setHipsWorld(worldP(b.hips).add(V3(0, -kDrop, 0))); b.hips.updateMatrixWorld(true); }
   // 2. leg targets (needed now: the hips come down if planted feet are out of reach)
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive() || resistOn();
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive() || resistOn() || Math.abs(kDrop) > 1e-6;
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
     const fkFoot = (sf ? sf[Sd].p : fkRef[Sd].foot).clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
     const pinW = sf ? 1 : on('hips') ? feetPin : 0;
+    carried.y += kDrop;   // the carried foot went down with the hips: back to its own height
     let base = carried.clone().lerp(fkFoot, pinW);
     const reach = brakeReachCm(Sd, t); if (reach) base.z += reach / 100;   // hard braking: the foot lands further ahead
     const wid = resistOn() ? resistAt(t).widthCm : 0; if (wid) base.x += rig.side[Sd].s * RESK.widthSign * wid / 100;   // side pull: wider steps
@@ -736,7 +741,11 @@ function solveIK(t, pend) {
       if (!legT[Sd]) continue;
       const leg = rig.side[Sd].leg, reach = (leg.l1 + leg.l2) * 0.985, hip = worldP(rig.side[Sd].thigh), h = hip.clone().sub(legT[Sd].target);
       const horiz2 = h.x * h.x + h.z * h.z;
-      if (h.lengthSq() > reach * reach && horiz2 < reach * reach) drop = Math.max(drop, h.y - Math.sqrt(reach * reach - horiz2));
+      // continuous: a foot that is too far out sideways / ahead to be reached by lowering fades out (no step in the hips)
+      // only a planted foot pulls the hips down (a swinging leg just stretches): full in contact, easing out over the
+      // first 8 % of the swing and in over the last 8 % (no step at toe-off / touchdown, no dip in the flight)
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null, cw = !lp || lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));
+      if (h.lengthSq() > reach * reach && horiz2 < reach * reach) drop = Math.max(drop, cw * (h.y - Math.sqrt(reach * reach - horiz2)) * smoothB((reach * reach - horiz2) / (0.15 * reach * reach)));
     }
     drop = clamp(drop, 0, 0.25);
     if (drop > 1e-5) { rig.setHipsWorld(worldP(b.hips).add(V3(0, -drop, 0))); b.hips.updateMatrixWorld(true); }

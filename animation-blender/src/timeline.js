@@ -73,7 +73,7 @@ function mkRow(cls, key) {
   const lane = document.createElement('div'); lane.className = 'lanefill'; el.append(lane);
   return { el, h, lane, key };
 }
-function rowHeight(r) { return r.key ? (A.heights[r.key] || LANE_H) : LANE_H; }
+function rowHeight(r) { return r.key ? (A.heights[r.key] || (r.key === 'result' ? Math.round(LANE_H * 1.6) : LANE_H)) : LANE_H; }
 function addTrackRow(key, spec, get, set, labelHTML, owner) {
   const r = mkRow('track t-' + (owner ? owner.type : 'master'), key);
   Object.assign(r, spec, { kind: 'track', get, set, owner });
@@ -102,6 +102,7 @@ let rowDrag = null;
 function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   // master tracks are optional (the "+" button); hidden ones keep working with their values
+  if (A.showMaster.mspeed !== false && cur) addResultRow(forcersOn());   // the result of everything: its own track, on top
   if (A.showMaster.speed) addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
   if (A.showMaster.run) drawRunBlock();
   if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
@@ -226,7 +227,8 @@ function rebuildRows() {
 $('btnAddMaster').onclick = (e) => {
   const b = e.currentTarget.getBoundingClientRect(), tog = (k) => () => { A.showMaster[k] = !A.showMaster[k]; rebuildRows(); save(); };
   openMenu(b.left, b.bottom + 4, [
-    { label: 'Run controls: step length, cycle speed, spine lean, moving speed', checked: !!A.showMaster.run, action: tog('run') },
+    { label: 'Moving speed (result of all the tracks and forcers)', checked: A.showMaster.mspeed !== false, action: () => { A.showMaster.mspeed = A.showMaster.mspeed === false; rebuildRows(); save(); } },
+    { label: 'Run controls: step length, cycle speed, spine lean, hip rotation, braking, knee depth', checked: !!A.showMaster.run, action: tog('run') },
     { sep: true },
     { label: 'Playback speed (cadence)', checked: !!A.showMaster.speed, action: tog('speed') },
     { label: 'Travel trim (old moving speed ×)', checked: !!A.showMaster.move, action: tog('move') },
@@ -389,7 +391,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth);
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
 }

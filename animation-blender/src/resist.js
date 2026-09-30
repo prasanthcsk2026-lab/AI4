@@ -344,11 +344,7 @@ function drawForcerBlock(id) {
   tracksEl.append(hr.el); rows.push(hr);
   if (f.collapsed) return;
   const lab = RES_LABEL(f.mode);
-  const sub = [];
-  for (const k of RES_KEYS) sub.push(addTrackRow(`f|${id}|${k}`, RES_SPEC[k], () => f[k], (p) => { f[k] = p; }, lab[k], { type: 'forcer', id, k }));
-  addResultRow(true); sub.push(rows[rows.length - 1]);   // the moving speed with / without the forcers
-  for (const r of sub) if (r && r.el) r.el.classList.add('sub');
-  sub[sub.length - 1].el.classList.add('blockend');
+  for (const k of RES_KEYS) addTrackRow(`f|${id}|${k}`, RES_SPEC[k], () => f[k], (p) => { f[k] = p; }, lab[k], { type: 'forcer', id, k });
 }
 function forcerSummary(hr) {
   const f = hr && A.forcers && A.forcers.find((x) => x.id === hr.forcer); if (!f || !hr.resSum) return;
