@@ -10,7 +10,10 @@
 //   · Moving speed (m/s): the result, cadence × step length; with Speed lock on, editing step length rewrites the
 //     cadence (and the other way round) so the speed stays what it was
 // ============================================================================
-const RUN = { chestK: 2.0, headK: 0.8, riseAt: -12, riseCm: 1.5, crouchPerDeg: 0.9, fwdCrouchPerDeg: 0.2, shiftPerDeg: 0.2, turnK: 0.8, kneeK: 0.65, armK: 0.85 };
+const RUN = { chestK: 2.0, headK: 0.8, backRisePerDeg: 0.125, fwdCrouchPerDeg: 0.2, shiftPerDeg: 0.2, turnK: 0.8, kneeK: 0.65, armK: 0.85,
+  hipRisePerDeg: 0.15, brakeReachCm: 15, brakeDipCm: 5, brakeLean: -4, brakeSlow: 0.3 };
+const HIPROT_SPEC = { range: [-30, 30], ref: 0, color: '#d8a36a', scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 };
+const BRAKE_SPEC = { range: [0, 1], ref: 0, color: '#e0605a', scale: 100, unit: '%', fmt: pct, snap: 0.05 };
 const LEAN_SPEC = { range: [-40, 30], ref: 0, color: '#9ad08a', scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 };
 const RESULT_COLOR = '#f08a1c';
 // ---------------------------------------------------------------- spine lean → the chest / head / hips effectors
@@ -20,21 +23,45 @@ function leanActive() {
   if (leanFlatCache.v !== editVersion) leanFlatCache = { v: editVersion, flat: isFlat(A.lean, 0) };
   return !leanFlatCache.flat;
 }
-function leanHeightCm(l) {   // the up / down that goes with a lean
-  if (l >= 0) return -RUN.fwdCrouchPerDeg * l;
-  if (l >= RUN.riseAt) return RUN.riseCm * (l / RUN.riseAt);
-  return RUN.riseCm - RUN.crouchPerDeg * (RUN.riseAt - l);
+function leanHeightCm(l) {   // the up / down that goes with a lean: straightening (back) rises, forward crouches a little
+  return l >= 0 ? -RUN.fwdCrouchPerDeg * l : RUN.backRisePerDeg * -l;
+}
+const flatActive = (key) => { const c = flatActive.c || (flatActive.c = {}); if (!A || !A[key]) return false; const e = c[key]; if (!e || e.v !== editVersion || e.a !== A[key]) c[key] = { v: editVersion, a: A[key], on: !isFlat(A[key], 0) }; return c[key].on; };
+const hipRotActive = () => flatActive('hipRot'), brakeActive = () => flatActive('brake') && cur && cur.kind === 'loop';
+// ---------------------------------------------------------------- hard braking: per foot contact
+// u: 0 at touchdown → 1 at toe-off. The braking pulse rises fast to its peak at 30 % of the contact, gone by 90 %.
+const smoothB = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+function brakePulse(u) { return u < 0.3 ? smoothB(u / 0.3) : 1 - smoothB((u - 0.3) / 0.6); }
+function legPhase(Sd, ct) {   // → { c: in contact, u: contact progress, s: swing progress (toe-off → touchdown) }
+  const w = clipWin(Sd); if (!w) return null;
+  const p = mod1(ct / cur.dur), len = w[1] - w[0], du = mod1(p - w[0]);
+  return du < len ? { c: true, u: du / len, s: 0 } : { c: false, u: 0, s: (du - len) / (1 - len) };
+}
+function brakeAt(t) { return brakeActive() ? clamp(evalPts(A.brake, t), 0, 1) : 0; }
+function brakePulseAt(ct) {   // the strongest pulse over both legs at clip time ct
+  let f = 0; for (const Sd of ['L', 'R']) { const lp = legPhase(Sd, ct); if (lp && lp.c) f = Math.max(f, brakePulse(lp.u)); }
+  return f;
+}
+function brakeRate(t, ct) { const b = brakeAt(t); return b > 1e-4 ? 1 - RUN.brakeSlow * b * brakePulseAt(ct) : 1; }   // slows the clip (and the travel with it) in each contact
+function brakeReachCm(Sd, t) {   // the foot lands further ahead: on through the contact, eased in before touchdown and out after toe-off
+  const b = brakeAt(t); if (b < 1e-4) return 0;
+  const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
+  const g = lp.c ? 1 : lp.s < 0.25 ? 1 - smoothB(lp.s / 0.25) : lp.s > 0.6 ? smoothB((lp.s - 0.6) / 0.4) : 0;
+  return RUN.brakeReachCm * b * g;
 }
 function runLeanAdd(id, k, t) {
-  if (!leanActive()) return 0;
-  const l = evalPts(A.lean, t);
+  if (!leanActive() && !hipRotActive() && !brakeActive()) return 0;
+  const br = brakeActive() ? brakeAt(t) * brakePulseAt(clipTime(t)) : 0;
+  const l = (leanActive() ? evalPts(A.lean, t) : 0) + br * RUN.brakeLean, hr = hipRotActive() ? evalPts(A.hipRot, t) : 0;
+  if (id === 'hips' && k === 'rx') return hr;
+  if (id === 'hips' && k === 'py') return leanHeightCm(l - br * RUN.brakeLean) + RUN.hipRisePerDeg * Math.max(0, -hr) - br * RUN.brakeDipCm;
   if (id === 'chest' && k === 'rx') return RUN.chestK * l;
-  if (id === 'head' && k === 'rx') return -RUN.headK * RUN.chestK * l;
-  if (id === 'hips' && k === 'py') return leanHeightCm(l);
+  if (id === 'head' && k === 'rx') return -RUN.headK * (RUN.chestK * l + hr);
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && leanActive();
+const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && (leanActive() || hipRotActive() || brakeActive());
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);
 function stepKneeK(k) { return k < 1 ? 1 - RUN.kneeK * (1 - k) : 1 + 0.3 * (k - 1); }
@@ -94,7 +121,9 @@ function drawRunBlock() {
   const sub = [];
   sub.push(addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Step length <i>% · feet reach, knee lift, arms</i>', null));
   sub.push(addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · cadence</i>', null));
-  sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back, with up / down</i>', null));
+  sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
+  sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
+  sub.push(addTrackRow('brake', BRAKE_SPEC, () => A.brake, (p) => { A.brake = p; }, 'Hard braking <i>% · in every foot contact</i>', null));
   addResultRow(); sub.push(rows[rows.length - 1]);
   for (const r of sub) r.el.classList.add('sub');
   sub[sub.length - 1].el.classList.add('blockend');
@@ -133,7 +162,9 @@ function speedLockAfter(changed) {
 const RUNJOG4 = { cycles: 10, target: 2, jogCad: 165,
   stride: [[3, 100, 'inout'], [5, 75, 'inout'], [8, null]],   // null = the jog value (from the target speed)
   cyc: [[3, 100, 'inout'], [6, 82, 'inout'], [8, null]],
-  lean: [[3, 0, 'inout'], [5.5, -18, 'inout'], [8, -12]] };
+  lean: [[3, 0, 'inout'], [6, -8]],
+  hipRot: [[3, 0, 'inout'], [6, -4]],
+  brake: [[3.5, 0, 'inout'], [4.25, 0.7], [6.25, 0.7, 'inout'], [7.25, 0]] };
 function applyRunJog4(o = {}) {
   const v = { ...RUNJOG4, ...o };
   if (!cur || cur.kind !== 'loop') return 'Pick a loop clip (the run) first.';
@@ -155,11 +186,11 @@ function applyRunJog4(o = {}) {
   rebuildSpeedLUT();
   const B = (x) => Math.min(S.dur, timeOfClipTime((x - 1) * dur));
   const track = (list) => [P(0, list[0][1]), ...list.map(([x, val, e]) => P(B(x), val, e)), P(S.dur, list[list.length - 1][1])];
-  A.stride = track(fill(v.stride, stride)); A.lean = track(fill(v.lean, 0));
+  A.stride = track(fill(v.stride, stride)); A.lean = track(fill(v.lean, 0)); A.hipRot = track(fill(v.hipRot, 0)); A.brake = track(fill(v.brake, 0));
   A.strideArms = true;
   A.showMaster = { ...A.showMaster, run: true, cycle: false, stride: false, move: false, gnd: false };
   S.lenMode = 'cycles'; A.cycles = v.cycles; A.cycLocked = true;
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
-  return `Run → Jog (4 controls): ${v.cycles} bars, slowing over bars 3–7: step length ${Math.round(stride)} %, cadence ${Math.round(runCad)} → ${Math.round(runCad * cad / 100)} steps/min, spine lean −12° (−18° braking), ${sp.toFixed(2)} → ${(sp * cad / 100 * stride / 100).toFixed(2)} m/s.`;
+  return `Run → Jog (4 controls): ${v.cycles} bars, slowing over bars 3–7: step length ${Math.round(stride)} %, cadence ${Math.round(runCad)} → ${Math.round(runCad * cad / 100)} steps/min, spine lean −8°, hip rotation −4°, hard braking 70 % over bars 4–6, ${sp.toFixed(2)} → ${(sp * cad / 100 * stride / 100).toFixed(2)} m/s.`;
 }

@@ -129,7 +129,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], lean: flat(0, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -146,7 +146,7 @@ function normalizeAuto(a) {
   a.showMaster = a.showMaster || { speed: !isFlat(a.speed, 1), move: !isFlat(a.move, 1), cycle: false };   // older saves: show what was changed
   a.sym = a.sym || {}; a.symOrder = (a.symOrder || []).filter((k) => a.sym[k]);
   if (a.steady) a.steady = normalizeSteady(a.steady, a.dur); else delete a.steady;
-  if (!Array.isArray(a.lean) || !a.lean.length) a.lean = flat(0, a.dur);
+  for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }

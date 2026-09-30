@@ -199,7 +199,7 @@ function rebuildSpeedLUT() {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
     const cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
-    lut[i] = lut[i - 1] + play * (cyc / 100) * dt;
+    lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * dt;
   }
   if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
     const tg = A.cycles * cur.dur, e = lut[n - 1];
@@ -685,7 +685,7 @@ function makeGroupCtx(t, pend) {
 function solveIK(t, pend) {
   const sk = strideK(t), strideOn = Math.abs(sk - 1) > 1e-4;
   const sf = stdFeet;   // steadiness moved the hips: the feet go back to where the unsteadied pose had them
-  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn || sf || leanActive();
+  const active = A.ikOrder.length || (pend && pend.kind === 'eff') || strideOn || sf || runIKActive();
   if (!active) return;
   const GX = makeGroupCtx(t, pend);
   const before = S.limits ? limitDefs().map((L) => L.bone.quaternion.clone()) : null;   // FK pose, to find what the IK changed
@@ -712,13 +712,14 @@ function solveIK(t, pend) {
   const legT = {};
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd], fId = Sd + 'foot';
-    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf;
+    const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive();
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
     if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
     const fkFoot = (sf ? sf[Sd].p : fkRef[Sd].foot).clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
     const pinW = sf ? 1 : on('hips') ? feetPin : 0;
     let base = carried.clone().lerp(fkFoot, pinW);
+    const reach = brakeReachCm(Sd, t); if (reach) base.z += reach / 100;   // hard braking: the foot lands further ahead
     let baseQ = carriedQ.clone().slerp(sf ? sf[Sd].q : fkRef[Sd].footQ, pinW);
     const e = A.ik[fId];
     if (e && !e.bypass && e.tr.hold) { const hb = holdBlend(sd.foot, e.tr.hold, t); if (hb.w > 0) base = base.clone().lerp(hb.spot, hb.w); }

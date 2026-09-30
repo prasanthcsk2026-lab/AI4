@@ -373,11 +373,11 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride']);
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'brake']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
-const BAR_DRIVERS = new Set(['speed', 'cyc']);
+const BAR_DRIVERS = new Set(['speed', 'cyc', 'brake']);
 function allPointArrays() { return allPointArraysOf(A); }
 function allPointArraysOf(a) {   // every point array of an automation object, in one fixed order
   const out = [a.speed, a.move, a.cyc, a.gnd, a.stride];
@@ -386,7 +386,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean);
+  out.push(a.lean, a.hipRot, a.brake);
   return out.filter(Boolean);
 }
 // the point being dragged on a playback / cycle speed track, and the bar (clip time) under the cursor
@@ -400,7 +400,7 @@ function clipTimeFrom(t0, c0, t1) {
   for (let i = 0; i < n; i++) {
     const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
     const cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
-    c += play * (cyc / 100) * dt;
+    c += play * (cyc / 100) * brakeRate(a + dt / 2, c) * dt;
   }
   return c;
 }
