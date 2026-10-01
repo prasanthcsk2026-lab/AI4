@@ -324,6 +324,18 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Template: Sprint → resisted run (forcer 4 m ahead, bars 4–7 transition, steady from bar 8)
+- "+" → **Template: Sprint → resisted run**, on the selected motion (load the sprint first). It writes 10 bars:
+  - **Forcer** "Resistance (4 m ahead)": moving with the runner, 4 m in front at 1 m height, pointing back at him, no falloff, 60° spread, resist (he leans into it), keep speed off. Force 0 N until exactly the start of bar 4, then an S curve to 230 N at the start of bar 8, then held.
+  - The same S curve (bar 4 → bar 8) on: knee depth 100 → 112 %, cycle speed 100 → 106 % (the cadence drops less than the stride, as in sled studies), foot on ground 0 → +8 % (longer contacts), arm swing and hip motion 100 → 90 %.
+  - Arm swing / hip motion / arm centre "follow" options are off (bars 1–3 stay the clip's own).
+- Modelled on resisted (sled) sprinting: trunk lean grows with the load, stride length drops more than stride frequency, longer ground contact, more flexed knees and hips; the slow-down is spread over the steps (no braking jerk).
+- Measured on Sprint.fbx: bars 1–3 identical to the plain clip (largest bone difference 0.15°, the same as with no IK). Speed per bar 5.18 → 5.10 → 4.72 → 4.18 → 3.73 → 3.59 (−31 %, peak slow-down ≈ 0.9 m/s²); stride 1.38 → 1.09 m (−21 %), cadence 225 → 198 (−12 %); trunk lean 16.7° → 27.7°. Bars 8, 9 and 10 match within 0.21° at the same phase. Hips acceleration peak 192 m/s² in the transition against 197 before.
+- **Arm swing stays vertical** (Run controls ⋯, on by default): the upper chest's pitch (lean, hip rotation, a forcer's lean and bend) is taken back out of the upper arms about the body's side axis, so the swing keeps its world angle. In this template the arm swing's centre moves 2.4° from bar 1 to bar 9 (24.4° with the option off).
+- A forcer's extra arm swing now scales the swing about its own centre (it used to scale the arms away from the idle pose, which tipped them).
+- **Run IK no longer changes an untouched leg:** the knee plane follows the clip's knee wherever the clip's knee is bent, the soft reach only works in the last 0.5 % of the leg's length, and the thigh and shin keep the clip's twist. With the foot where the clip has it, the leg is the clip's (it used to differ by up to 27.6° in the shin twist).
+- Sources: Resisted Sled Sprint Kinematics (PMC8538495); Effects of resisted sled towing on sprint kinematics in field-sport athletes; Biomechanical and neuromuscular requirements of horizontal deceleration (PMC9474351).
+
 ## Run controls: add what you need, mute
 - Adding **Run controls** ("+" menu) now gives an empty block. Its own **+** button lists the 14 controls (✓ = in the block); click one to add it (or take it out).
 - **M on the header** mutes every run control: the engine uses the neutral values (100 %, 0°…), and the auto parts (arm swing / hip motion follow the speed, arm centre follows the acceleration) are off too. The points stay and come back on un-mute.

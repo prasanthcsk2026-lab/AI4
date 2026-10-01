@@ -329,7 +329,7 @@ function composePose(t, Qout, Hout, pend) {
   sampleClip(clipTime(t), Qc[0], Hc);
   const QI = Qi[0], QC = Qc[0];
   const kSw = kneeDepthOn() ? { [rig.side.L.shin.name]: kneeSwingK('L', t), [rig.side.R.shin.name]: kneeSwingK('R', t) } : null;   // knee depth: the shin folds more in the air
-  const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK) * resistAt(t).legKnee, armF = stepArmK(stepCouple() && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1) * resistAt(t).armK, sn = stepNames();   // step length: knee lift + shoulder swing
+  const stepK = stepCouple() ? strideK(t) : 1, kneeF = stepKneeK(stepK) * resistAt(t).legKnee, armF = stepArmK(stepCouple() && A.stride ? clamp(evalPts(A.stride, t) / 100, 0.5, 1.5) : 1), sn = stepNames();   // step length: knee lift + shoulder swing
   const gw = new Map(), gt = new Map();
   for (const gid of A.groupOrder) { const g = A.groups[gid]; if (!g || g.bypass) continue; gw.set(gid, evalPts(g.weight, t)); gt.set(gid, evalPts(g.timing, t)); }
   const gF = gw.size ? rig.bones.map((b) => groupFactor(b.name, gw, gt)) : null;
@@ -455,7 +455,7 @@ function ikLimb(limb, root, target, pole, fallback) {
   let d = vvv.length();
   const dir = vvv.clone().divideScalar(Math.max(d, 1e-6));
   const dMin = Math.sqrt(l1 * l1 + l2 * l2 - 2 * l1 * l2 * Math.cos(Math.PI - maxFlex));
-  const ds = 0.975 * L;
+  const ds = 0.995 * L;   // soft reach only in the last half percent: a leg the clip has nearly straight stays as the clip has it
   if (d > ds) d = Math.min(ds + (L - ds) * (1 - Math.exp(-(d - ds) / (L - ds))), L * 0.9999);
   if (d < dMin) d = dMin;
   const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
@@ -697,10 +697,10 @@ function solveIK(t, pend) {
   const on = (id) => effActive(id, pend) || GX.has(id);
   const b = rig.b;
   // FK reference, before any effector moves the body
-  const fkRef = {};
+  const fkRef = {}, chestUp0 = armVerticalOn() ? chestUpW() : null;
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd];
-    fkRef[Sd] = { foot: worldP(sd.foot), footQ: rig.delta(sd.foot), hand: worldP(sd.hand), handQ: rig.delta(sd.hand) };
+    fkRef[Sd] = { foot: worldP(sd.foot), footQ: rig.delta(sd.foot), hand: worldP(sd.hand), handQ: rig.delta(sd.hand), hip: worldP(sd.thigh), knee: worldP(sd.shin), thighQ: rig.delta(sd.thigh), shinQ: rig.delta(sd.shin) };
   }
   // 0. hip motion (about the clip's average; the feet stay at their FK spots above) and the arms' shape
   if (hipMotionOn()) applyHipMotion(t);
@@ -825,11 +825,23 @@ function solveIK(t, pend) {
       const oth = worldP(rig.side[Sd === 'L' ? 'R' : 'L'].thigh), across = hip.clone().sub(oth); across.y = 0;
       const fwdB = across.lengthSq() > 1e-8 ? V3().crossVectors(Sd === 'L' ? across : across.clone().negate(), V3(0, 1, 0)).normalize() : V3(0, 0, 1);
       let pole = hip.clone().add(l.target).multiplyScalar(0.5).addScaledVector(fwdB, 0.5).addScaledVector(across.normalize(), 0.06);
+      // the clip's own knee plane wherever the clip's knee is clearly bent (the IK then gives back the clip's leg when
+      // nothing moved its foot); the facing pole only while the clip's leg is nearly straight (no plane to keep)
+      const fr = fkRef[Sd], kv = fr.knee.clone().sub(fr.hip.clone().add(fr.foot).multiplyScalar(0.5)), kl = kv.length(), kw = smoothB((kl - 0.01) / 0.03);
+      if (kw > 1e-4) { const fd = pole.clone().sub(hip.clone().add(l.target).multiplyScalar(0.5)).normalize(); pole = hip.clone().add(l.target).multiplyScalar(0.5).addScaledVector(fd.lerp(kv.divideScalar(kl), kw).normalize(), 0.5); }
       if (l.gx.any) pole = l.gx.apply(pole);
       const sw = effSwivel(Sd + 'knee', t, pend);
       if (Math.abs(sw) > 1e-5) { const ax = l.target.clone().sub(hip).normalize(); pole = pole.sub(hip).applyAxisAngle(ax, sw).add(hip); }
       const r = ikLimb(sd.leg, hip, l.target, pole, V3(0, 0, 1));
       rig.setDelta(sd.thigh, r.d1); rig.setDelta(sd.shin, r.d2);
+      { // keep the clip's own twist of the thigh and shin: each bone is the clip's bone swung onto the IK's line (the
+        // knee plane and the positions stay the IK's; with the foot where the clip has it, the leg is the clip's)
+        const fr = fkRef[Sd]; sd.thigh.updateMatrixWorld(true);
+        const kP = worldP(sd.shin), fP = worldP(sd.foot), hP = worldP(sd.thigh);
+        const sw1 = new THREE.Quaternion().setFromUnitVectors(fr.knee.clone().sub(fr.hip).normalize(), kP.clone().sub(hP).normalize());
+        const sw2 = new THREE.Quaternion().setFromUnitVectors(fr.foot.clone().sub(fr.knee).normalize(), fP.clone().sub(kP).normalize());
+        rig.setDelta(sd.thigh, sw1.multiply(fr.thighQ)); rig.setDelta(sd.shin, sw2.multiply(fr.shinQ));
+      }
       const footQ = (A.ik[Sd + 'foot'] || (pend && pend.id === Sd + 'foot')) ? effRotQ(Sd + 'foot', t, pend, l.w).multiply(l.baseQ) : l.baseQ;
       if (on(Sd + 'knee')) rotateBoneWorld(sd.shin, effRotQ(Sd + 'knee', t, pend));
       rig.setDelta(sd.foot, footQ);
@@ -842,6 +854,9 @@ function solveIK(t, pend) {
   }
   // 8b. forcers bend every bone they reach (after the IK, so the limits below still hold)
   forcerBonePass(t);
+  // 8c. arm swing stays vertical: whatever the trunk pitch (spine lean, hip rotation, a forcer's lean or bend) the
+  // upper arms are turned back by it about the body's side axis, so the swing keeps its world angle
+  if (chestUp0) armsUpright(chestUp0);
   // 9. anatomical limits, on the joints the IK changed (the clip's own pose is left alone)
   if (before) applyLimits(before);
   // 7. look-at: a controller can turn the head (neck + head, ≤ 70°) toward itself

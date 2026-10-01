@@ -259,10 +259,11 @@ function speedVaries() {   // does the bar-averaged moving speed leave the clip'
   spdVar = { key, v }; return v;
 }
 const armAutoOn = () => !!(A && A.armAuto !== false && !A.runOff && speedVaries()), hipAutoOn = () => !!(A && A.hipAuto !== false && !A.runOff && speedVaries());
-const armSwingOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.armSwing, 100) || armAutoOn()));
+const armSwingOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.armSwing, 100) || armAutoOn() || resistOn()));
 const hipMotionOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.hipMotion, 100) || hipAutoOn()));
 const armShapeOn = () => !!(A && (!trackOff(A.elbowBend, 0) || !trackOff(A.armCross, 0) || !trackOff(A.armCentre, 0) || (cur && cur.kind === 'loop' && centreAutoOn())));
-function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (A.armAuto !== false && !A.runOff ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
+function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (resistOn() ? resistAt(t).armK : 1) *   // a forcer's load swings the arms harder (about their own centre)
+    (A.armAuto !== false && !A.runOff ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
 function hipScaleAt(t) { return (A.hipMotion ? evalPts(A.hipMotion, t) / 100 : 1) * (A.hipAuto !== false && !A.runOff ? Math.max(0, 1 + MOTK.hipAuto * (speedRatio(t) - 1)) : 1); }
 let armSet = null;
 function armScaleBones() {
@@ -380,6 +381,7 @@ function runMenu() {
     { label: 'Arm swing centre follows the acceleration (slowing → back, speeding up → forward)', checked: A.armCentreAuto !== false, action: tog(() => { A.armCentreAuto = A.armCentreAuto === false; }) },
     { label: 'Jump follows the step length (longer steps → a higher hop)', checked: A.jumpAuto !== false, action: tog(() => { A.jumpAuto = A.jumpAuto === false; }) },
     { label: 'Hip motion follows the moving speed (slower → less hip motion)', checked: A.hipAuto !== false, action: tog(() => { A.hipAuto = A.hipAuto === false; }) },
+    { label: 'Arm swing stays vertical (the trunk\'s lean does not tip the arms)', checked: A.armVertical !== false, action: tog(() => { A.armVertical = A.armVertical === false; }) },
     { label: 'Hide the Run controls', action: tog(() => { A.showMaster.run = false; }) },
     { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
   ];
@@ -702,3 +704,77 @@ $('bldOk').onclick = () => {
 };
 $('bldCancel').onclick = () => { $('bldDlg').hidden = true; };
 $('bldDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('bldDlg').hidden = true; e.stopPropagation(); });
+
+// ============================================================================
+//  ARM SWING STAYS VERTICAL: the trunk's pitch (lean, hip rotation, a forcer's lean) is taken back out of the upper
+//  arms about the body's side axis, so they swing about the same world line as in the clip (not tipped with the chest)
+// ============================================================================
+const armVerticalOn = () => !!(A && A.armVertical !== false && cur && cur.kind === 'loop');
+function bodySideAxis() {   // horizontal, right-pointing axis of the body (shoulder to shoulder)
+  const a = worldP(rig.side.L.upper), b = worldP(rig.side.R.upper), v = b.sub(a); v.y = 0;
+  return v.lengthSq() > 1e-8 ? v.normalize() : V3(1, 0, 0);
+}
+function chestUpW() {   // the upper chest's up line and the side axis, in the world, now
+  const up = worldP(rig.b.neck).sub(worldP(rig.b.spine2)).normalize();   // the upper chest, where the shoulders sit
+  return { up, side: bodySideAxis() };
+}
+const _avQ = new THREE.Quaternion();
+function armsUpright(ref) {
+  const now = chestUpW(), ax = ref.side;
+  // signed pitch of the chest about the side axis (both up lines projected onto the body's mid-plane)
+  const pa = ref.up.clone().addScaledVector(ax, -ref.up.dot(ax)), pb = now.up.clone().addScaledVector(ax, -now.up.dot(ax));
+  if (pa.lengthSq() < 1e-8 || pb.lengthSq() < 1e-8) return 0;
+  pa.normalize(); pb.normalize();
+  const ang = Math.atan2(pa.clone().cross(pb).dot(ax), clamp(pa.dot(pb), -1, 1));
+  if (Math.abs(ang) < 1e-5) return 0;
+  _avQ.setFromAxisAngle(ax, -ang);
+  for (const Sd of ['L', 'R']) { rotateBoneWorld(rig.side[Sd].upper, _avQ); }
+  rig.b.hips.updateMatrixWorld(true);
+  return ang;
+}
+
+// ============================================================================
+//  TEMPLATE: SPRINT → RESISTED RUN. 10 bars; a forcer 4 m in front of the runner (moving with him, pointing back at
+//  him, no falloff) comes on at exactly the start of bar 4 and eases (S curve) to its full push by the start of bar 8;
+//  from bar 8 nothing changes. The body answers it the way resisted (sled / parachute) sprinting does: trunk lean into
+//  the push, shorter strides (more than the cadence drops), longer contacts, more flexed knees and hips; the speed
+//  eases down (no jerk). The arm swing keeps its world angle (Arm swing stays vertical).
+// ============================================================================
+const RESIST_TPL = { bars: 10, onBar: 4, fullBar: 8, distM: 4, heightM: 1.0, forceN: 230, knee: 112, spread: 60, arm: 90, hip: 90, cyc: 106, gnd: 8 };
+function applySprintResist(o = {}) {
+  const v = { ...RESIST_TPL, ...o };
+  if (!cur || cur.kind !== 'loop') return 'Load the sprint (a loop clip) as the motion first.';
+  if (!(cur.c.speed > 0.05)) return 'This clip has no travel speed: set its m/s (Clip → Travel) first.';
+  pushUndo();
+  const dur = cur.dur, P = (t, val, e) => (e ? { t, v: val, k: 0, e } : { t, v: val, k: 0 });
+  const n = newAuto(+(v.bars * dur * 1.6).toFixed(3), v.bars);
+  for (const k of ['rowOrder', 'subOrder', 'heights', 'ranges']) if (A[k]) n[k] = A[k];
+  A = normalizeAuto(n); S.dur = A.dur;
+  A.body = { mass: 75, keepSpeed: false };   // the push slows him down (keep speed would raise the cadence instead)
+  const f = newForcer('moving', S.dur, 1);
+  Object.assign(f, { name: 'Resistance (4 m ahead)', falloff: 'none' });
+  f.at = { px: 0, py: v.heightM, pz: v.distM, fx: 0, fy: 180, fz: 0 };   // in front, facing back at him: it pushes him back
+  f.spread = flat(v.spread, S.dur); f.weight = flat(1, S.dur); f.resp = flat(0, S.dur);   // resisted: he leans into it
+  f.target.bones = ['spine', 'head', 'Lleg', 'Rleg'];   // the push bends the trunk and legs, not the arms (their swing keeps its world angle)
+  A.forcers = [f];
+  A.armAuto = false; A.hipAuto = false; A.armCentreAuto = false;   // the bars before the push stay the clip's own; the swing eases down by its own tracks
+  A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };
+  A.runShow = { kneeDepth: true, armSwing: true, hipMotion: true, cyc: true };
+  A.showMaster.gnd = true; A.armVertical = true; A.speedLock = false;
+  const B = (x) => Math.min(S.dur, timeOfClipTime((x - 1) * dur));
+  const place = () => {
+    const t0 = B(v.onBar), t1 = B(v.fullBar);
+    f.force = [P(0, 0), P(t0, 0, 'inout'), P(t1, v.forceN), P(S.dur, v.forceN)];
+    A.kneeDepth = [P(0, 100), P(t0, 100, 'inout'), P(t1, v.knee), P(S.dur, v.knee)];
+    A.armSwing = [P(0, 100), P(t0, 100, 'inout'), P(t1, v.arm), P(S.dur, v.arm)];
+    A.hipMotion = [P(0, 100), P(t0, 100, 'inout'), P(t1, v.hip), P(S.dur, v.hip)];
+    A.cyc = [P(0, 100), P(t0, 100, 'inout'), P(t1, v.cyc), P(S.dur, v.cyc)];   // the cadence drops less than the stride (sled studies)
+    A.gnd = [P(0, 0), P(t0, 0, 'inout'), P(t1, v.gnd), P(S.dur, v.gnd)];   // longer ground contacts
+  };
+  for (let it = 0; it < 12; it++) { place(); rebuildSpeedLUT(); }   // the push lowers the cadence: the bars move, the points follow
+  S.dur = A.dur = +timeOfClipTime(v.bars * dur).toFixed(3); place(); rebuildSpeedLUT(); place();
+  A.cycles = v.bars; A.cycLocked = true;
+  S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
+  ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
+  return `Sprint → resisted run: ${v.bars} bars; a ${v.forceN} N push from ${v.distM} m ahead starts at bar ${v.onBar} and is full at bar ${v.fullBar}; knee depth ${v.knee} %, cycle speed ${v.cyc} %, foot on ground +${v.gnd} %, arm swing ${v.arm} %, hip motion ${v.hip} %; bars ${v.fullBar}–${v.bars} hold still.`;
+}
