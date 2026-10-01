@@ -38,7 +38,42 @@ function brakePulseAt(ct) {   // the strongest pulse over both legs at clip time
   let f = 0; for (const Sd of ['L', 'R']) { const lp = legPhase(Sd, ct); if (lp && lp.c) f = Math.max(f, brakePulse(lp.u)); }
   return f;
 }
-function brakeRate(t, ct) { const b = brakeAt(t); return b > 1e-4 ? 1 - RUN.brakeSlow * b * brakePulseAt(ct) : 1; }   // slows the clip (and the travel with it) in each contact
+// Brake rhythm (%): the playback slows in each contact and plays a little faster right after toe-off to make up for
+// it. At 100 % a bar takes exactly as long as without braking (the bars and the cadence stay); the speed it would
+// have lost through the longer bars comes off the step length instead (feet stay planted), so the moving speed drops
+// the same. 0 % = the old way (only the slow-down: longer bars, lower cadence).
+const RHYTHM_SPEC = { range: [0, 1], ref: 1, color: '#e08a7a', scale: 100, unit: '%', fmt: pct, snap: 0.05 };
+const releasePulse = (s) => (s < 0.45 ? Math.sin(Math.PI * s / 0.45) ** 2 : 0);   // the push-off surge, over the first 45 % of the swing
+let brkTab = null;
+function brakeTable() {   // per clip: the contact pulse and the release pulse over one cycle, and the make-up gain per braking strength
+  const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`; if (brkTab && brkTab.key === key) return brkTab;
+  const N = 240, pc = new Float32Array(N), pr = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const ct = (i + 0.5) / N * cur.dur; pc[i] = brakePulseAt(ct);
+    let r = 0; for (const Sd of ['L', 'R']) { const lp = legPhase(Sd, ct); if (lp && !lp.c) r = Math.max(r, releasePulse(lp.s)); } pr[i] = r;
+  }
+  brkTab = { key, N, pc, pr, g: new Map() }; return brkTab;
+}
+const brkMeanInv = (T, a, g) => { let m = 0; for (let i = 0; i < T.N; i++) m += 1 / ((1 - a * T.pc[i]) * (1 + g * T.pr[i])); return m / T.N; };
+function brakeGain(a) {   // the release boost that makes a cycle take exactly as long as without braking
+  const T = brakeTable(), k = Math.round(a * 400); if (T.g.has(k)) return T.g.get(k);
+  let lo = 0, hi = 4; if (!T.pr.some((x) => x > 0)) hi = 0;
+  for (let it = 0; it < 40 && hi > 0; it++) { const m = (lo + hi) / 2; if (brkMeanInv(T, k / 400, m) > 1) lo = m; else hi = m; }
+  T.g.set(k, (lo + hi) / 2); return (lo + hi) / 2;
+}
+const rhythmAt = (t) => (A && A.brakeRhythm ? clamp(evalPts(A.brakeRhythm, t), 0, 1) : 1);
+function releasePulseAt(ct) { const T = brakeTable(), i = Math.floor(mod1(ct / cur.dur) * T.N) % T.N; return T.pr[i]; }
+function brakeRate(t, ct) {   // slows the clip (and the travel with it) in each contact; the release makes it up
+  const b = brakeAt(t); if (b < 1e-4) return 1;
+  const a = RUN.brakeSlow * b, rh = rhythmAt(t);
+  return (1 - a * brakePulseAt(ct)) * (rh > 1e-4 ? 1 + rh * brakeGain(a) * releasePulseAt(ct) : 1);
+}
+function brakeStrideK(t) {   // the step length that takes off what the made-up time no longer does (same moving speed)
+  const b = brakeAt(t); if (b < 1e-4) return 1;
+  const a = RUN.brakeSlow * b, rh = rhythmAt(t); if (rh < 1e-4) return 1;
+  const T = brakeTable(), k = Math.round(a * 400) + '|' + Math.round(rh * 200); if (!T.sk) T.sk = new Map(); if (T.sk.has(k)) return T.sk.get(k);
+  const a2 = Math.round(a * 400) / 400, r2 = Math.round(rh * 200) / 200, v = brkMeanInv(T, a2, r2 * brakeGain(a2)) / brkMeanInv(T, a2, 0); T.sk.set(k, v); return v;
+}
 function brakeReachCm(Sd, t) {   // the foot lands further ahead: on through the contact, eased in before touchdown and out after toe-off
   const b = brakeAt(t); if (b < 1e-4) return 0;
   const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
@@ -76,7 +111,7 @@ function stepTurnAmt(k) { return stepCouple() && k < 1 ? clamp(RUN.turnK * (1 - 
 // In the air the shin folds that much more (knee lift), eased in after toe-off and out before touchdown (sin²).
 const KNEE_SPEC = { range: [50, 150], ref: 100, color: '#7ac7e0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
 const kneeDepthOn = () => !!(A && A.kneeDepth && cur && cur.kind === 'loop' && A.kneeDepth.some((p) => Math.abs(p.v - 100) > 1e-6));
-const kneeDepthAt = (t) => (kneeDepthOn() ? clamp(evalPts(A.kneeDepth, t), KNEE_SPEC.range[0], KNEE_SPEC.range[1]) / 100 : 1);
+const kneeDepthAt = (t) => { if (!kneeDepthOn()) return 1; const R = (A.ranges && A.ranges.kneeDepth) || KNEE_SPEC.range; return clamp(evalPts(A.kneeDepth, t), Math.max(5, R[0]), R[1]) / 100; };
 const HEEL_MAX = 40 * DEG;
 let kneeGeo = null;
 function kneeGeometry() {   // → per leg the hip → foot geometry: mid-contact samples, and the room to rise at every phase
@@ -184,7 +219,18 @@ const ARMSW_SPEC = { range: [0, 200], ref: 100, color: '#e79ad0', scale: 1, unit
 const ELBOW_SPEC = { range: [-40, 60], ref: 0, color: '#b99af0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 };
 const CROSS_SPEC = { range: [-20, 30], ref: 0, color: '#8fb4f0', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 };
 const HIPMO_SPEC = { range: [0, 200], ref: 100, color: '#f0b870', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
-const MOTK = { armAuto: 0.8, hipAuto: 0.6 };
+const MOTK = { armAuto: 0.8, hipAuto: 0.6, centrePerAcc: 14, centreMax: 30 };
+const CENTRE_SPEC = { range: [-40, 40], ref: 0, color: '#d6a0e8', scale: 1, unit: '°', fmt: (v) => sgn(v, 0, '°'), snap: 1 };
+function accelAt(t) {   // m/s² of the bar-averaged moving speed
+  const h = Math.max(0.08, (cur.dur || 0.5) * 0.5), a = Math.max(0, t - h), b = Math.min(S.dur, t + h); if (b - a < 1e-3) return 0;
+  return (avgSpeedAt(b) - avgSpeedAt(a)) / (b - a);
+}
+const centreAutoOn = () => !!(A && A.armCentreAuto !== false && speedVaries());
+function armCentreAt(t) {   // ° the arms' swing centre moves forward (+) / back (−)
+  let c = A.armCentre ? evalPts(A.armCentre, t) : 0;
+  if (centreAutoOn()) c += clamp(MOTK.centrePerAcc * accelAt(t), -MOTK.centreMax, MOTK.centreMax);   // slowing down: back; speeding up: forward
+  return c;
+}
 const trackOff = (pts, ref) => !pts || !pts.some((p) => Math.abs(p.v - ref) > 1e-6);
 let clipMean = null;
 function clipMeans() {   // the clip's average local rotation per bone and hips position over one cycle
@@ -215,7 +261,7 @@ function speedVaries() {   // does the bar-averaged moving speed leave the clip'
 const armAutoOn = () => !!(A && A.armAuto !== false && speedVaries()), hipAutoOn = () => !!(A && A.hipAuto !== false && speedVaries());
 const armSwingOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.armSwing, 100) || armAutoOn()));
 const hipMotionOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.hipMotion, 100) || hipAutoOn()));
-const armShapeOn = () => !!(A && (!trackOff(A.elbowBend, 0) || !trackOff(A.armCross, 0)));
+const armShapeOn = () => !!(A && (!trackOff(A.elbowBend, 0) || !trackOff(A.armCross, 0) || !trackOff(A.armCentre, 0) || (cur && cur.kind === 'loop' && centreAutoOn())));
 function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (A.armAuto !== false ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
 function hipScaleAt(t) { return (A.hipMotion ? evalPts(A.hipMotion, t) / 100 : 1) * (A.hipAuto !== false ? Math.max(0, 1 + MOTK.hipAuto * (speedRatio(t) - 1)) : 1); }
 let armSet = null;
@@ -253,11 +299,18 @@ function applyHipMotion(t) {   // in solveIK, before anything else moves the hip
   rig.setDelta(b.spine, spQ);   // the chest keeps its turn in the world (the arm swing sets the shoulder line)
 }
 function applyArmShape(t) {   // in solveIK: elbow bend and arm crossing (world)
-  const eb = A.elbowBend ? evalPts(A.elbowBend, t) : 0, cr = A.armCross ? evalPts(A.armCross, t) : 0;
-  if (Math.abs(eb) < 1e-3 && Math.abs(cr) < 1e-3) return;
+  const eb = A.elbowBend ? evalPts(A.elbowBend, t) : 0, cr = A.armCross ? evalPts(A.armCross, t) : 0, ce = armCentreAt(t);
+  if (Math.abs(eb) < 1e-3 && Math.abs(cr) < 1e-3 && Math.abs(ce) < 1e-3) return;
   const chest = worldP(rig.b.spine2);
+  let fwd = null;
+  if (Math.abs(ce) > 1e-3) { const ac = worldP(rig.side.L.upper).sub(worldP(rig.side.R.upper)); ac.y = 0; fwd = V3().crossVectors(ac, V3(0, 1, 0)); if (fwd.lengthSq() < 1e-8) fwd = null; else fwd.normalize(); }
   for (const Sd of ['L', 'R']) {
     const sd = rig.side[Sd];
+    if (fwd) {   // swing centre: the whole swing turns forward / back about the shoulder (the collarbone takes a quarter)
+      const ax = V3().crossVectors(V3(0, -1, 0), fwd).normalize();
+      if (sd.clav) rotateBoneWorld(sd.clav, qAxis(ax, 0.25 * ce * DEG));
+      rotateBoneWorld(sd.upper, qAxis(ax, 0.75 * ce * DEG));
+    }
     if (Math.abs(cr) > 1e-3) {   // the arm turns in toward the body's middle line (+) or out (−)
       const sh = worldP(sd.upper), v = worldP(sd.fore).sub(sh).normalize(), med = chest.clone().sub(sh); med.y = 0;
       const ax = V3().crossVectors(v, med.normalize()); if (ax.lengthSq() > 1e-8) rotateBoneWorld(sd.upper, qAxis(ax.normalize(), cr * DEG));
@@ -324,6 +377,7 @@ function runMenu() {
     { sep: true },
     { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
     { label: 'Arm swing follows the moving speed (slower → less swing)', checked: A.armAuto !== false, action: tog(() => { A.armAuto = A.armAuto === false; }) },
+    { label: 'Arm swing centre follows the acceleration (slowing → back, speeding up → forward)', checked: A.armCentreAuto !== false, action: tog(() => { A.armCentreAuto = A.armCentreAuto === false; }) },
     { label: 'Hip motion follows the moving speed (slower → less hip motion)', checked: A.hipAuto !== false, action: tog(() => { A.hipAuto = A.hipAuto === false; }) },
     { label: 'Hide the Run controls', action: tog(() => { A.showMaster.run = false; }) },
     { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
@@ -347,7 +401,9 @@ function drawRunBlock() {
   sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
   sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
   sub.push(addTrackRow('brake', BRAKE_SPEC, () => A.brake, (p) => { A.brake = p; }, 'Hard braking <i>% · in every foot contact</i>', null));
+  sub.push(addTrackRow('brakeRhythm', RHYTHM_SPEC, () => A.brakeRhythm, (p) => { A.brakeRhythm = p; }, 'Brake rhythm <i>% · slow in contact, fast after toe-off (bars keep their length)</i>', null));
   sub.push(addTrackRow('armSwing', ARMSW_SPEC, () => A.armSwing, (p) => { A.armSwing = p; }, `Arm swing <i>% · arms, shoulders, shoulder twist${A.armAuto !== false ? ' · × moving speed' : ''}</i>`, null));
+  sub.push(addTrackRow('armCentre', CENTRE_SPEC, () => A.armCentre, (p) => { A.armCentre = p; }, `Arm swing centre <i>° · + forward / − back${A.armCentreAuto !== false ? ' · + slowing: back, speeding up: forward' : ''}</i>`, null));
   sub.push(addTrackRow('elbowBend', ELBOW_SPEC, () => A.elbowBend, (p) => { A.elbowBend = p; }, 'Elbow bend <i>° · + more bent / − straighter</i>', null));
   sub.push(addTrackRow('armCross', CROSS_SPEC, () => A.armCross, (p) => { A.armCross = p; }, 'Arm crossing <i>° · + in toward the middle / − out</i>', null));
   sub.push(addTrackRow('hipMotion', HIPMO_SPEC, () => A.hipMotion, (p) => { A.hipMotion = p; }, `Hip motion <i>% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}</i>`, null));

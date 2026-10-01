@@ -415,6 +415,8 @@
   .row.bone .h .name { font-size: 13.5px; }
   .bgrip { flex: none; cursor: grab; color: var(--muted); font: 700 11px var(--mono); letter-spacing: -2px; padding: 0 2px; user-select: none; touch-action: none; }
   .bgrip:hover { color: var(--ink); }
+  .sgrip { flex: none; cursor: grab; color: var(--muted); font: 700 11px var(--mono); padding: 0 3px 0 0; user-select: none; touch-action: none; opacity: .55; }
+  .row:hover .sgrip { opacity: 1; } .sgrip:hover { color: var(--ink); }
   .blockdrop { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); z-index: 5; pointer-events: none; }
 
 /* moving speed: viewport readout + graph */

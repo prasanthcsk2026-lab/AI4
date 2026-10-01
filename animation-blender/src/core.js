@@ -129,7 +129,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), armCentre: flat(0, dur), brakeRhythm: flat(1, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -149,7 +149,7 @@ function normalizeAuto(a) {
   normalizeForcers(a);
   for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   if (!Array.isArray(a.kneeDepth) || !a.kneeDepth.length) a.kneeDepth = flat(100, a.dur);
-  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
+  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }

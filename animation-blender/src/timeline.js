@@ -55,6 +55,38 @@ function addBlockGrip(hr, key) {
     g.addEventListener('pointermove', move); g.addEventListener('pointerup', up);
   });
 }
+// tracks inside a block: ⋮ grip to move a track up / down within its block (A.subOrder[block] keeps the order)
+function orderSubs(key, subs) {
+  const ord = A.subOrder && A.subOrder[key]; if (!ord || !ord.length) return subs;
+  const pos = (r) => { const i = ord.indexOf(r.key); return i < 0 ? 1e6 : i; };
+  return subs.map((r, i) => [r, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map((x) => x[0]);
+}
+function addSubGrip(r, key) {
+  const g = document.createElement('span'); g.className = 'sgrip'; g.textContent = '⋮'; g.title = 'Drag to move this track up or down inside its block';
+  r.h.prepend(g);
+  g.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation(); g.setPointerCapture(e.pointerId);
+    const sibs = () => [...tracksEl.querySelectorAll('.row')].filter((el) => el.dataset.subOf === key);
+    const mark = document.createElement('div'); mark.className = 'blockdrop'; tracksEl.append(mark);
+    let target = null;
+    const move = (ev) => {
+      const hs = sibs(), tb = tracksEl.getBoundingClientRect(); let at = hs.length;
+      for (let i = 0; i < hs.length; i++) { const b = hs[i].getBoundingClientRect(); if (ev.clientY < b.top + b.height / 2) { at = i; break; } }
+      target = at; const ref = hs[at] || hs[hs.length - 1], rb = ref.getBoundingClientRect();
+      mark.style.top = ((hs[at] ? rb.top : rb.bottom) - tb.top + tracksEl.scrollTop - 1) + 'px';
+    };
+    const up = () => {
+      g.removeEventListener('pointermove', move); g.removeEventListener('pointerup', up); mark.remove();
+      if (target == null) return;
+      const els = sibs(), keys = els.map((el) => rows.find((x) => x.el === el)).filter(Boolean).map((x) => x.key), from = keys.indexOf(r.key); if (from < 0) return;
+      const before = keys[target]; const order = keys.filter((k) => k !== r.key); let to = before && before !== r.key ? order.indexOf(before) : before === r.key ? from : order.length;
+      if (to < 0) to = order.length; order.splice(to, 0, r.key);
+      if (order.join('|') === keys.join('|')) return;
+      pushUndo(); A.subOrder = A.subOrder || {}; A.subOrder[key] = order; rebuildRows(); save();
+    };
+    g.addEventListener('pointermove', move); g.addEventListener('pointerup', up);
+  });
+}
 function addBypass(hr, obj, twinOf) {
   const b = document.createElement('button'); b.type = 'button'; b.className = 'bypass'; b.textContent = 'M';
   b.title = obj.bypass ? 'Muted: click to turn it back on' : 'Mute: turn this off without deleting it';
@@ -76,14 +108,15 @@ function mkRow(cls, key) {
 function rowHeight(r) { return r.key ? (A.heights[r.key] || (r.key === 'result' ? Math.round(LANE_H * 1.6) : LANE_H)) : LANE_H; }
 function addTrackRow(key, spec, get, set, labelHTML, owner) {
   const r = mkRow('track t-' + (owner ? owner.type : 'master'), key);
-  Object.assign(r, spec, { kind: 'track', get, set, owner });
+  Object.assign(r, spec, { kind: 'track', get, set, owner, specRange: spec.range });
+  if (A.ranges && Array.isArray(A.ranges[key])) r.range = A.ranges[key].slice();   // your own min / max
   r.h.innerHTML = `<span class="sw" style="background:${spec.color}"></span><span class="name">${labelHTML}</span><button type="button" class="val" title="Click to type a value at the playhead"></button><button type="button" class="tdel" title="Delete this track (its automation is cleared)">×</button><div class="rz" title="Drag to set this track's height · double-click for the default"></div>`;
   r.h.title = 'Double-click the name to reset · right-click the lane for track options';
   r.h.querySelector('.name').ondblclick = () => { pushUndo(); set(flat(spec.ref, S.dur)); edited(r); };
   r.valEl = r.h.querySelector('.val');
   r.valEl.onclick = (e) => openNumEdit(r, null, e);
   r.h.querySelector('.tdel').onclick = () => deleteTrack(r);
-  r.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('h|' + r.key)) deleteTrack(r); else openMenu(e.clientX, e.clientY, [{ label: 'Delete track (or right double-click)', action: () => deleteTrack(r) }]); };
+  r.h.oncontextmenu = (e) => { e.preventDefault(); if (rightDouble('h|' + r.key)) deleteTrack(r); else openMenu(e.clientX, e.clientY, [{ label: 'Range: min / max…', action: () => openRangeDlg(r) }, { label: 'Reset range', disabled: !(A.ranges && A.ranges[r.key]), action: () => setTrackRange(r, null) }, { sep: true }, { label: 'Delete track (or right double-click)', action: () => deleteTrack(r) }]); };
   const rz = r.h.querySelector('.rz');
   rz.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); rz.setPointerCapture(e.pointerId); rowDrag = { r, y0: e.clientY, h0: rowHeight(r) }; });
   rz.ondblclick = () => setRowHeight(r, LANE_H, true);
@@ -102,15 +135,18 @@ let rowDrag = null;
 function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   // master tracks are optional (the "+" button); hidden ones keep working with their values
-  if (A.showMaster.mspeed !== false && cur) addResultRow(forcersOn());   // the result of everything: its own track, on top
-  if (A.showMaster.speed) addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
-  if (A.showMaster.run) drawRunBlock();
-  if (A.showMaster.move) addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
-  if (A.showMaster.cycle && !A.showMaster.run) {
-    addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
-  }
-  if (A.showMaster.stride && !A.showMaster.run) addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
-  if (A.showMaster.gnd) addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
+  // the master tracks (each its own block, so they can be moved too; hidden ones keep working with their values)
+  const MASTERS = ['mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
+  const masterOn = (k) => (k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
+  const drawMaster = (k) => {
+    if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
+    else if (k === 'speed') addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
+    else if (k === 'run') drawRunBlock();
+    else if (k === 'move') addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
+    else if (k === 'cycle') addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
+    else if (k === 'stride') addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
+    else if (k === 'gnd') addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
+  };
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   const drawSym = (k) => {
     const sy = A.sym[k]; if (!sy) return;
@@ -203,17 +239,26 @@ function rebuildRows() {
   };
   // every bone / group / IK / symmetrize block in the order it was added (new ones at the end; drag a block's
   // ⋮⋮ grip to move it); A.rowOrder keeps that order, older projects start from the type order
-  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'frc' ? !!(A.forcers && A.forcers.some((f) => f.id === id)) : kind === 'std' ? !!A.steady : kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
+  const keyOk = (key) => { const [kind, ...r] = key.split(':'), id = r.join(':'); return kind === 'm' ? masterOn(id) : kind === 'frc' ? !!(A.forcers && A.forcers.some((f) => f.id === id)) : kind === 'std' ? !!A.steady : kind === 'sym' ? !!A.sym[id] : kind === 'grp' ? !!A.groups[id] && !A.groups[id].mirrorOf : kind === 'bone' ? !!A.bones[id] && !A.bones[id].mirrorOf : kind === 'eff' ? !!A.ik[id] && !A.ik[id].mirrorOf && !!EFF_BY_ID[id] : false; };
   const all = [...(A.forcers || []).map((f) => 'frc:' + f.id), ...(A.steady ? ['std:main'] : []), ...A.symOrder.map((k) => 'sym:' + k), ...A.groupOrder.map((k) => 'grp:' + k), ...A.order.map((k) => 'bone:' + k), ...A.ikOrder.map((k) => 'eff:' + k)].filter(keyOk);
   const seen = new Set(); A.rowOrder = (A.rowOrder || []).filter((k) => keyOk(k) && !seen.has(k) && seen.add(k));
+  // a master shown for the first time goes where it belongs among the other masters (before the next one in the
+  // default order that is there; on top if none)
+  for (const k of MASTERS.slice().reverse()) {
+    const key = 'm:' + k; if (!keyOk(key) || seen.has(key)) continue; seen.add(key);
+    const after = MASTERS.slice(MASTERS.indexOf(k) + 1).map((x) => 'm:' + x), at = A.rowOrder.findIndex((x) => after.includes(x));
+    if (at >= 0) A.rowOrder.splice(at, 0, key); else { const lastM = A.rowOrder.map((x) => x.startsWith('m:')).lastIndexOf(true); A.rowOrder.splice(lastM + 1, 0, key); }
+  }
   for (const k of all) if (!seen.has(k)) { seen.add(k); A.rowOrder.push(k); }
   for (const key of A.rowOrder) {
     const [kind, ...r] = key.split(':'), id = r.join(':'), n0 = rows.length;
-    if (kind === 'frc') drawForcerBlock(id); else if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
+    if (kind === 'm') drawMaster(id); else if (kind === 'frc') drawForcerBlock(id); else if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
     const blk = rows.slice(n0); if (!blk.length) continue;
     blk[0].el.dataset.block = key; addBlockGrip(blk[0], key);
-    for (const sub of blk.slice(1)) sub.el.classList.add('sub');
-    blk[blk.length - 1].el.classList.add('blockend');
+    const subs = orderSubs(key, blk.slice(1));   // your own order of the tracks inside the block
+    if (subs.length) { rows.splice(n0 + 1, subs.length, ...subs); for (const sub of subs) { tracksEl.append(sub.el); sub.el.classList.add('sub'); sub.el.classList.remove('blockend'); sub.el.dataset.subOf = key; if (sub.key) addSubGrip(sub, key); } }
+    blk[0].el.classList.toggle('blockend', !subs.length);
+    if (subs.length) subs[subs.length - 1].el.classList.add('blockend');
   }
   if (!rows.length) {
     const e = document.createElement('div'); e.className = 'empty';
@@ -391,7 +436,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm);
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
 }
@@ -959,6 +1004,7 @@ function openLaneMenu(e, r) {
     { sep: true },
     { label: 'Zoom values to fit', action: () => zoomToFit(r) },
     { label: 'Reset value zoom', disabled: !A.zoom[r.key], action: () => setZoom(r, r.range) },
+    { label: 'Range: min / max…', action: () => openRangeDlg(r) },
     ...HEIGHT_PRESETS.map(([n, v]) => ({ label: 'Height: ' + n, checked: h === v, action: () => setRowHeight(r, v, true) })),
     { sep: true },
     { label: 'Reset track', action: () => confirmDelete(`Reset ${trackName(r)}? All its points go.`, () => { pushUndo(); r.set(flat(r.ref, S.dur)); edited(r); }, 'Reset') },
@@ -997,8 +1043,32 @@ function nudgeSelection(key, big) {
   for (const p of moved) { if (!ends.has(p)) p.t = clamp(p.t + dt, 1e-3, S.dur - 1e-3); p.v = clamp(p.v + dv, lo, hi); }
   pts.sort((a, b) => a.t - b.t); selPts = new Set(moved.map((p) => pts.indexOf(p))); edited(selRow);
 }
+// ← / → one frame (30 fps), Shift 10 frames; held down it keeps going, faster after a moment
+const STEP_FPS = 30; let stepRun = 0, stepLast = 0;
+function stepFrames(dir, big, repeat) {
+  const now = performance.now(); if (!repeat || now - stepLast > 250) stepRun = 0; stepLast = now; if (repeat) stepRun++;
+  const n = big ? 10 : stepRun > 40 ? 4 : stepRun > 15 ? 2 : 1;
+  if (S.playing) $('btnPlay').click();
+  const f = Math.round(S.t * STEP_FPS) + dir * n; S.t = clamp(f / STEP_FPS, 0, S.dur);
+}
+// your own min / max for a track (shown in its units); the values outside the new range are kept until edited
+function setTrackRange(r, rg) {
+  pushUndo(); A.ranges = A.ranges || {};
+  if (rg) A.ranges[r.key] = rg; else delete A.ranges[r.key];
+  delete A.zoom[r.key]; editVersion++; rebuildRows(); save();
+}
+function openRangeDlg(r) {
+  const d = $('rangeDlg'), sc = r.scale || 1; $('rangeT').textContent = trackName(r);
+  $('rangeLo').value = +(r.range[0] * sc).toFixed(3); $('rangeHi').value = +(r.range[1] * sc).toFixed(3);
+  $('rangeUnit').textContent = r.unit || ''; $('rangeDef').textContent = `default ${+(r.specRange[0] * sc).toFixed(3)} … ${+(r.specRange[1] * sc).toFixed(3)} ${r.unit || ''}`;
+  d.hidden = false; $('rangeLo').focus();
+  $('rangeOk').onclick = () => { const lo = parseFloat($('rangeLo').value) / sc, hi = parseFloat($('rangeHi').value) / sc; if (!isFinite(lo) || !isFinite(hi) || hi <= lo) { toast('Min must be below Max.'); return; } d.hidden = true; setTrackRange(r, [lo, hi]); };
+  $('rangeReset').onclick = () => { d.hidden = true; setTrackRange(r, null); };
+  $('rangeCancel').onclick = () => { d.hidden = true; };
+  d.onkeydown = (e) => { if (e.key === 'Escape') d.hidden = true; if (e.key === 'Enter') $('rangeOk').click(); e.stopPropagation(); };
+}
 function selectAllInFocusedLane() { if (!selRow) return; selPts = new Set(selRow.get().map((_, i) => i)); drawLane(selRow); }
-function dialogsOpen() { return !$('frcDlg').hidden || !$('stdDlg').hidden || !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
+function dialogsOpen() { return !$('rangeDlg').hidden || !$('frcDlg').hidden || !$('stdDlg').hidden || !$('barCopyDlg').hidden || !$('tfDlg').hidden || !$('barsDlg').hidden || !$('tplLibDlg').hidden || !$('confirmDlg').hidden || !$('sheet').hidden || !$('addDlg').hidden || !$('boneDlg').hidden || !$('bakeDlg').hidden || !$('helpDlg').hidden; }
 window.addEventListener('keydown', (e) => {
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName) || dialogsOpen()) {
     if (e.key === 'Escape') { $('sheet').hidden = true; $('addDlg').hidden = true; $('boneDlg').hidden = true; }
@@ -1014,6 +1084,7 @@ window.addEventListener('keydown', (e) => {
   if (meta && k === 'a') { e.preventDefault(); selectAllInFocusedLane(); return; }
   if (meta) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelection(); return; }
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !(selRow && selPts.size)) { e.preventDefault(); stepFrames(e.key === 'ArrowRight' ? 1 : -1, e.shiftKey, e.repeat); return; }   // no points selected: frame by frame
   if (e.key.startsWith('Arrow')) { e.preventDefault(); nudgeSelection(e.key, e.shiftKey); return; }
   if (k === 'r' || k === 'e') { if (gizmoMode !== 'rotate') setGizmoMode('rotate'); return; }
   if (k === 'q') { gizmoMode = null; setGizmoMode(null); return; }

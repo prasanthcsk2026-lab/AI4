@@ -277,6 +277,13 @@
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
   </div>
 </div>
+<div class="sheet" id="rangeDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="rangeH">
+    <h2 id="rangeH">Track range: <span id="rangeT"></span></h2>
+    <div class="barsform"><label>Min <input type="number" id="rangeLo" step="any"></label><label>Max <input type="number" id="rangeHi" step="any"></label><span id="rangeUnit"></span></div>
+    <div class="acts"><span class="note" id="rangeDef"></span><button type="button" id="rangeReset">Reset</button><button type="button" id="rangeCancel">Cancel</button><button type="button" class="primary" id="rangeOk">OK</button></div>
+  </div>
+</div>
 <div class="sheet" id="frcDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="frcT">
     <h2 id="frcT">Forcer settings</h2>

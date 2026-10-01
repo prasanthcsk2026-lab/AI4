@@ -317,7 +317,7 @@ const gndArr = { L: null, R: null }, gndH = V3();
 const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefined; };
 // Stride length (master track, % of the clip's own): each foot reaches that much further ahead of / behind the hips
 // (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
-function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistAt(t).stepK, 0.4, 1.5) : 1; }   // resistance shortens the steps too
+function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistAt(t).stepK * (brakeActive() ? brakeStrideK(t) : 1), 0.3, 1.5) : 1; }   // resistance shortens the steps too
 let armChain = null;
 let stepNm = null;
 function stepNames() { if (stepNm && stepNm.rig === rig) return stepNm; stepNm = { rig, knee: new Set(['L', 'R'].map((S) => rig.side[S].shin.name)), arm: new Set(['L', 'R'].map((S) => rig.side[S].upper.name)) }; return stepNm; }

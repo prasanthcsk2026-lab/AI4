@@ -324,6 +324,15 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Brake rhythm, arm swing centre, track order, frame stepping, track ranges
+- **Brake rhythm** (Run controls, %, default 100): with Hard braking the playback slows in each foot contact and plays faster right after toe-off to make it up. The make-up is solved per clip, so a bar takes exactly as long as without braking. The speed the longer bars used to take off now comes off the step length (feet stay planted), so the moving speed drops the same. 0 % = the old behaviour.
+  - Sprint, braking 70 %: bar 0.5333 s (without braking 0.5333; rhythm 0 % 0.5595). Playback 0.79× in contact → 1.16× after toe-off. Moving speed 5.24 m/s either way, step length 95 %.
+  - Run → Jog template still ends at 2.02 m/s in 10 bars.
+- **Arm swing centre** (°, + forward / − back): turns the whole swing about the shoulder (the collarbone takes a quarter), so the swing amount and the elbow stay the same. On by default, it follows the acceleration at 14° per m/s², up to ±30° (⋯ menu to turn off): slowing down moves it back, speeding up forward. Run → Jog at −0.75 m/s²: −10.5°, hands' average 15.4 → 7.9 cm in front of the chest. +15° by hand: 24.5 cm.
+- **Track order:** drag a block's ⋮⋮ grip to move it, now including Moving speed, Playback speed and the Run controls. Drag a track's ⋮ grip to move it inside its block (Run controls, forcer, IK, bone, group…). The order is saved per clip, and undo works.
+- **Frame stepping:** with no points selected, ← / → step one frame (30 fps) and Shift ×10. Holding the key keeps going and speeds up (2 frames per step after ~15 repeats, 4 after ~40). With points selected the arrows still nudge the points.
+- **Track range:** right-click a track's name (or its lane) → **Range: min / max…** to set your own limits in the track's units, wider (Force ±5000 N) or narrower for fine edits; Reset brings the default back. Saved per track and in the JSON export. Knee depth follows its range in the pose too. Joint limits and leg reach still apply.
+
 ## Arm swing, elbow bend, arm crossing, hip motion; shallower knee depth with heel lift
 New Run controls rows: **Arm swing %**, **Elbow bend °**, **Arm crossing °**, **Hip motion %** (Knee depth stays at the end).
 - **Arm swing** scales the arms' motion about the clip's own average arm pose, not toward the idle pose, so the carry and the elbow bend stay (no robot arms). It covers the collarbones (the shoulders' forward / back and up / down), upper arms, forearms and the spine / neck twist (the shoulder line turning). Sprint, 50 %: hand travel 73 → 47 cm, shoulder twist 42° → 26°, shoulder (collarbone) swing 15 → 9 cm, elbow carry 60.5° → 60.6° (unchanged).
