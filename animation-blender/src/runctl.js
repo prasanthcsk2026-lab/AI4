@@ -397,7 +397,8 @@ function drawRunBlock() {
   tracksEl.append(hr.el); rows.push(hr);
   if (col) return;
   const sub = [];
-  sub.push(addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Step length <i>% · feet reach, knee lift, arms</i>', null));
+  sub.push(addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Step length (Hard) <i>% · feet reach, knee lift, arms</i>', null));
+  sub.push(addTrackRow('stepNat', NAT_SPEC, () => A.stepNat, (p) => { A.stepNat = p; }, 'Step length (Natural) <i>% · same leg motion, a longer flight and hop (from the speed)</i>', null));
   sub.push(addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · cadence</i>', null));
   sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
   sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
@@ -420,19 +421,19 @@ function drawRunBlock() {
 function barCurves(a) {   // → { stride: [{b, v}], cyc: [{b, v}] } with b in bars, under that automation's own timing
   const keepA = A, keepDur = S.dur;
   A = a; S.dur = a.dur;
-  try { rebuildSpeedLUT(); const d = cur.dur, f = (pts) => pts.map((p) => ({ b: clipTime(p.t) / d, v: p.v })); return { stride: f(a.stride), cyc: f(a.cyc) }; }
+  try { rebuildSpeedLUT(); const d = cur.dur, f = (pts) => pts.map((p) => ({ b: clipTime(p.t) / d, v: p.v })); return { stride: f(a.stride), cyc: f(a.cyc), stepNat: f(a.stepNat || flat(100, a.dur)) }; }
   finally { A = keepA; S.dur = keepDur; rebuildSpeedLUT(); }
 }
 const evalB = (pts, b) => evalPts(pts.map((p) => ({ t: p.b, v: p.v, k: 0 })), b);
 function speedLockAfter(changed) {
   if (!A.speedLock || !undoStack.length || !cur || !(cur.dur > 0)) return;
-  const other = changed === 'stride' ? 'cyc' : 'stride';
+  const other = changed === 'cyc' ? 'stride' : 'cyc', keep = ['stride', 'cyc', 'stepNat'].filter((k) => k !== other);   // the speed = cycle × hard step × natural step
   let old; try { old = normalizeAuto(JSON.parse(undoStack[undoStack.length - 1]).A); } catch { return; }
   const bo = barCurves(old), bn = barCurves(A), d = cur.dur, total = clipTime(S.dur) / d;
   const bs = [...new Set([...bn[changed].map((p) => p.b), ...bo[other].map((p) => p.b), ...bo[changed].map((p) => p.b)].map((b) => +clamp(b, 0, total).toFixed(5)))].sort((a, b) => a - b);
-  const prod = (b) => evalB(bo.cyc, b) * evalB(bo.stride, b);
+  const prod = (b) => evalB(bo.cyc, b) * evalB(bo.stride, b) * evalB(bo.stepNat, b) / 100;
   const lim = other === 'cyc' ? SPEC.cyc.range : SPEC.stride.range;
-  const vals = bs.map((b) => clamp(prod(b) / Math.max(1e-6, evalB(bn[changed], b)), lim[0], lim[1]));
+  const vals = bs.map((b) => clamp(prod(b) / Math.max(1e-6, keep.reduce((m, k) => m * evalB(bn[k], b), 1) / 100), lim[0], lim[1]));
   const arrs = allPointArrays(), snap = snapClipTimes(arrs), i = arrs.indexOf(A[other]);
   if (i < 0) return;
   const pts = A[other]; pts.length = 0; snap[i] = [];
@@ -490,11 +491,11 @@ function applyRunJog4(o = {}) {
 const JUMP_SPEC = { range: [0, 200], ref: 0, color: '#7fd6b0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
 const JUMPK = { cmAt100: 6, footCm: 3, perStride: 1 };
 function jumpPct(t) {
-  let j = A.jump ? evalPts(A.jump, t) : 0;
+  let j = (A.jump ? evalPts(A.jump, t) : 0) + (natOn() ? natJumpPct(t) : 0);
   if (A.jumpAuto !== false && A.stride) j += JUMPK.perStride * Math.max(0, evalPts(A.stride, t) - 100);
   return Math.max(0, j);
 }
-const jumpOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && (!trackOff(A.jump, 0) || (A.jumpAuto !== false && A.stride && A.stride.some((p) => p.v > 100.5))));
+const jumpOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && (!trackOff(A.jump, 0) || natOn() || (A.jumpAuto !== false && A.stride && A.stride.some((p) => p.v > 100.5))));
 function jumpLift(t) {   // m the hips rise at t
   const j = jumpPct(t); if (j < 1e-3) return 0;
   const wL = clipWin('L'), wR = clipWin('R'), p = mod1(clipTime(t) / cur.dur);
@@ -503,14 +504,61 @@ function jumpLift(t) {   // m the hips rise at t
   return (j / 100) * (JUMPK.cmAt100 / 100) * (0.5 - 0.5 * Math.cos(2 * Math.PI * x));
 }
 
+// ============================================================================
+//  STEP LENGTH (NATURAL): longer steps without reaching further. The legs keep the clip's joint motion; the extra
+//  length is covered in the air: the ground speed stays the clip's while a foot is planted and the extra comes in
+//  the flight, which gets longer (the contacts shorter) with the hop that physics needs at that speed:
+//  extra flight = extra step length ÷ moving speed, hop height = g · flight² ÷ 8 (on top of the clip's own flight).
+// ============================================================================
+const NAT_SPEC = { range: [50, 160], ref: 100, color: '#a8e07a', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const natOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && !trackOff(A.stepNat, 100));
+const natAt = (t) => (A && A.stepNat ? Math.max(0.3, evalPts(A.stepNat, t) / 100) : 1);
+let natTab = null;
+function natClip() {   // per clip: the flight share of a cycle (neither foot down)
+  const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`; if (natTab && natTab.key === key) return natTab;
+  const wL = clipWin('L'), wR = clipWin('R'), N = 200; let f = 0;
+  const inW = (w, p) => mod1(p - w[0]) < mod1(w[1] - w[0]);
+  for (let i = 0; i < N; i++) { const p = (i + 0.5) / N; if (!inW(wL, p) && !inW(wR, p)) f++; }
+  natTab = { key, flight: f / N, fw: new Map() }; return natTab;
+}
+function natJumpPct(t) {   // the hop (in Jump %) that the extra flight needs
+  const N = natAt(t); if (N <= 1 + 1e-4) return 0;
+  const rate = Math.max(0.05, evalPts(A.speed, t) * Math.max(5, evalPts(A.cyc, t)) / 100), cyc = cur.dur / rate;   // s per bar
+  const L0 = cur.c.speed * cur.dur * strideK(t) / 2, v = Math.max(0.3, N * L0 / (cyc / 2));   // a step, the new speed
+  const T0 = natClip().flight * cyc / 2, T1 = T0 + (N - 1) * L0 / v, dh = (GRAV * (T1 * T1 - T0 * T0)) / 8;
+  return (dh * 100 / JUMPK.cmAt100) * 100;
+}
+function plantedW(Sd, j, p) {   // 1 while the foot is in the planted middle of its contact (shortened by the hop), 0 in the air
+  const w = clipWin(Sd); if (!w) return 0;
+  const len = mod1(w[1] - w[0]), du = mod1(p - w[0]); if (du >= len) return 0;
+  const u = du / len, half = 0.5 * (1 - 0.45 * Math.min(1, j));
+  return 1 - smoothB((Math.abs(u - 0.5) - half) / Math.max(1e-3, 0.5 - half));
+}
+function natFlightMean(j) {   // the average of the flight weight over a cycle, for this hop
+  const T = natClip(), k = Math.round(j * 50); if (T.fw.has(k)) return T.fw.get(k);
+  let m = 0; const N = 200; for (let i = 0; i < N; i++) { const p = (i + 0.5) / N; m += 1 - Math.max(plantedW('L', k / 50, p), plantedW('R', k / 50, p)); }
+  T.fw.set(k, m / N); return m / N;
+}
+function natTravelK(t) {   // × the ground covered at t: 1 while a foot is planted, more in the air (the extra step length)
+  if (!natOn()) return 1;
+  const N = natAt(t); if (Math.abs(N - 1) < 1e-4) return 1;
+  const j = clamp(jumpPct(t) / 100, 0, 2), p = mod1(clipTime(t) / cur.dur), fm = natFlightMean(j);
+  if (fm < 0.05) return N;   // no flight (a walk): spread over the cycle (the feet slide)
+  const fw = 1 - Math.max(plantedW('L', j, p), plantedW('R', j, p));
+  return Math.max(0.05, 1 + ((N - 1) / fm) * fw);
+}
+
 // the feet: only the middle of each contact stays on the ground (100 % → the middle 55 %); towards its ends the foot
 // rises (up to 3 cm at 100 %), carrying on smoothly into the swing, so the contact is shorter and the flight longer
 function jumpFootRise(Sd, t) {
   const j = clamp(jumpPct(t) / 100, 0, 2); if (j < 1e-3) return 0;
   const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
-  const H = j * JUMPK.footCm / 100, half = 0.5 * (1 - 0.45 * Math.min(1, j));
-  if (lp.c) return H * smoothB((Math.abs(lp.u - 0.5) - half) / Math.max(1e-3, 0.5 - half));
-  return H * Math.max(1 - smoothB(lp.s / 0.2), smoothB((lp.s - 0.8) / 0.2));
+  const jOwn = clamp((A.jump ? evalPts(A.jump, t) : 0) / 100 + (A.jumpAuto !== false && A.stride ? Math.max(0, evalPts(A.stride, t) - 100) * JUMPK.perStride / 100 : 0), 0, 2);
+  // the extra lift at the contact's ends comes from the Jump track only (natural steps keep the leg's shape)
+  const H = jOwn * JUMPK.footCm / 100, half = 0.5 * (1 - 0.45 * Math.min(1, j));
+  const lift = jumpLift(t), pw = plantedW(Sd, Math.min(1, j), mod1(clipTime(t) / cur.dur));   // in the air the foot rises with the hips (the leg keeps its shape)
+  if (lp.c) return Math.max(H * smoothB((Math.abs(lp.u - 0.5) - half) / Math.max(1e-3, 0.5 - half)), lift * (1 - pw));
+  return Math.max(H * Math.max(1 - smoothB(lp.s / 0.2), smoothB((lp.s - 0.8) / 0.2)), lift);
 }
 
 // ============================================================================

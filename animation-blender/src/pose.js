@@ -232,7 +232,7 @@ function rebuildTravelLUT() {
   rawTravel(0, prev);
   for (let i = 1; i < n; i++) {
     rawTravel(i * dt, now);
-    const m = evalPts(A.move, (i - 0.5) * dt) * strideK((i - 0.5) * dt);
+    const m = evalPts(A.move, (i - 0.5) * dt) * strideK((i - 0.5) * dt) * natTravelK((i - 0.5) * dt);   // natural step length: more ground in the air
     x[i] = x[i - 1] + (now.x - prev.x) * m; z[i] = z[i - 1] + (now.z - prev.z) * m;
     prev.copy(now);
   }

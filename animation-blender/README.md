@@ -324,6 +324,16 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Step length: Hard and Natural
+- **Step length (Hard)** is the old Step length: the feet reach further from the hips (knee lift, pelvis turn and arms follow).
+- **Step length (Natural)** (%, new) makes the steps longer with the legs' own motion. The extra length is covered in the air.
+  - While a foot is planted the ground speed stays the clip's; the extra comes during the flight.
+  - The flight gets longer with the hop physics needs at that speed: extra flight = extra length ÷ moving speed, hop = g·flight²/8 over the clip's own flight.
+  - In the air the feet rise with the hips, so the legs keep their shape.
+  - Sprint: 110 % → step 1.47 → 1.61 m, 6.05 m/s, flight 172 → 180 ms, hop +1 cm; 130 % → 1.91 m, 7.15 m/s, 186 ms, +3 cm. The knees differ from the clip by at most 9–10°, of which 8.6° is the run IK itself (a 0.01° lean gives the same), so the natural step adds ≈ 0.5–1.6°.
+  - With **Speed lock** on, editing it rewrites the cycle speed so the moving speed stays (120 % → cycle 83 %, 5.53 m/s).
+- "Jump follows the step length" still follows the Hard step length (the natural step has its own hop). The extra foot lift at the ends of a contact comes from the Jump track only.
+
 ## Jump, motion blend from other clips
 - **Jump %** (Run controls; 100 % = 6 cm): a hop at each change of foot.
   - The hips rise in a smooth bump between the middles of two contacts: none at mid-contact, the most in mid-flight.

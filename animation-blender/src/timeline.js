@@ -424,7 +424,7 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'brake', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
@@ -437,7 +437,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat);
   for (const b of a.blends || []) for (const k of BLEND_KEYS) out.push(b[k]);
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
@@ -823,7 +823,7 @@ function onLaneHover(e, r) {
 }
 function edited(r, live = false) {
   const stdKeep = r && r.owner && r.owner.type === 'steady' && stdCache && stdCache.key.startsWith(editVersion + '|');
-  try { editedInner(r, live); if (!live && r && (r.key === 'stride' || r.key === 'cyc')) speedLockAfter(r.key); } finally { if (stdKeep && stdCache) stdCache.key = stdCache.key.replace(/^\d+\|/, editVersion + '|'); }
+  try { editedInner(r, live); if (!live && r && (r.key === 'stride' || r.key === 'cyc' || r.key === 'stepNat')) speedLockAfter(r.key); } finally { if (stdKeep && stdCache) stdCache.key = stdCache.key.replace(/^\d+\|/, editVersion + '|'); }
 }
 function editedInner(r, live = false) {
   if (live) syncMirrors();
