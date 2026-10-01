@@ -324,6 +324,28 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Template: Walk → Run; Foot on ground below 0
+- **Foot on ground** now goes from −30 to +30 % of the cycle: − shortens each contact (the swing gets the time: a run's flight), + lengthens it (braking). Jump, heel lift, knee depth and the planted-foot logic follow the changed contacts.
+- "+" → **Template: Walk → Run (Standard walk, symmetrized)**: loads Standard walk into the selected motion (or adds motion 1), symmetrizes it once (Symmetrize tool, average mode; a clip already processed is kept), then over 8 bars: cycle speed 135 %, step length hard 125 % × natural 135 % (the extra flown), foot on ground −4 %, jump 80 %, knee depth 170 %, elbow +50°, arm swing 95 %, lean +14°, arm swing stays vertical. All flat tracks: edit or key them.
+- Measured against the library's Run slow (mocap) at the same point of a cycle:
+
+| | Walk | Walk → Run | Run slow |
+|---|---|---|---|
+| Cadence (steps/min) | 103 | 139 | 131 |
+| Speed (m/s) | 1.38 | 3.14 | 3.18 |
+| Step (m) | 0.81 | 1.36 | 1.46 |
+| One foot on the ground (% of cycle) | 53 | 27 | 27 |
+| Both feet in the air (%) | 0 | 47 | 47 |
+| Trunk lean (°) | −7.2 | 7.1 | 7.3 |
+| Elbow (°) | 13 | 63 | 74 |
+| Hands above the hips at most (cm) | – | 42 | 39 |
+| Stance knee, most bent (°) | 42 | 38 | 53 |
+| Swing knee, most bent (°) | 68 | 88 | 145 |
+| Hips at mid-stance vs mean (cm) | +1.9 | −1.5 | −4.4 |
+| Hips up / down range (cm) | 5.0 | 5.1 | 13.2 |
+
+- Limits (it reads as a light run, not as a run capture): the swing knee folds 88° (a run 145°; the jog clip 87°); the body dips at mid-stance only 1.5 cm and bounces 5 cm (a run 4.4 / 13 cm); the stance knee does not bend deeper (knee depth is held by the room the clip's leg has); the foot keeps the walk's heel-to-toe roll; the ground speed swings more within a step (2.0–5.0 m/s against the clip's 1.0–3.8), because the extra step length is covered in the air. For a capture-like run blend in Run slow / Jog (Blend motion) or use those clips.
+
 ## Tracks in the order they were added; forcers per motion (copy to others)
 - Inside every block (Run controls, bones, IK, groups, forcers, blends, steadiness) a track you add goes to the **end** and stays there; one you take out and add again goes to the end too. The ⋮ grip still reorders. Older projects keep the order they show now.
   - Measured: Run controls, add Knee depth, Step length (Hard), Jump → that order; take Knee depth out and add it again → Step length, Jump, Knee depth.

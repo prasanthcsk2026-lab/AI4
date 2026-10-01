@@ -187,7 +187,7 @@ function forcerBoneChains() {
 const boneW = (f, key) => (f.target.bw && f.target.bw[key] > 0 ? f.target.bw[key] / 100 : 0);
 const boneList = (f) => Object.keys(f.target.bw || {}).filter((k) => f.target.bw[k] > 0);
 const bonesOn = () => !!(A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.boneFlex > 0 && boneList(f).length));
-function legSwingW(Sd, t) { if (!cur || cur.kind !== 'loop') return 0.5; const lp = legPhase(Sd, clipTime(t)); return !lp ? 0.5 : lp.c ? 0 : Math.sin(Math.PI * lp.s); }
+function legSwingW(Sd, t) { if (!cur || cur.kind !== 'loop') return 0.5; const lp = legPhase(Sd, clipTime(t), t); return !lp ? 0.5 : lp.c ? 0 : Math.sin(Math.PI * lp.s); }
 function forcerBonePass(t) {
   if (!rig || !bonesOn()) return;
   const C = forcerBoneChains().ch, list = A.forcers.filter((f) => forcerLive(f) && f.target.boneFlex > 0 && boneList(f).length), rec = [];

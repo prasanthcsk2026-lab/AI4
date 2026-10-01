@@ -16,7 +16,7 @@ const SPEC = {
   speed: { range: [0, SPEED_MAX], ref: 1, color: COL.speed, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   move: { range: [0, 3], ref: 1, color: COL.move, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   stride: { range: [50, 150], ref: 100, color: '#ffc94d', scale: 1, unit: '% stride', fmt: (v) => Math.round(v) + '%', snap: 5 },
-  gnd: { range: [0, GND_MAX], ref: 0, color: '#7fd4a8', scale: 1, unit: '% of cycle', fmt: (v) => '+' + Math.round(v) + '%', snap: 1 },
+  gnd: { range: [-GND_MAX, GND_MAX], ref: 0, color: '#7fd4a8', scale: 1, unit: '% of cycle', fmt: (v) => (v >= 0 ? '+' : '') + Math.round(v) + '%', snap: 1 },
   cyc: { range: [25, 400], ref: 100, color: '#f5a3ff', scale: 1, unit: '% speed', fmt: (v) => Math.round(v) + '%', snap: 5 },
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
@@ -145,7 +145,7 @@ function rebuildRows() {
     else if (k === 'move') addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
     else if (k === 'cycle') addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · 150 = faster</i>', null);
     else if (k === 'stride') addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Stride length <i>% · feet reach + ground covered</i>', null);
-    else if (k === 'gnd') addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>+% of cycle · braking</i>', null);
+    else if (k === 'gnd') addTrackRow('gnd', SPEC.gnd, () => A.gnd, (p) => { A.gnd = p; }, 'Foot on ground <i>% of cycle · + longer contacts (braking) / − shorter (run)</i>', null);
   };
   // symmetrize (one side follows the other, mirrored, half a cycle later)
   const drawSym = (k) => {
@@ -296,6 +296,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Template: Sprint → Jog (decelerate)…', action: openTemplate },
     { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
     { label: 'Template: Sprint → resisted run (forcer 4 m ahead from bar 4, steady from bar 8)', action: () => toast(applySprintResist()) },
+    { label: 'Template: Walk → Run (Standard walk, symmetrized)', action: () => toast(applyWalkToRun()) },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);

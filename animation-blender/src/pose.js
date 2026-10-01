@@ -296,14 +296,14 @@ function wholeEff(name, t) {
 // re-timed phase; everything else is untouched. Auto foot-lock follows the longer contacts.
 const GND_MAX = 30;
 function clipWin(Sd) { const bk = BAKED[cur.id] || cur.c.origBk, w = (bk && bk.win) || cur.c.win; if (!w || !w[Sd]) return null; return cur.phase ? [w[Sd][0] - cur.phase, w[Sd][1] - cur.phase] : w[Sd]; }
-function gndAt(t) { return A.gnd && cur && cur.kind === 'loop' ? clamp(evalPts(A.gnd, t), 0, GND_MAX) / 100 : 0; }
+function gndAt(t) { return A.gnd && cur && cur.kind === 'loop' ? clamp(evalPts(A.gnd, t), -GND_MAX, GND_MAX) / 100 : 0; }   // + longer contacts (braking), − shorter (a run's flight)
 function gndWin(Sd, g) {   // the contact window after the stretch
   const w = clipWin(Sd); if (!w) return null;
-  const s = w[1] - w[0]; return [w[0], w[0] + Math.min(0.95, s + g)];
+  const s = w[1] - w[0]; return [w[0], w[0] + clamp(s + g, 0.12, 0.95)];
 }
 function gndPhase(Sd, p, g) {   // output phase → source phase for that leg
-  const w = clipWin(Sd); if (!w || g < 1e-4) return p;
-  const s = w[1] - w[0], s2 = Math.min(0.95, s + g), du = mod1(p - w[0]);
+  const w = clipWin(Sd); if (!w || Math.abs(g) < 1e-4) return p;
+  const s = w[1] - w[0], s2 = clamp(s + g, 0.12, 0.95), du = mod1(p - w[0]);
   return w[0] + (du < s2 ? du * (s / s2) : s + (du - s2) * ((1 - s) / (1 - s2)));
 }
 let gndLegs = null;
@@ -343,7 +343,7 @@ function composePose(t, Qout, Hout, pend) {
     if (!shiftArr.has(key)) { const arr = shiftPool.pop() || new Float32Array(B * 4); sampleClip(clipTime(t) + sh * (cur.dur || 1), arr, HshiftScratch); shiftArr.set(key, arr); }
   }
   // foot on ground: each leg from its own re-timed phase (a bone's own timing shift still wins)
-  const g = gndAt(t), legOf = g > 1e-4 ? gndLegSets() : null;
+  const g = gndAt(t), legOf = Math.abs(g) > 1e-4 ? gndLegSets() : null;
   if (legOf) for (const Sd of ['L', 'R']) {
     if (!clipWin(Sd)) { gndArr[Sd] = null; continue; }
     const ct = clipTime(t), cyc = Math.floor(ct / cur.dur), p = mod1(ct / cur.dur);
@@ -741,7 +741,7 @@ function solveIK(t, pend) {
     baseQ = gx.q.clone().multiply(baseQ);
     if (jumpOn()) target.y += jumpFootRise(Sd, t);   // a hop: the foot leaves the ground earlier and lands later
     if (heelOn) {   // a planted foot out of reach rolls up onto its toe: from just before touchdown, easing out before toe-off
-      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null;
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null;
       let hw = !lp ? 1 : lp.c ? smoothB((1 - lp.u) / 0.15) : smoothB((lp.s - 0.88) / 0.12);   // fades in before touchdown, out before toe-off
       if (jumpOn()) hw *= 1 - 0.9 * clamp(jumpPct(t) / 100, 0, 1);   // a hop: the foot leaves the ground instead of rolling onto its toe (longer flight)
       if (hw > 1e-4) heelLift(sd, target, baseQ, hw, !!(lp && !lp.c));
@@ -757,7 +757,7 @@ function solveIK(t, pend) {
       // continuous: a foot that is too far out sideways / ahead to be reached by lowering fades out (no step in the hips)
       // only a planted foot pulls the hips down (a swinging leg just stretches): full in contact, easing out over the
       // first 8 % of the swing and in over the last 8 % (no step at toe-off / touchdown, no dip in the flight)
-      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null, cw = !lp ? 1 : heelOn ? (lp.c ? Math.min(smoothB(lp.u / 0.1), smoothB((1 - lp.u) / 0.15)) : 0) : lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));   // with the heel lift a planted foot mostly reaches by itself: only mid-contact pulls, eased in / out; a leg in the air never pulls
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null, cw = !lp ? 1 : heelOn ? (lp.c ? Math.min(smoothB(lp.u / 0.1), smoothB((1 - lp.u) / 0.15)) : 0) : lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));   // with the heel lift a planted foot mostly reaches by itself: only mid-contact pulls, eased in / out; a leg in the air never pulls
       if (h.lengthSq() > reach * reach && horiz2 < reach * reach) drop = Math.max(drop, cw * (h.y - Math.sqrt(reach * reach - horiz2)) * smoothB((reach * reach - horiz2) / (0.15 * reach * reach)));
     }
     drop = clamp(drop, 0, 0.25);
@@ -895,7 +895,7 @@ function evaluate(t, pend) {
 // ---------------------------------------------------------------- auto foot-lock from the clip's contacts
 function footContact(Sd, t) {
   const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk, g = gndAt(t);
-  if (g > 1e-4) { const w = gndWin(Sd, g); if (w) return inWin(mod1(ct / cur.dur), w); }   // foot on ground: the longer contact
+  if (Math.abs(g) > 1e-4) { const w = gndWin(Sd, g); if (w) return inWin(mod1(ct / cur.dur), w); }   // foot on ground: the longer / shorter contact
   if (cur.kind === 'loop') { const w = clipWin(Sd); return w ? inWin(mod1(ct / cur.dur), w) : null; }   // a processed clip: its measured contacts
   const arr = Sd === 'L' ? c.cL : c.cR, fps = (gl && gl.fps) || 30;
   if (!arr) return null;

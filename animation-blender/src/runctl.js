@@ -28,8 +28,8 @@ const hipRotActive = () => flatActive('hipRot'), brakeActive = () => flatActive(
 // u: 0 at touchdown → 1 at toe-off. The braking pulse rises fast to its peak at 30 % of the contact, gone by 90 %.
 const smoothB = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 function brakePulse(u) { return u < 0.3 ? smoothB(u / 0.3) : 1 - smoothB((u - 0.3) / 0.6); }
-function legPhase(Sd, ct) {   // → { c: in contact, u: contact progress, s: swing progress (toe-off → touchdown) }
-  const w = clipWin(Sd); if (!w) return null;
+function legPhase(Sd, ct, t) {   // → { c: in contact, u: contact progress, s: swing progress (toe-off → touchdown) }; with t: after Foot on ground
+  const g = t != null ? gndAt(t) : 0, w = Math.abs(g) > 1e-4 ? gndWin(Sd, g) : clipWin(Sd); if (!w) return null;
   const p = mod1(ct / cur.dur), len = w[1] - w[0], du = mod1(p - w[0]);
   return du < len ? { c: true, u: du / len, s: 0 } : { c: false, u: 0, s: (du - len) / (1 - len) };
 }
@@ -76,7 +76,7 @@ function brakeStrideK(t) {   // the step length that takes off what the made-up 
 }
 function brakeReachCm(Sd, t) {   // the foot lands further ahead: on through the contact, eased in before touchdown and out after toe-off
   const b = brakeAt(t); if (b < 1e-4) return 0;
-  const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
+  const lp = legPhase(Sd, clipTime(t), t); if (!lp) return 0;
   const g = lp.c ? 1 : lp.s < 0.25 ? 1 - smoothB(lp.s / 0.25) : lp.s > 0.6 ? smoothB((lp.s - 0.6) / 0.4) : 0;
   return RUN.brakeReachCm * b * g;
 }
@@ -198,7 +198,7 @@ function kneeHipDrop(K, t) {   // m the hips come down (− = up) for knee depth
 }
 function kneeSwingK(Sd, t) {   // the shin's extra fold in the air (1 in contact)
   const K = kneeDepthAt(t); if (K <= 1 + 1e-6) return 1;   // shallower: the swing is left as it is (a longer swinging leg would hit the ground)
-  const lp = legPhase(Sd, clipTime(t)); if (!lp || lp.c) return 1;
+  const lp = legPhase(Sd, clipTime(t), t); if (!lp || lp.c) return 1;
   let k = K;
   if (K > 1) {   // soft cap: the deepest fold of the clip stays under 140° (the knee's limit is 155°): no hitting the stop
     const L = kneeGeometry().legs.find((x) => x.side === Sd), room = L && L.swingMax > 0 ? Math.max(0, 140 * DEG / L.swingMax - 1) : 0.3;
@@ -600,7 +600,7 @@ function natTravelK(t) {   // × the ground covered at t: 1 while a foot is plan
 // rises (up to 3 cm at 100 %), carrying on smoothly into the swing, so the contact is shorter and the flight longer
 function jumpFootRise(Sd, t) {
   const j = clamp(jumpPct(t) / 100, 0, 2); if (j < 1e-3) return 0;
-  const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
+  const lp = legPhase(Sd, clipTime(t), t); if (!lp) return 0;
   const jOwn = clamp((A.jump ? evalPts(A.jump, t) : 0) / 100 + (A.jumpAuto !== false && A.stride ? Math.max(0, evalPts(A.stride, t) - 100) * JUMPK.perStride / 100 : 0), 0, 2);
   // the extra lift at the contact's ends comes from the Jump track only (natural steps keep the leg's shape)
   const H = jOwn * JUMPK.footCm / 100, half = 0.5 * (1 - 0.45 * Math.min(1, j));
@@ -777,4 +777,43 @@ function applySprintResist(o = {}) {
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
   return `Sprint → resisted run: ${v.bars} bars; a ${v.forceN} N push from ${v.distM} m ahead starts at bar ${v.onBar} and is full at bar ${v.fullBar}; knee depth ${v.knee} %, cycle speed ${v.cyc} %, foot on ground +${v.gnd} %, arm swing ${v.arm} %, hip motion ${v.hip} %; bars ${v.fullBar}–${v.bars} hold still.`;
+}
+
+// ============================================================================
+//  TEMPLATE: WALK → RUN. Standard walk, symmetrized (left / right averaged), turned into a run over the whole timeline:
+//  a run's cadence, longer steps (hard + natural: the extra flown), shorter contacts (foot on ground −) and a hop so
+//  both feet leave the ground, deeper stance knees (the body dips at mid-stance, not rises as in a walk), bent elbows,
+//  a bigger arm swing and a little forward lean. Every value is a flat track: edit it, or key it to blend in.
+// ============================================================================
+const W2R = { bars: 8, clip: 'loop:Standard_walk', cyc: 135, stride: 125, nat: 135, gnd: -4, jump: 80, knee: 170, elbow: 50, arm: 95, lean: 14 };
+function symmetrizeClip(id) {   // the Symmetrize tool on this clip, average mode (once: a clip already processed stays)
+  const c = clips.find((x) => x.id === id); if (!c) return 'missing';
+  if (BAKED[c.id]) return 'kept';
+  const keepMode = $('stMode').value;
+  try {
+    $('stMode').value = 'avg';
+    ST.clip = c; ST.src = c.c.origBk; ST.saved = true;
+    stProcess(); stSave();
+  } finally { $('stMode').value = keepMode; ST.clip = null; ST.res = null; }
+  return 'done';
+}
+function applyWalkToRun(o = {}) {
+  const v = { ...W2R, ...o };
+  if (!clips.find((x) => x.id === v.clip)) return 'Standard walk is not in the library.';
+  if (!seqActive()) seqAdd(v.clip, 1, 0, v.bars);
+  else if (SEQ.motions[SEQ.sel].clipId !== v.clip) seqSetClip(SEQ.sel, v.clip);
+  const sym = symmetrizeClip(v.clip);
+  pushUndo();
+  const dur = cur.dur, n = newAuto(+(v.bars * dur / (v.cyc / 100)).toFixed(3), v.bars);
+  for (const k of ['rowOrder', 'subOrder', 'heights', 'ranges']) if (A[k]) n[k] = A[k];
+  A = normalizeAuto(n); S.dur = A.dur;
+  const F = (x) => flat(x, S.dur);
+  Object.assign(A, { cyc: F(v.cyc), stride: F(v.stride), stepNat: F(v.nat), gnd: F(v.gnd), jump: F(v.jump), kneeDepth: F(v.knee), elbowBend: F(v.elbow), armSwing: F(v.arm), lean: F(v.lean) });
+  A.showMaster = { ...A.showMaster, run: true, mspeed: true, gnd: true, cycle: false, stride: false, move: false };
+  A.runShow = { cyc: true, stride: true, stepNat: true, jump: true, kneeDepth: true, elbowBend: true, armSwing: true, lean: true };
+  A.armVertical = true; A.speedLock = false; A.jumpAuto = false; A.strideArms = true;
+  A.cycles = v.bars; A.cycLocked = true;
+  S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
+  ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
+  return `Walk → Run: Standard walk ${sym === 'done' ? 'symmetrized (average) and ' : sym === 'kept' ? '(already processed) ' : ''}turned into a run over ${v.bars} bars: cycle speed ${v.cyc} %, step length ${v.stride} % hard × ${v.nat} % natural, foot on ground ${v.gnd} %, jump ${v.jump} %, knee depth ${v.knee} %, elbow +${v.elbow}°, arm swing ${v.arm} %, lean +${v.lean}°.`;
 }
