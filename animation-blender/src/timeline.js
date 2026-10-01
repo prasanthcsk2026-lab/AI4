@@ -255,6 +255,13 @@ function rebuildRows() {
     if (kind === 'm') drawMaster(id); else if (kind === 'bld') drawBlendBlock(id); else if (kind === 'frc') drawForcerBlock(id); else if (kind === 'std') drawSteady(); else if (kind === 'sym') drawSym(id); else if (kind === 'grp') drawGroup(id); else if (kind === 'bone') drawBone(id); else drawEff(id);
     const blk = rows.slice(n0); if (!blk.length) continue;
     blk[0].el.dataset.block = key; addBlockGrip(blk[0], key);
+    const folded = blk[0].h && blk[0].h.querySelector('[data-act="fold"][aria-expanded="false"]');
+    if (!folded) {   // tracks keep the order they were added in: one that is new goes to the end (and stays there); a removed one leaves the list
+      A.subOrder = A.subOrder || {}; const here = blk.slice(1).map((r) => r.key).filter(Boolean);
+      const ord = (A.subOrder[key] || []).filter((k) => here.includes(k));
+      for (const k of here) if (!ord.includes(k)) ord.push(k);
+      if (ord.length) A.subOrder[key] = ord; else delete A.subOrder[key];
+    }
     const subs = orderSubs(key, blk.slice(1));   // your own order of the tracks inside the block
     if (subs.length) { rows.splice(n0 + 1, subs.length, ...subs); for (const sub of subs) { tracksEl.append(sub.el); sub.el.classList.add('sub'); sub.el.classList.remove('blockend'); sub.el.dataset.subOf = key; if (sub.key) addSubGrip(sub, key); } }
     blk[0].el.classList.toggle('blockend', !subs.length);

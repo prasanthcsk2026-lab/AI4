@@ -324,6 +324,12 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Tracks in the order they were added; forcers per motion (copy to others)
+- Inside every block (Run controls, bones, IK, groups, forcers, blends, steadiness) a track you add goes to the **end** and stays there; one you take out and add again goes to the end too. The ⋮ grip still reorders. Older projects keep the order they show now.
+  - Measured: Run controls, add Knee depth, Step length (Hard), Jump → that order; take Knee depth out and add it again → Step length, Jump, Knee depth.
+- A forcer belongs to its motion: it acts on that motion only (another motion's pose differs by 0.165°, the same as noise), and its speaker, cone and arrows show only while that motion is under the playhead.
+- **⧉** on the forcer's header (or right-click it): **Copy to motion n** / **Copy to every other motion**. The copy lands on the same bars (moved onto that motion's timing) and works there on its own (Ctrl+Z on that motion takes it back).
+
 ## Forcer: bones it bends, one by one with a weight
 - Forcer settings → **Bones it bends** starts empty (the push then only leans and slows the body). **+ Add bone** picks one (Hips, Spine lower / middle, Chest, Neck, Head, each shoulder, upper arm, forearm, hand, thigh, shin, foot) with its **weight %** (0–200); each row can be changed or removed (×).
 - A bone turns by the push's torque about its joint × its weight. Hips tilt the pelvis while the legs keep their line.

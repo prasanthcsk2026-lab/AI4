@@ -292,7 +292,7 @@ function updateResistViz() {
   const now = performance.now() / 1000;
   for (const f of list) {
     const v = resViz.get(f.id) || forcerVizBuild(f);
-    const on = !f.bypass && f.show !== false && S.showResist !== false;
+    const on = !f.bypass && f.show !== false && S.showResist !== false && seqShowsSel();   // a sequence: only while its own motion is under the playhead
     v.g.visible = v.arrows.visible = on; if (!on) continue;
     const { pos, dirW, D } = forcerWorldPose(f, S.t);
     v.g.position.copy(pos); v.g.lookAt(pos.clone().add(dirW));
@@ -351,14 +351,15 @@ function keyForcer(p) {   // a gizmo move / turn: the forcer's position / facing
 function drawForcerBlock(id) {
   const f = A.forcers.find((x) => x.id === id); if (!f) return;
   const hr = mkRow('bone sym resb' + (S.selForcer === id ? ' selected' : '')); Object.assign(hr, { kind: 'forcer', forcer: id });
-  hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!f.collapsed}">${f.collapsed ? '▸' : '▾'}</button><span class="symtag" style="background:${f.color};color:#111">${f.mode === 'fixed' ? 'FIXED' : 'MOVING'}</span><span class="name"></span><button type="button" class="mini" data-act="set" title="Name, target, falloff, body settings">⚙</button><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
+  hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!f.collapsed}">${f.collapsed ? '▸' : '▾'}</button><span class="symtag" style="background:${f.color};color:#111">${f.mode === 'fixed' ? 'FIXED' : 'MOVING'}</span><span class="name"></span><button type="button" class="mini" data-act="set" title="Name, target, falloff, body settings">⚙</button>${seqActive() && SEQ.motions.length > 1 ? '<button type="button" class="mini" data-act="copy" title="Copy this forcer to other motions">⧉</button>' : ''}<button type="button" class="mini" data-act="del" title="Remove">×</button>`;
   hr.h.querySelector('.name').textContent = f.name;
   hr.h.querySelector('.name').onclick = () => selectForcer(id);
   hr.h.querySelector('[data-act="fold"]').onclick = () => { f.collapsed = !f.collapsed; rebuildRows(); save(); };
   hr.h.querySelector('[data-act="set"]').onclick = () => openForcerDlg(id);
   hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove ${f.name} and its tracks?`, () => { pushUndo(); removeForcerNow(id); });
   addBypass(hr, f, null);
-  hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('frc' + id)) hr.h.querySelector('[data-act="del"]').click(); };
+  const cp = hr.h.querySelector('[data-act="copy"]'); if (cp) cp.onclick = (ev) => { const r = ev.currentTarget.getBoundingClientRect(); openMenu(r.left, r.bottom + 4, seqCopyForcerMenu(id)); };
+  hr.h.oncontextmenu = (ev) => { ev.preventDefault(); if (rightDouble('frc' + id)) hr.h.querySelector('[data-act="del"]').click(); else if (seqActive() && SEQ.motions.length > 1) openMenu(ev.clientX, ev.clientY, seqCopyForcerMenu(id)); };
   hr.lane.innerHTML = '<div class="summary"></div>'; hr.resSum = hr.lane.firstChild; forcerSummary(hr);
   tracksEl.append(hr.el); rows.push(hr);
   if (f.collapsed) return;

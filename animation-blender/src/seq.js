@@ -447,3 +447,41 @@ function seqFrames(fps, travel) {
   } finally { S.inPlace = keep.inPlace; SEQ.base.copy(keep.base); seqSetT(keep.T); }
   return { n, fps, q, hp };
 }
+
+// ---------------------------------------------------------------- forcers belong to their motion; copy one to others
+function seqShowsSel() {   // is the selected motion under the playhead (so its forcers are drawn)?
+  if (!seqActive() || !SEQ.g) return true;
+  return seqWeight(SEQ.sel, seqBarOfT(SEQ.T)) > 0.02;
+}
+function seqCopyForcerMenu(fid) {
+  const items = SEQ.motions.map((m, i) => (i === SEQ.sel ? null : { label: `Copy to motion ${i + 1} (${(m.ctx.cur.name || '').replace(/ \(.*$/, '')})`, action: () => toast(seqCopyForcer(fid, [i])) })).filter(Boolean);
+  if (items.length > 1) items.push({ sep: true }, { label: 'Copy to every other motion', action: () => toast(seqCopyForcer(fid, SEQ.motions.map((m, i) => i).filter((i) => i !== SEQ.sel))) });
+  return items;
+}
+// the copy lands on the same bars (its points are moved bar for bar onto the other motion's own timing)
+function seqCopyForcer(fid, targets) {
+  const f = (A.forcers || []).find((x) => x.id === fid); if (!f || !targets.length) return 'Nothing to copy.';
+  const d0 = cur.dur, bars = {};
+  for (const k of RES_KEYS) bars[k] = f[k].map((p) => ({ b: d0 > 0 ? clipTime(p.t) / d0 : p.t, v: p.v, k: p.k, e: p.e }));
+  const live = ctxGrab(true); SEQ.motions[SEQ.sel].ctx = live;
+  const done = [];
+  try {
+    for (const i of targets) {
+      const m = SEQ.motions[i]; if (!m || i === SEQ.sel) continue;
+      ctxPut(m.ctx, true);
+      pushUndo();
+      const n = JSON.parse(JSON.stringify(f)); n.id = 'f' + Date.now().toString(36) + Math.floor(Math.random() * 1e4) + i;
+      const d = cur.dur, total = d > 0 ? clipTime(S.dur) / d : S.dur;
+      for (const k of RES_KEYS) {
+        const pts = bars[k].filter((p) => p.b <= total + 1e-6).map((p) => { const q = { t: Math.min(S.dur, d > 0 ? timeOfClipTime(p.b * d) : p.b), v: p.v, k: p.k || 0 }; if (p.e) q.e = p.e; return q; });
+        n[k] = pts.length ? pts : flat(RES_SPEC[k].ref, S.dur);
+      }
+      A.forcers = A.forcers || []; A.forcers.push(n);
+      if (f.mode === 'fixed') { /* a fixed forcer keeps its spot from the motion's own start */ }
+      ensureEnds(); moveEndCache = null; editVersion++; holdCache.clear(); rebuildSpeedLUT(); lockCycles(true);
+      m.ctx = ctxGrab(true); m.tab = null; done.push(i + 1);
+    }
+  } finally { ctxPut(SEQ.motions[SEQ.sel].ctx, true); }
+  seqRebuild(true); seqRefreshUI(); save();
+  return done.length ? `${f.name} copied to motion ${done.join(', ')} (same bars; it works there on its own).` : 'Nothing copied.';
+}
