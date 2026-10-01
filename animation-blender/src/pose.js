@@ -372,6 +372,7 @@ function composePose(t, Qout, Hout, pend) {
   }
   for (const arr of shiftArr.values()) shiftPool.push(arr);
   if (armSwingOn()) applyArmSwing(t, Qout);   // arm swing: about the clip's average arm pose
+  applyBlends(t, Qout);   // motion from other clips (their own swing %)
   const hi = boneIdx.get(rig.b.hips.name), wh = wholeEff(rig.b.hips.name, t) * (gF ? gF[hi][0] : 1);
   Hout.copy(Hi).lerp(Hc, wh).add(shownTravel(t, _trav));
   if (A.symOrder.length) applySymmetrize(t, Qout, Hout);
@@ -715,7 +716,7 @@ function solveIK(t, pend) {
     rig.setDelta(b.hips, gx.q.clone().multiply(effRotQ('hips', t, pend, w)).multiply(rig.delta(b.hips)));
   }
   // 1b. knee depth: the hips come down / up (a smooth function of the Knee depth track); the feet keep their spots
-  const kDrop = kneeDepthOn() ? kneeHipDrop(kneeDepthAt(t), t) : 0;
+  const kDrop = (kneeDepthOn() ? kneeHipDrop(kneeDepthAt(t), t) : 0) - (jumpOn() ? jumpLift(t) : 0);   // knee depth (down / up) and the jump (up)
   if (Math.abs(kDrop) > 1e-6) { rig.setHipsWorld(worldP(b.hips).add(V3(0, -kDrop, 0))); b.hips.updateMatrixWorld(true); }
   // 2. leg targets (needed now: the hips come down if planted feet are out of reach)
   const legT = {}, heelOn = kDrop < -1e-6 || runIKActive();   // a planted foot out of reach rolls onto its toe (before the hips would be pulled down)
@@ -737,9 +738,11 @@ function solveIK(t, pend) {
     const w = on(fId) ? effVal(fId, 'blend', t) : 0, gx = GX.xf(fId, base);
     const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
     baseQ = gx.q.clone().multiply(baseQ);
+    if (jumpOn()) target.y += jumpFootRise(Sd, t);   // a hop: the foot leaves the ground earlier and lands later
     if (heelOn) {   // a planted foot out of reach rolls up onto its toe: from just before touchdown, easing out before toe-off
       const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t)) : null;
-      const hw = !lp ? 1 : lp.c ? smoothB((1 - lp.u) / 0.15) : smoothB((lp.s - 0.88) / 0.12);   // fades in before touchdown, out before toe-off
+      let hw = !lp ? 1 : lp.c ? smoothB((1 - lp.u) / 0.15) : smoothB((lp.s - 0.88) / 0.12);   // fades in before touchdown, out before toe-off
+      if (jumpOn()) hw *= 1 - 0.9 * clamp(jumpPct(t) / 100, 0, 1);   // a hop: the foot leaves the ground instead of rolling onto its toe (longer flight)
       if (hw > 1e-4) heelLift(sd, target, baseQ, hw, !!(lp && !lp.c));
     }
     legT[Sd] = { target, baseQ, w, gx };

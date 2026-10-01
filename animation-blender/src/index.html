@@ -277,6 +277,14 @@
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
   </div>
 </div>
+<div class="sheet" id="bldDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="bldH">
+    <h2 id="bldH">Blend motion from another clip</h2>
+    <div class="barsform"><label>From clip <select id="bldClip"></select></label><label>Body part <select id="bldRegion"></select></label>
+      <label class="cb"><input type="checkbox" id="bldSym" checked> Symmetric (left and right swing the same)</label></div>
+    <div class="acts"><span class="note">Its motion is matched to this clip's steps (left / right touchdowns). Automate its weight to bring it in from any bar; its own swing % scales it.</span><button type="button" id="bldCancel">Cancel</button><button type="button" class="primary" id="bldOk">Add</button></div>
+  </div>
+</div>
 <div class="sheet" id="rangeDlg" hidden>
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="rangeH">
     <h2 id="rangeH">Track range: <span id="rangeT"></span></h2>

@@ -324,6 +324,21 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Jump, motion blend from other clips
+- **Jump %** (Run controls; 100 % = 6 cm): a hop at each change of foot.
+  - The hips rise in a smooth bump between the middles of two contacts: none at mid-contact, the most in mid-flight.
+  - Only the middle of each contact stays on the ground (55 % of it at 100 %). Towards its ends the foot rises (up to 3 cm), carrying on smoothly into the swing, so the contact is shorter and the flight longer.
+  - The heel lift is mostly turned off while jumping (the foot leaves the ground instead of rolling onto its toe).
+  - "Jump follows the step length" (⋯, on) adds 1 % per % of step length over 100.
+  - Sprint: 50 % → hips +3 cm, flight 171 → 190 ms; 100 % → +6 cm, 200 ms; 150 % → +9 cm, 204 ms. Extra hip acceleration 9–28 m/s², mid-contact foot 0 cm.
+- **Blend motion from another clip** ("+" → Blend motion…): a block with the source clip, the body part and Symmetric, plus two tracks.
+  - Body parts: arms, upper body (no hips), spine, head & neck, legs, one arm / leg, whole body.
+  - Tracks: **Blend weight** (bring it in from any bar) and **Its swing %**, which scales the source's motion about its own average.
+  - The source is phase-matched to this clip's left / right touchdowns. Symmetric averages each side with the other side half a cycle later, mirrored.
+  - Order: this clip's Arm swing % → the blend → Arm swing centre / Elbow bend / Arm crossing. So this clip's arm swing stays on this clip's arms, and the source keeps its own 100 % until you change its swing.
+  - Sprint arms at 40 % (hand travel 38 / 36 cm) + Jog_slow arms at 100 %: 41 / 50 cm; with its swing at 50 %: 26 / 33 cm; blended as upper body (no hips): 43 / 43 cm.
+  - The left / right difference with arms only comes from the sprint's own chest turn; blend the upper body to take that too.
+
 ## Brake rhythm, arm swing centre, track order, frame stepping, track ranges
 - **Brake rhythm** (Run controls, %, default 100): with Hard braking the playback slows in each foot contact and plays faster right after toe-off to make it up. The make-up is solved per clip, so a bar takes exactly as long as without braking. The speed the longer bars used to take off now comes off the step length (feet stay planted), so the moving speed drops the same. 0 % = the old behaviour.
   - Sprint, braking 70 %: bar 0.5333 s (without braking 0.5333; rhythm 0 % 0.5595). Playback 0.79× in contact → 1.16× after toe-off. Moving speed 5.24 m/s either way, step length 95 %.

@@ -95,7 +95,7 @@ function runLeanAdd(id, k, t) {
   if (id === 'hips' && k === 'pz') return -RUN.shiftPerDeg * l;
   return 0;
 }
-const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn() || kneeDepthOn() || hipMotionOn() || armShapeOn();
+const runIKActive = () => leanActive() || hipRotActive() || brakeActive() || resistOn() || forcersOn() || kneeDepthOn() || hipMotionOn() || armShapeOn() || jumpOn();
 const runLeanOn = (id) => (id === 'chest' || id === 'head' || id === 'hips') && runIKActive();
 // ---------------------------------------------------------------- step length → knee, arms (factors per bone)
 const stepCouple = () => !!(A && A.strideArms !== false);
@@ -378,6 +378,7 @@ function runMenu() {
     { label: 'Template: Run → Jog (4 controls)', action: () => toast(applyRunJog4()) },
     { label: 'Arm swing follows the moving speed (slower → less swing)', checked: A.armAuto !== false, action: tog(() => { A.armAuto = A.armAuto === false; }) },
     { label: 'Arm swing centre follows the acceleration (slowing → back, speeding up → forward)', checked: A.armCentreAuto !== false, action: tog(() => { A.armCentreAuto = A.armCentreAuto === false; }) },
+    { label: 'Jump follows the step length (longer steps → a higher hop)', checked: A.jumpAuto !== false, action: tog(() => { A.jumpAuto = A.jumpAuto === false; }) },
     { label: 'Hip motion follows the moving speed (slower → less hip motion)', checked: A.hipAuto !== false, action: tog(() => { A.hipAuto = A.hipAuto === false; }) },
     { label: 'Hide the Run controls', action: tog(() => { A.showMaster.run = false; }) },
     { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
@@ -407,6 +408,7 @@ function drawRunBlock() {
   sub.push(addTrackRow('elbowBend', ELBOW_SPEC, () => A.elbowBend, (p) => { A.elbowBend = p; }, 'Elbow bend <i>° · + more bent / − straighter</i>', null));
   sub.push(addTrackRow('armCross', CROSS_SPEC, () => A.armCross, (p) => { A.armCross = p; }, 'Arm crossing <i>° · + in toward the middle / − out</i>', null));
   sub.push(addTrackRow('hipMotion', HIPMO_SPEC, () => A.hipMotion, (p) => { A.hipMotion = p; }, `Hip motion <i>% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}</i>`, null));
+  sub.push(addTrackRow('jump', JUMP_SPEC, () => A.jump, (p) => { A.jump = p; }, `Jump <i>% · a hop at each change of foot (100 % = 6 cm)${A.jumpAuto !== false ? ' · + longer steps' : ''}</i>`, null));
   sub.push(addTrackRow('kneeDepth', KNEE_SPEC, () => A.kneeDepth, (p) => { A.kneeDepth = p; }, 'Knee depth <i>% · deeper knees, the hips come down (feet stay)</i>', null));
   for (const r of sub) r.el.classList.add('sub');
   sub[sub.length - 1].el.classList.add('blockend');
@@ -477,3 +479,132 @@ function applyRunJog4(o = {}) {
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
   return `Run → Jog (4 controls): ${v.cycles} bars, slowing over bars 3–7: step length ${Math.round(stride)} %, cadence ${Math.round(runCad)} → ${Math.round(runCad * cad / 100)} steps/min, spine lean −8°, hip rotation −4°, hard braking 70 % over bars 4–6, ${sp.toFixed(2)} → ${(sp * cad / 100 * stride / 100).toFixed(2)} m/s.`;
 }
+
+// ============================================================================
+//  JUMP: a little hop at every change of foot (long steps). The hips rise in a smooth bump between the middles of
+//  two contacts (none at mid-contact, the most in mid-flight); a foot near the start / end of its contact can then no
+//  longer reach the ground and leaves it earlier / lands later, so the flight gets longer by itself (the planted part
+//  of the contact stays planted). Jump % = the bump height (100 % = 6 cm);
+//  "Jump follows step length" adds 1 % per % of step length over 100.
+// ============================================================================
+const JUMP_SPEC = { range: [0, 200], ref: 0, color: '#7fd6b0', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const JUMPK = { cmAt100: 6, footCm: 3, perStride: 1 };
+function jumpPct(t) {
+  let j = A.jump ? evalPts(A.jump, t) : 0;
+  if (A.jumpAuto !== false && A.stride) j += JUMPK.perStride * Math.max(0, evalPts(A.stride, t) - 100);
+  return Math.max(0, j);
+}
+const jumpOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && (!trackOff(A.jump, 0) || (A.jumpAuto !== false && A.stride && A.stride.some((p) => p.v > 100.5))));
+function jumpLift(t) {   // m the hips rise at t
+  const j = jumpPct(t); if (j < 1e-3) return 0;
+  const wL = clipWin('L'), wR = clipWin('R'), p = mod1(clipTime(t) / cur.dur);
+  const mL = mod1(wL[0] + mod1(wL[1] - wL[0]) / 2), mR = mod1(wR[0] + mod1(wR[1] - wR[0]) / 2);
+  const dLR = mod1(mR - mL) || 0.5, a = mod1(p - mL), x = a < dLR ? a / dLR : (a - dLR) / (1 - dLR);
+  return (j / 100) * (JUMPK.cmAt100 / 100) * (0.5 - 0.5 * Math.cos(2 * Math.PI * x));
+}
+
+// the feet: only the middle of each contact stays on the ground (100 % → the middle 55 %); towards its ends the foot
+// rises (up to 3 cm at 100 %), carrying on smoothly into the swing, so the contact is shorter and the flight longer
+function jumpFootRise(Sd, t) {
+  const j = clamp(jumpPct(t) / 100, 0, 2); if (j < 1e-3) return 0;
+  const lp = legPhase(Sd, clipTime(t)); if (!lp) return 0;
+  const H = j * JUMPK.footCm / 100, half = 0.5 * (1 - 0.45 * Math.min(1, j));
+  if (lp.c) return H * smoothB((Math.abs(lp.u - 0.5) - half) / Math.max(1e-3, 0.5 - half));
+  return H * Math.max(1 - smoothB(lp.s / 0.2), smoothB((lp.s - 0.8) / 0.2));
+}
+
+// ============================================================================
+//  MOTION BLEND: any part of the body (arms, upper body, legs, …) from another loop clip, blended in by a weight
+//  track from any bar. The other clip is phase-matched to this one by the foot contacts (its left / right touchdowns
+//  land on this clip's), optionally made symmetric (each side averaged with the other side's motion half a cycle
+//  later, mirrored), and its own swing % scales its motion about its own average pose. It comes in after this clip's
+//  Arm swing % (so that one stays on this clip's motion) and before Arm swing centre / Elbow bend / Arm crossing.
+// ============================================================================
+const BLEND_REGIONS = [['arms', 'Arms (both)'], ['g:upperNH', 'Upper body (no hips)'], ['g:spine', 'Spine'], ['g:headneck', 'Head & neck'], ['legs', 'Legs (both)'], ['g:Larm', 'Left arm'], ['g:Rarm', 'Right arm'], ['g:Lleg', 'Left leg'], ['g:Rleg', 'Right leg'], ['g:body', 'Whole body (rotations)']];
+const BLEND_SPEC = { weight: { range: [0, 1], ref: 0, color: '#6fc3e8', scale: 100, unit: '%', fmt: pct, snap: 0.05 }, swing: { range: [0, 2], ref: 1, color: '#9fb0f0', scale: 100, unit: '%', fmt: pct, snap: 0.05 } };
+const BLEND_KEYS = ['weight', 'swing'];
+const regionLabel = (r) => (BLEND_REGIONS.find(([k]) => k === r) || [r, r])[1];
+function blendBones(region) {   // → bone indices, parents first
+  const sub = (b) => { const out = []; b.traverse((o) => o.isBone && !/_End$/i.test(o.name) && out.push(o)); return out; };
+  const list = region === 'arms' ? [...sub(rig.side.L.clav), ...sub(rig.side.R.clav)] : region === 'legs' ? [...sub(rig.side.L.thigh), ...sub(rig.side.R.thigh)] : (GROUP_DEFS.find((g) => g.id === region) || { bones: () => [] }).bones();
+  return list.map((b) => boneIdx.get(b.name)).filter((i) => i != null).sort((a, b) => a - b);
+}
+function withClip(cl, fn) { const keep = cur; cur = cl; try { return fn(); } finally { cur = keep; } }
+function blendPhase(src, p) {   // this clip's phase → the source clip's (left / right touchdowns matched)
+  const a = clipWin('L'), b = clipWin('R'), sa = withClip(src, () => clipWin('L')), sb = withClip(src, () => clipWin('R'));
+  if (!a || !b || !sa || !sb) return p;
+  const d = mod1(b[0] - a[0]) || 0.5, sd = mod1(sb[0] - sa[0]) || 0.5, x = mod1(p - a[0]);
+  return mod1(sa[0] + (x < d ? (x / d) * sd : sd + ((x - d) / (1 - d)) * (1 - sd)));
+}
+const blendFK = { a: null, b: null, Q1: null, Q2: null, H1: null, H2: null };
+function newBlend(clipId, region, dur) { const b = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), clipId, region, sym: true, collapsed: false }; b.weight = flat(0, dur); b.swing = flat(1, dur); return b; }
+function applyBlends(t, Qout) {   // in composePose, after this clip's arm swing
+  if (!A.blends || !A.blends.length || !cur || cur.kind !== 'loop') return;
+  for (const bl of A.blends) {
+    if (bl.bypass) continue;
+    const w = clamp(evalPts(bl.weight, t), 0, 1); if (w < 1e-4) continue;
+    const src = clips.find((c) => c.id === bl.clipId && c.kind === 'loop'); if (!src || src === cur) continue;
+    if (!blendFK.a) { blendFK.a = new VirtualFK(rig); blendFK.b = new VirtualFK(rig); blendFK.Q1 = new Float32Array(B * 4); blendFK.Q2 = new Float32Array(B * 4); blendFK.H1 = V3(); blendFK.H2 = V3(); }
+    const ps = blendPhase(src, mod1(clipTime(t) / cur.dur)), idx = blendBones(bl.region), F = blendFK.a, G = blendFK.b;
+    withClip(src, () => { sampleClip(ps * src.dur, blendFK.Q1, blendFK.H1); if (bl.sym) sampleClip(mod1(ps + 0.5) * src.dur, blendFK.Q2, blendFK.H2); });
+    const local = new Map();   // bone index → the source's local rotation (symmetric if asked)
+    if (bl.sym) {
+      F.run(blendFK.Q1, blendFK.H1, 0); G.run(blendFK.Q2, blendFK.H2, 0);
+      const hi = boneIdx.get(rig.b.hips.name), aF = F.delta(hi).invert(), aG = G.delta(hi).invert(), symW = new Map();
+      const worldOf = (i) => symW.get(i) || F.Q[i];
+      for (const i of idx) {
+        const name = rig.bones[i].name, mn = mirrorName(name), mi = mn != null && boneIdx.has(mn) ? boneIdx.get(mn) : i;
+        const D1 = aF.clone().multiply(F.delta(i)), D2 = aG.clone().multiply(G.delta(mi)), M2 = new THREE.Quaternion(D2.x, -D2.y, -D2.z, D2.w);
+        if (D1.dot(M2) < 0) M2.set(-M2.x, -M2.y, -M2.z, -M2.w);
+        const D = D1.clone().slerp(M2, 0.5), world = F.delta(hi).multiply(D).multiply(F.bq[i]);
+        symW.set(i, world);
+        local.set(i, worldOf(F.parent[i]).clone().invert().multiply(world));
+      }
+    } else for (const i of idx) local.set(i, new THREE.Quaternion().fromArray(blendFK.Q1, i * 4));
+    const k = clamp(evalPts(bl.swing, t), 0, 3), M = Math.abs(k - 1) > 1e-4 ? withClip(src, () => clipMeans()) : null, q = new THREE.Quaternion();
+    for (const i of idx) {
+      let s = local.get(i); if (!s) continue;
+      if (M) s = scaleAbout(M.q[i], s, k, new THREE.Quaternion());
+      q.fromArray(Qout, i * 4); if (q.dot(s) < 0) s.set(-s.x, -s.y, -s.z, -s.w);
+      q.slerp(s, w).toArray(Qout, i * 4);
+    }
+  }
+}
+// timeline block
+function drawBlendBlock(id) {
+  const bl = (A.blends || []).find((x) => x.id === id); if (!bl) return;
+  const src = clips.find((c) => c.id === bl.clipId);
+  const hr = mkRow('bone sym blendb'); Object.assign(hr, { kind: 'blend', blend: id });
+  hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!bl.collapsed}">${bl.collapsed ? '▸' : '▾'}</button><span class="symtag" style="background:#6fc3e8;color:#111">BLEND</span><span class="name"></span><button type="button" class="mini" data-act="set" title="Source clip, body part, symmetric">⚙</button><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
+  hr.h.querySelector('.name').textContent = `${regionLabel(bl.region)} ← ${src ? src.name : '(missing clip)'}`;
+  hr.h.querySelector('[data-act="fold"]').onclick = () => { bl.collapsed = !bl.collapsed; rebuildRows(); save(); };
+  hr.h.querySelector('[data-act="set"]').onclick = () => openBlendDlg(id);
+  hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove the blend "${regionLabel(bl.region)} ← ${src ? src.name : ''}" and its tracks?`, () => { pushUndo(); A.blends = A.blends.filter((x) => x.id !== id); A.rowOrder = (A.rowOrder || []).filter((k) => k !== 'bld:' + id); editVersion++; rebuildRows(); save(); });
+  addBypass(hr, bl, null);
+  hr.lane.innerHTML = '<div class="summary"></div>';
+  hr.lane.firstChild.textContent = `${regionLabel(bl.region)} from ${src ? src.name : '?'}, matched to this clip's steps${bl.sym ? ', made symmetric' : ''}. Weight 100 % = that motion fully; its own swing % scales it (this clip's Arm swing stays on this clip's arms).`;
+  tracksEl.append(hr.el); rows.push(hr);
+  if (bl.collapsed) return;
+  addTrackRow(`l|${id}|weight`, BLEND_SPEC.weight, () => bl.weight, (p) => { bl.weight = p; }, 'Blend weight <i>% of the other clip\'s motion</i>', { type: 'blend', id, k: 'weight' });
+  addTrackRow(`l|${id}|swing`, BLEND_SPEC.swing, () => bl.swing, (p) => { bl.swing = p; }, 'Its swing <i>% · scales the other clip\'s motion about its average</i>', { type: 'blend', id, k: 'swing' });
+}
+let dlgBlend = null;
+function openBlendDlg(id) {
+  const bl = id ? (A.blends || []).find((x) => x.id === id) : null; dlgBlend = id || null;
+  const cs = $('bldClip'); cs.textContent = '';
+  for (const c of clips) if (c.kind === 'loop' && c !== cur) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; cs.append(o); }
+  const rs = $('bldRegion'); rs.textContent = ''; for (const [k, l] of BLEND_REGIONS) { const o = document.createElement('option'); o.value = k; o.textContent = l; rs.append(o); }
+  const pick = (re) => clips.find((c) => c.kind === 'loop' && c !== cur && re.test(c.name)), jog = pick(/jog.?slow/i) || pick(/jog.?forward/i) || pick(/^(?!.*(back|strafe)).*jog/i);
+  cs.value = bl ? bl.clipId : jog ? jog.id : (cs.options[0] || {}).value; rs.value = bl ? bl.region : 'arms'; $('bldSym').checked = bl ? !!bl.sym : true;
+  $('bldOk').textContent = bl ? 'Apply' : 'Add'; $('bldDlg').hidden = false;
+}
+$('bldOk').onclick = () => {
+  const clipId = $('bldClip').value, region = $('bldRegion').value, sym = $('bldSym').checked; if (!clipId) return;
+  pushUndo(); A.blends = A.blends || [];
+  const bl = dlgBlend && A.blends.find((x) => x.id === dlgBlend);
+  if (bl) Object.assign(bl, { clipId, region, sym });
+  else { const n = newBlend(clipId, region, S.dur); n.sym = sym; n.weight = flat(1, S.dur); A.blends.push(n); addRowKey('bld:' + n.id); }
+  $('bldDlg').hidden = true; editVersion++; trailDirty = true; rebuildRows(); save();
+};
+$('bldCancel').onclick = () => { $('bldDlg').hidden = true; };
+$('bldDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('bldDlg').hidden = true; e.stopPropagation(); });
