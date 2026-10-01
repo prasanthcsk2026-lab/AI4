@@ -439,6 +439,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
   out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat);
   for (const b of a.blends || []) for (const k of BLEND_KEYS) out.push(b[k]);
+  if (a.runMuted) for (const k of Object.keys(a.runMuted).sort()) if (Array.isArray(a.runMuted[k])) out.push(a.runMuted[k]);   // muted run controls keep their timing
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
   return out.filter(Boolean);
 }
@@ -975,6 +976,11 @@ function deleteTrackNow(r) {
     else if (r.key === 'cyc') A.showMaster.cycle = false;
     else if (r.key === 'gnd') A.showMaster.gnd = false;
     else if (r.key === 'stride') A.showMaster.stride = false;
+    if (RUN_KEYS.includes(r.key)) {   // a run control leaves the block (back behind +), unmuted and neutral
+      if (A.runShow) delete A.runShow[r.key]; if (A.runMuteK) delete A.runMuteK[r.key];
+      if (A.runMuted && A.runMuted[r.key]) { delete A.runMuted[r.key]; A[r.key] = flat(r.ref, S.dur); }
+      runApplyMute();
+    }
     rebuildSpeedLUT();
   } else if (o.type === 'bone') {
     const ba = A.bones[o.name]; ba.show[last] = false;

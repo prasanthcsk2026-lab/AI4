@@ -225,7 +225,7 @@ function accelAt(t) {   // m/s² of the bar-averaged moving speed
   const h = Math.max(0.08, (cur.dur || 0.5) * 0.5), a = Math.max(0, t - h), b = Math.min(S.dur, t + h); if (b - a < 1e-3) return 0;
   return (avgSpeedAt(b) - avgSpeedAt(a)) / (b - a);
 }
-const centreAutoOn = () => !!(A && A.armCentreAuto !== false && speedVaries());
+const centreAutoOn = () => !!(A && A.armCentreAuto !== false && !A.runOff && speedVaries());
 function armCentreAt(t) {   // ° the arms' swing centre moves forward (+) / back (−)
   let c = A.armCentre ? evalPts(A.armCentre, t) : 0;
   if (centreAutoOn()) c += clamp(MOTK.centrePerAcc * accelAt(t), -MOTK.centreMax, MOTK.centreMax);   // slowing down: back; speeding up: forward
@@ -258,12 +258,12 @@ function speedVaries() {   // does the bar-averaged moving speed leave the clip'
   let v = false; for (let i = 0; i <= 24 && !v; i++) if (Math.abs(speedRatio((i / 24) * S.dur) - 1) > 0.03) v = true;
   spdVar = { key, v }; return v;
 }
-const armAutoOn = () => !!(A && A.armAuto !== false && speedVaries()), hipAutoOn = () => !!(A && A.hipAuto !== false && speedVaries());
+const armAutoOn = () => !!(A && A.armAuto !== false && !A.runOff && speedVaries()), hipAutoOn = () => !!(A && A.hipAuto !== false && !A.runOff && speedVaries());
 const armSwingOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.armSwing, 100) || armAutoOn()));
 const hipMotionOn = () => !!(A && cur && cur.kind === 'loop' && (!trackOff(A.hipMotion, 100) || hipAutoOn()));
 const armShapeOn = () => !!(A && (!trackOff(A.elbowBend, 0) || !trackOff(A.armCross, 0) || !trackOff(A.armCentre, 0) || (cur && cur.kind === 'loop' && centreAutoOn())));
-function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (A.armAuto !== false ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
-function hipScaleAt(t) { return (A.hipMotion ? evalPts(A.hipMotion, t) / 100 : 1) * (A.hipAuto !== false ? Math.max(0, 1 + MOTK.hipAuto * (speedRatio(t) - 1)) : 1); }
+function armScaleAt(t) { return (A.armSwing ? evalPts(A.armSwing, t) / 100 : 1) * (A.armAuto !== false && !A.runOff ? Math.max(0, 1 + MOTK.armAuto * (speedRatio(t) - 1)) : 1); }
+function hipScaleAt(t) { return (A.hipMotion ? evalPts(A.hipMotion, t) / 100 : 1) * (A.hipAuto !== false && !A.runOff ? Math.max(0, 1 + MOTK.hipAuto * (speedRatio(t) - 1)) : 1); }
 let armSet = null;
 function armScaleBones() {
   if (armSet && armSet.rig === rig) return armSet;
@@ -384,33 +384,78 @@ function runMenu() {
     { label: 'Hide the Moving speed track', action: tog(() => { A.showMaster.mspeed = false; }) },
   ];
 }
-// the block: a header, then Step length, Cycle speed, Spine lean, Hip rotation, Hard braking, Knee depth
+// the block: a header (+ adds a control, M mutes them all), then only the controls you added, each with its own M
+// A.runShow[key]: the control is in the block · A.runMuteK[key]: that control is muted · A.runOff: the whole block
+// is muted. A muted control's points wait in A.runMuted[key] (still drawn, still editable, retimed with the bars)
+// while the engine reads the neutral value; un-muting puts them back.
+function runDefs() {
+  return [
+    ['stride', SPEC.stride, 'Step length (Hard)', '% · feet reach, knee lift, arms'],
+    ['stepNat', NAT_SPEC, 'Step length (Natural)', '% · same leg motion, a longer flight and hop (from the speed)'],
+    ['cyc', SPEC.cyc, 'Cycle speed', '% · cadence'],
+    ['lean', LEAN_SPEC, 'Spine lean', '° · + forward / − back (back rises)'],
+    ['hipRot', HIPROT_SPEC, 'Hip rotation', '° pelvis tilt · − back (rises) / + forward'],
+    ['brake', BRAKE_SPEC, 'Hard braking', '% · in every foot contact'],
+    ['brakeRhythm', RHYTHM_SPEC, 'Brake rhythm', '% · slow in contact, fast after toe-off (bars keep their length)'],
+    ['armSwing', ARMSW_SPEC, 'Arm swing', `% · arms, shoulders, shoulder twist${A.armAuto !== false ? ' · × moving speed' : ''}`],
+    ['armCentre', CENTRE_SPEC, 'Arm swing centre', `° · + forward / − back${A.armCentreAuto !== false ? ' · + slowing: back, speeding up: forward' : ''}`],
+    ['elbowBend', ELBOW_SPEC, 'Elbow bend', '° · + more bent / − straighter'],
+    ['armCross', CROSS_SPEC, 'Arm crossing', '° · + in toward the middle / − out'],
+    ['hipMotion', HIPMO_SPEC, 'Hip motion', `% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}`],
+    ['jump', JUMP_SPEC, 'Jump', `% · a hop at each change of foot (100 % = 6 cm)${A.jumpAuto !== false ? ' · + longer steps' : ''}`],
+    ['kneeDepth', KNEE_SPEC, 'Knee depth', '% · deeper knees, the hips come down (feet stay)'],
+  ];
+}
+const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth'];
+const runRef = (k) => (runDefs().find((d) => d[0] === k) || [0, { ref: 0 }])[1].ref;
+const runPts = (k) => (A.runMuted && A.runMuted[k]) || A[k];   // the control's own points (muted or not)
+function runShowInit(a) {   // older saves: the controls that do something show; the rest wait behind +
+  if (a.runShow && typeof a.runShow === 'object') return;
+  a.runShow = {};
+  if (!a.showMaster || !a.showMaster.run) return;
+  const keep = A; A = a;
+  try { for (const [k, sp] of runDefs()) { const pts = (a.runMuted && a.runMuted[k]) || a[k]; if (Array.isArray(pts) && pts.some((p) => Math.abs(p.v - sp.ref) > 1e-6)) a.runShow[k] = true; } } finally { A = keep; }
+}
+function runApplyMute() {   // stash / restore points so the engine sees the neutral value for every muted control
+  A.runMuted = A.runMuted || {}; A.runMuteK = A.runMuteK || {};
+  for (const k of RUN_KEYS) {
+    const want = !!(A.runOff || A.runMuteK[k]), has = !!A.runMuted[k];
+    if (want && !has) { A.runMuted[k] = A[k]; A[k] = flat(runRef(k), S.dur); }
+    else if (!want && has) { A[k] = A.runMuted[k]; delete A.runMuted[k]; }
+  }
+}
+function runChanged() { moveEndCache = null; editVersion++; trailDirty = true; gridCache = null; holdCache.clear(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save(); }
+function runAddMenu() {
+  return runDefs().map(([k, , name]) => ({
+    label: name, checked: !!(A.runShow && A.runShow[k]),
+    action: () => { pushUndo(); A.runShow = A.runShow || {}; if (A.runShow[k]) delete A.runShow[k]; else A.runShow[k] = true; A.showMaster.run = true; A.runCollapsed = false; rebuildRows(); save(); },
+  }));
+}
 function drawRunBlock() {
+  runShowInit(A);
   const hr = mkRow('bone sym runb'); Object.assign(hr, { kind: 'runhead' });
-  const col = !!A.runCollapsed;
-  hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!col}">${col ? '▸' : '▾'}</button><span class="symtag">RUN CONTROLS</span><span class="name"></span><button type="button" class="mini" data-act="menu" title="Speed lock, body coupling, template">⋯</button>`;
+  const col = !!A.runCollapsed, shown = runDefs().filter(([k]) => A.runShow[k]);
+  hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!col}">${col ? '▸' : '▾'}</button><span class="symtag">RUN CONTROLS</span><span class="name"></span><button type="button" class="mini" data-act="add" title="Add a control (step length, cycle speed, lean, arm swing, jump, knee depth …)">+</button><button type="button" class="bypass" data-act="mute" aria-pressed="${!!A.runOff}" title="${A.runOff ? 'All run controls muted: click to turn them back on' : 'Mute all run controls (their points stay)'}">M</button><button type="button" class="mini" data-act="menu" title="Speed lock, body coupling, template">⋯</button>`;
+  if (A.runOff) hr.el.classList.add('bypassed');
   hr.h.querySelector('[data-act="fold"]').onclick = () => { A.runCollapsed = !A.runCollapsed; rebuildRows(); save(); };
   hr.h.querySelector('[data-act="menu"]').onclick = (e) => { const b = e.currentTarget.getBoundingClientRect(); openMenu(b.left, b.bottom + 4, runMenu()); };
+  hr.h.querySelector('[data-act="add"]').onclick = (e) => { const b = e.currentTarget.getBoundingClientRect(); openMenu(b.left, b.bottom + 4, runAddMenu()); };
+  hr.h.querySelector('[data-act="mute"]').onclick = (e) => { e.stopPropagation(); pushUndo(); if (A.runOff) delete A.runOff; else A.runOff = true; runApplyMute(); runChanged(); };
   hr.h.oncontextmenu = (e) => { e.preventDefault(); openMenu(e.clientX, e.clientY, runMenu()); };
   hr.lane.innerHTML = '<div class="summary"></div>';
-  hr.lane.firstChild.textContent = `Moving speed (its own track) = cadence × step length${A.speedLock ? ' · speed lock ON' : ''}${stepCouple() ? ' · step length moves knees, pelvis and arms' : ''}`;
+  hr.lane.firstChild.textContent = !shown.length ? 'No controls yet: click + to add the ones you want' : `${A.runOff ? 'MUTED · ' : ''}Moving speed (its own track) = cadence × step length${A.speedLock ? ' · speed lock ON' : ''}${stepCouple() ? ' · step length moves knees, pelvis and arms' : ''}`;
   tracksEl.append(hr.el); rows.push(hr);
-  if (col) return;
+  if (col || !shown.length) { hr.el.classList.add('blockend'); return; }
   const sub = [];
-  sub.push(addTrackRow('stride', SPEC.stride, () => A.stride, (p) => { A.stride = p; }, 'Step length (Hard) <i>% · feet reach, knee lift, arms</i>', null));
-  sub.push(addTrackRow('stepNat', NAT_SPEC, () => A.stepNat, (p) => { A.stepNat = p; }, 'Step length (Natural) <i>% · same leg motion, a longer flight and hop (from the speed)</i>', null));
-  sub.push(addTrackRow('cyc', SPEC.cyc, () => A.cyc, (p) => { A.cyc = p; }, 'Cycle speed <i>% · cadence</i>', null));
-  sub.push(addTrackRow('lean', LEAN_SPEC, () => A.lean, (p) => { A.lean = p; }, 'Spine lean <i>° · + forward / − back (back rises)</i>', null));
-  sub.push(addTrackRow('hipRot', HIPROT_SPEC, () => A.hipRot, (p) => { A.hipRot = p; }, 'Hip rotation <i>° pelvis tilt · − back (rises) / + forward</i>', null));
-  sub.push(addTrackRow('brake', BRAKE_SPEC, () => A.brake, (p) => { A.brake = p; }, 'Hard braking <i>% · in every foot contact</i>', null));
-  sub.push(addTrackRow('brakeRhythm', RHYTHM_SPEC, () => A.brakeRhythm, (p) => { A.brakeRhythm = p; }, 'Brake rhythm <i>% · slow in contact, fast after toe-off (bars keep their length)</i>', null));
-  sub.push(addTrackRow('armSwing', ARMSW_SPEC, () => A.armSwing, (p) => { A.armSwing = p; }, `Arm swing <i>% · arms, shoulders, shoulder twist${A.armAuto !== false ? ' · × moving speed' : ''}</i>`, null));
-  sub.push(addTrackRow('armCentre', CENTRE_SPEC, () => A.armCentre, (p) => { A.armCentre = p; }, `Arm swing centre <i>° · + forward / − back${A.armCentreAuto !== false ? ' · + slowing: back, speeding up: forward' : ''}</i>`, null));
-  sub.push(addTrackRow('elbowBend', ELBOW_SPEC, () => A.elbowBend, (p) => { A.elbowBend = p; }, 'Elbow bend <i>° · + more bent / − straighter</i>', null));
-  sub.push(addTrackRow('armCross', CROSS_SPEC, () => A.armCross, (p) => { A.armCross = p; }, 'Arm crossing <i>° · + in toward the middle / − out</i>', null));
-  sub.push(addTrackRow('hipMotion', HIPMO_SPEC, () => A.hipMotion, (p) => { A.hipMotion = p; }, `Hip motion <i>% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}</i>`, null));
-  sub.push(addTrackRow('jump', JUMP_SPEC, () => A.jump, (p) => { A.jump = p; }, `Jump <i>% · a hop at each change of foot (100 % = 6 cm)${A.jumpAuto !== false ? ' · + longer steps' : ''}</i>`, null));
-  sub.push(addTrackRow('kneeDepth', KNEE_SPEC, () => A.kneeDepth, (p) => { A.kneeDepth = p; }, 'Knee depth <i>% · deeper knees, the hips come down (feet stay)</i>', null));
+  for (const [k, spec, name, note] of shown) {
+    const r = addTrackRow(k, spec, () => runPts(k), (p) => { if (A.runMuted && A.runMuted[k]) A.runMuted[k] = p; else A[k] = p; }, `${name} <i>${note}</i>`, null);
+    const mk = !!(A.runMuteK && A.runMuteK[k]), b = document.createElement('button'); b.type = 'button'; b.className = 'bypass'; b.textContent = 'M';
+    b.setAttribute('aria-pressed', mk ? 'true' : 'false'); b.title = mk ? 'Muted: click to turn it back on' : 'Mute this control (its points stay)';
+    b.onclick = (ev) => { ev.stopPropagation(); pushUndo(); A.runMuteK = A.runMuteK || {}; if (A.runMuteK[k]) delete A.runMuteK[k]; else A.runMuteK[k] = true; runApplyMute(); runChanged(); };
+    r.h.insertBefore(b, r.h.querySelector('.tdel'));
+    if (mk || A.runOff) r.el.classList.add('bypassed');
+    sub.push(r);
+  }
   for (const r of sub) r.el.classList.add('sub');
   sub[sub.length - 1].el.classList.add('blockend');
 }
@@ -475,6 +520,7 @@ function applyRunJog4(o = {}) {
   A.stride = track(fill(v.stride, stride)); A.lean = track(fill(v.lean, 0)); A.hipRot = track(fill(v.hipRot, 0)); A.brake = track(fill(v.brake, 0));
   A.strideArms = true;
   A.showMaster = { ...A.showMaster, run: true, cycle: false, stride: false, move: false, gnd: false };
+  A.runShow = { ...(A.runShow || {}), stride: true, cyc: true, lean: true, hipRot: true, brake: true }; delete A.runOff; A.runMuteK = {}; A.runMuted = {};
   S.lenMode = 'cycles'; A.cycles = v.cycles; A.cycLocked = true;
   S.t = 0; S.v0 = 0; moveEndCache = null; editVersion++; holdCache.clear();
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();

@@ -154,7 +154,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), armCentre: flat(0, dur), brakeRhythm: flat(1, dur), jump: flat(0, dur), stepNat: flat(100, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, runShow: {}, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), armCentre: flat(0, dur), brakeRhythm: flat(1, dur), jump: flat(0, dur), stepNat: flat(100, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },

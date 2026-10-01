@@ -324,6 +324,14 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Run controls: add what you need, mute
+- Adding **Run controls** ("+" menu) now gives an empty block. Its own **+** button lists the 14 controls (✓ = in the block); click one to add it (or take it out).
+- **M on the header** mutes every run control: the engine uses the neutral values (100 %, 0°…), and the auto parts (arm swing / hip motion follow the speed, arm centre follows the acceleration) are off too. The points stay and come back on un-mute.
+- **M on a control** mutes just that one; its curve stays visible and editable (the row is struck through).
+- **×** (or right double-click) takes a control out of the block and resets it; Ctrl+Z brings it back.
+- Muting cycle speed or step length changes the timing as an edit would; the bar count stays (8 bars: 4.52 s with cycle 80 % → 3.62 s muted → 4.52 s again).
+- Older saves: the controls that already do something show, the rest wait behind +. The Run → Jog template adds its own five controls. Saves and the JSON export keep what is shown and muted.
+
 ## Motion sequence (several motions, one timeline)
 - **The timeline starts empty.** "+ Add motion 1" picks the first clip and its bar count; it starts at bar 1.
 - **More motions:** "+ Motion" (strip above the ruler). Pick the clip, the **start bar** (where it is fully in), the **blend bars** before it and its bars after the start.
