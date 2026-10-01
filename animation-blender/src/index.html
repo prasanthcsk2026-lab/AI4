@@ -110,6 +110,8 @@
   </div>
   <div class="grip" id="grip" role="separator" aria-orientation="horizontal" aria-label="Resize the timeline" tabindex="0"></div>
   <section class="tl" aria-label="Automation timeline">
+    <div class="seqbar"><div class="seqhd"><b>Motions</b><span id="seqInfo"></span><button type="button" class="mini" id="btnSeqAdd" title="Add a motion at a bar, with blend bars before it (it gets its own automation)">+ Motion</button></div><canvas id="seqCv" aria-label="Motion sequence: click a motion to edit its tracks, drag to move the playhead, double-click for its settings"></canvas></div>
+    <div id="seqEmpty" hidden><div class="seqbox"><b>The timeline is empty</b><p>Add the first motion (a clip). Later motions go in at any bar, with blend bars before them; each has its own automation.</p><button type="button" class="primary" id="btnSeqEmpty">+ Add motion 1</button></div></div>
     <div class="tl-head">
       <div class="addbar"><button type="button" id="btnAddMaster" title="Master tracks (playback speed, moving speed, cycle speed, stride length, foot on ground) and templates">+</button><button type="button" id="btnAddGroup" title="Weight a whole group of bones (Left arm, Spine, …)">Group…</button><button type="button" id="btnAddBone">Bone…</button><button type="button" id="btnAddIK">IK…</button><button type="button" id="btnHelp" class="helpbtn" title="How the timeline works">i</button></div>
       <canvas id="ruler" aria-label="Time ruler: click or drag to move the playhead"></canvas>
@@ -275,6 +277,17 @@
     <input type="text" id="boneSearch" placeholder="Search the skeleton…" spellcheck="false">
     <div id="boneTree"></div>
     <div class="acts"><span class="note" id="boneDlgNote">Body → Left / Right → fingers, in hierarchy order.</span><button type="button" class="primary" id="boneDlgClose">Close</button></div>
+  </div>
+</div>
+<div class="sheet" id="seqDlg" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="sqH">
+    <h2 id="sqH">Add motion</h2>
+    <div class="barsform"><label>Clip <select id="sqClip"></select></label>
+      <label id="sqStartL"><span>Start bar (fully in)</span> <input type="number" id="sqStart" min="2" step="1" value="10"></label>
+      <label id="sqBlendL"><span>Blend bars before it</span> <input type="number" id="sqBlend" min="0" max="16" step="1" value="2"></label>
+      <label id="sqBarsL"><span>Bars after the start bar</span> <input type="number" id="sqBars" min="1" max="400" step="1" value="8"></label>
+      <label class="cb" id="sqFeetL"><input type="checkbox" id="sqFeet" checked> Match feet (its loop starts where the same foot lands)</label></div>
+    <div class="acts"><span class="note" id="sqNote"></span><button type="button" id="sqDel" hidden>Remove</button><button type="button" id="sqCancel">Cancel</button><button type="button" class="primary" id="sqOk">Add</button></div>
   </div>
 </div>
 <div class="sheet" id="bldDlg" hidden>

@@ -710,7 +710,7 @@ function drawLane(r) {
   x.strokeStyle = r.color; x.lineWidth = 1.6 * dpr; x.stroke();
   x.lineTo(w, ry); x.lineTo(0, ry); x.closePath(); x.globalAlpha = 0.16; x.fillStyle = r.color; x.fill(); x.globalAlpha = 1;
   // tension rings, then points
-  for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; if (b.t - a.t < 1e-3 || (Math.abs(b.v - a.v) < 1e-6 && Math.abs(a.k) < 1e-3)) continue; const tm = (a.t + b.t) / 2; x.beginPath(); x.arc(xOf(r, tm), yOf(r, evalPts(pts, tm)), 3 * dpr, 0, Math.PI * 2); x.strokeStyle = r.color; x.lineWidth = dpr; x.stroke(); }
+  for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; if (b.t - a.t < 1e-3 || Math.abs(b.v - a.v) < 1e-6 || !curveRing(a.e)) continue; const tm = (a.t + b.t) / 2; x.beginPath(); x.arc(xOf(r, tm), yOf(r, evalPts(pts, tm)), 3 * dpr, 0, Math.PI * 2); x.strokeStyle = r.color; x.lineWidth = dpr; x.stroke(); }
   pts.forEach((p, i) => { x.beginPath(); const px = xOf(r, p.t), py = yOf(r, p.v); if (isEndPt(pts, i)) x.rect(px - 4 * dpr, py - 4 * dpr, 8 * dpr, 8 * dpr); else x.arc(px, py, 4 * dpr, 0, Math.PI * 2); x.fillStyle = '#111513'; x.fill(); x.strokeStyle = r.color; x.lineWidth = 1.6 * dpr; x.stroke(); });
   // selection ring + box-select rectangle
   if (r === selRow && selPts.size) for (const i of selPts) { const p = pts[i]; if (!p) continue; x.beginPath(); x.arc(xOf(r, p.t), yOf(r, p.v), 6.5 * dpr, 0, Math.PI * 2); x.strokeStyle = '#ffffff'; x.lineWidth = dpr; x.stroke(); }
@@ -722,7 +722,7 @@ function drawLane(r) {
 }
 function evXY(r, e) { const b = r.cv.getBoundingClientRect(), k = r.cv.width / b.width; return [(e.clientX - b.left) * k, (e.clientY - b.top) * k, k]; }
 function hitPoint(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); let best = null, bd = 8 * k; pts.forEach((p, i) => { const d = Math.hypot(xOf(r, p.t) - px, yOf(r, p.v) - py); if (d < bd) { bd = d; best = i; } }); return best; }
-function hitRing(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); for (let i = 0; i < pts.length - 1; i++) { const tm = (pts[i].t + pts[i + 1].t) / 2; if (Math.hypot(xOf(r, tm) - px, yOf(r, evalPts(pts, tm)) - py) < 7 * k) return i; } return null; }
+function hitRing(r, e) { const [px, py, k] = evXY(r, e), pts = r.get(); for (let i = 0; i < pts.length - 1; i++) { if (!curveRing(pts[i].e) || Math.abs(pts[i + 1].v - pts[i].v) < 1e-6) continue; const tm = (pts[i].t + pts[i + 1].t) / 2; if (Math.hypot(xOf(r, tm) - px, yOf(r, evalPts(pts, tm)) - py) < 7 * k) return i; } return null; }
 function deletePoint(r, i) { const pts = r.get(); if (pts.length <= 1) return; if (isEndPt(pts, i)) { toast('The start and end points stay (drag them up or down to change their value).'); return; } confirmDelete(`Delete this point (${pts[i].t.toFixed(2)} s, ${r.fmt(pts[i].v)}) from ${trackName(r)}?`, () => { pushUndo(); pts.splice(i, 1); edited(r); }); }
 let drag = null, boxSel = null, selRow = null, selPts = new Set();
 function onLaneDown(e, r) {
@@ -753,9 +753,9 @@ function onDrag(e) {
   if (!drag) return;
   const r = drag.r, pts = r.get();
   if (drag.ring != null) {
-    const a = pts[drag.ring], b = pts[drag.ring + 1], dir = Math.sign(b.v - a.v) || 1;
-    a.k = clamp(drag.k0 + dir * (e.clientY - drag.y0) / 60, -1, 1);
-    edited(r, true); tip(e, `curve ${a.k.toFixed(2)}`); return;
+    const a = pts[drag.ring], b = pts[drag.ring + 1], counts = ['stairs', 'sstairs', 'pulse', 'wave'].includes(a.e), dir = counts ? -1 : a.e === 'arc' ? -Math.sign(b.v - a.v) || -1 : Math.sign(b.v - a.v) || 1;
+    a.k = clamp(drag.k0 + dir * (e.clientY - drag.y0) / (counts ? 90 : 60), -1, 1);   // up: more steps / waves / pulses
+    edited(r, true); tip(e, curveRingTip(a)); return;
   }
   const [px0, py0, kk] = evXY(r, e), p = pts[drag.i], px = px0 + (drag.dx || 0), py = py0 + (drag.dy || 0);
   const sideways = drag.x0 == null || Math.abs(px0 - drag.x0) > 3 * kk;   // a straight up / down drag keeps its time
@@ -1119,11 +1119,10 @@ function footMarks() {
   if (footMarkCache && footMarkCache.lut === lut && footMarkCache.v === editVersion && footMarkCache.id === cur.id) return footMarkCache.marks;
   const totalCt = lut[lut.length - 1], marks = [];
   try {
-    const win = ((BAKED[cur.id] || cur.c.origBk || {}).win) || cur.c.win;   // a symmetrized clip: its measured contacts
-    if (cur.kind === 'loop' && win) {
+    if (cur.kind === 'loop') {   // (a symmetrized clip: its measured contacts; a sequence motion: its phase)
       for (const Sd of ['L', 'R']) {
-        if (!win[Sd]) continue;
-        const w0 = win[Sd][0];
+        const w = clipWin(Sd); if (!w) continue;
+        const w0 = mod1(w[0]);
         for (let n = 0; n < 2000; n++) { const ct = n * cur.dur + w0 * cur.dur; if (ct > totalCt + 1e-6) break; marks.push([timeOfClipTime(ct, lut), Sd]); }
       }
     } else if (cur.kind === 'move') {
@@ -1169,7 +1168,7 @@ let gridCache = null;
 const FPS = 30;
 function timeGrid() {
   if (viewFreeze) return viewFreeze.grid;
-  const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}|${S.realtime}`;
+  const key = `${S.unit}|${S.dur}|${cur && cur.id}|${editVersion}|${S.realtime}|${seqBarOff()}`;
   if (gridCache && gridCache.key === key) return gridCache;
   const lines = [], spans = [];
   if (cur && S.speedLUT) {   // contact spans (used by the step unit and its colours)
@@ -1191,7 +1190,7 @@ function timeGrid() {
   } else if (S.unit === 'cycle' && cur && S.speedLUT) {
     // realtime: bar lines where the bars really fall (after playback / cycle speed); otherwise evenly spaced
     const lutG = S.speedLUT, total = lutG[lutG.length - 1];
-    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? String(q / 8 + 1) : q % 2 === 0 ? `${Math.floor(q / 8) + 1}.${(q % 8) / 2}` : '' });
+    for (let q = 0; q / 8 * cur.dur <= total + 1e-9 && q < 4000; q++) lines.push({ t: timeOfClipTime(q / 8 * cur.dur, lutG), level: q % 8 === 0 ? 2 : q % 2 === 0 ? 1 : 0, label: q % 8 === 0 ? String(q / 8 + 1 + seqBarOff()) : q % 2 === 0 ? `${Math.floor(q / 8) + 1 + seqBarOff()}.${(q % 8) / 2}` : '' });
   } else if (S.unit === 'step' && spans.length) {
     const n = { L: 0, R: 0 };
     lines.push({ t: 0, level: 2, label: '' });

@@ -5,14 +5,30 @@
 
 // ---------------------------------------------------------------- curve presets (the segment from a point to the next)
 // a point carries k (bend: + eases in, − eases out) and e ('step' holds until the next point, 'inout' is an S curve)
-const CURVES = [['Linear', 0, null], ['Ease in', 0.45, null], ['Ease out', -0.45, null], ['Ease in-out', 0, 'inout'], ['Step (hold)', 0, 'step']];
-function curveOf(p) { return p.e === 'step' ? 'Step (hold)' : p.e === 'inout' ? 'Ease in-out' : Math.abs(p.k || 0) < 1e-3 ? 'Linear' : p.k > 0 ? 'Ease in' : 'Ease out'; }
+const CURVES = [   // [label, k, e, what the ring does]
+  ['Single curve', 0, null, 'bend'], ['Ease in', 0.45, null, 'bend'], ['Ease out', -0.45, null, 'bend'],
+  ['Double curve (S)', 0, 'inout', 'sharpness'], ['Hold', 0, 'step', null], ['Stairs', 0, 'stairs', 'steps'], ['Smooth stairs', 0, 'sstairs', 'steps'],
+  ['Pulse', 0, 'pulse', 'pulses'], ['Wave', -0.5, 'wave', 'waves'], ['Arc (overshoot)', 0.3, 'arc', 'overshoot'], ['Smooth (spline)', 0, 'smooth', null]];
+const CURVE_ICON = { 'Single curve': '╱', 'Ease in': '⌒', 'Ease out': '◞', 'Double curve (S)': '∫', Hold: '⌐', Stairs: '▟', 'Smooth stairs': '⩘', Pulse: '⊓', Wave: '∿', 'Arc (overshoot)': '⌒', 'Smooth (spline)': '〜' };
+function curveOf(p) {
+  const e = p.e || null, k = p.k || 0;
+  if (!e) return Math.abs(k) < 1e-3 ? 'Single curve' : Math.abs(k - 0.45) < 1e-3 ? 'Ease in' : Math.abs(k + 0.45) < 1e-3 ? 'Ease out' : 'Single curve';
+  const c = CURVES.find((q) => q[2] === e); return c ? c[0] : 'Single curve';
+}
+const curveRing = (e) => (CURVES.find((q) => q[2] === (e || null)) || CURVES[0])[3];
+function curveRingTip(p) {   // what the ring drag shows
+  const what = curveRing(p.e), k = p.k || 0;
+  if (what === 'steps' || what === 'pulses' || what === 'waves') return `${curveCount(k)} ${what}`;
+  if (what === 'overshoot') return `overshoot ${Math.round(k * 120)} %`;
+  if (what === 'sharpness') return `S ${k >= 0 ? 'sharper' : 'softer'} ${k.toFixed(2)}`;
+  return `curve ${k.toFixed(2)}`;
+}
 function curveItems(r, hit) {
   const pts = r.get(), targets = r === selRow && selPts.has(hit) && selPts.size > 1 ? [...selPts] : [hit];
   const last = pts.length - 1, now = curveOf(pts[hit]);
   return CURVES.map(([label, k, e]) => ({
-    label: `Curve: ${label}${targets.length > 1 ? ` (${targets.length} points)` : ''}`, checked: now === label, disabled: targets.every((i) => i >= last),
-    action: () => { pushUndo(); for (const i of targets) { if (i >= last) continue; const p = pts[i]; p.k = k; if (e) p.e = e; else delete p.e; } edited(r); },
+    label: `${CURVE_ICON[label] || ''}  ${label}${targets.length > 1 ? ` (${targets.length} points)` : ''}`, checked: now === label, disabled: targets.every((i) => i >= last),
+    action: () => { pushUndo(); for (const i of targets) { if (i >= last) continue; const p = pts[i]; const same = (p.e || null) === e && e; p.k = same ? p.k : k; if (e) p.e = e; else delete p.e; } edited(r); },
   }));
 }
 
@@ -109,6 +125,7 @@ const RIG_TO_CC = (() => {
   return m;
 })();
 function timelineFrames(fps, travel) {
+  if (seqActive()) return seqFrames(fps, travel);   // a sequence: every motion, cross-faded
   const n = Math.max(2, Math.round(S.dur * fps) + 1), q = new Float32Array(n * B * 4), hp = new Float32Array(n * 3);
   const keep = { inPlace: S.inPlace, base: S.travelBase.clone(), t: S.t };
   S.inPlace = !travel; S.travelBase.set(0, 0, 0);
@@ -130,10 +147,10 @@ async function exportTimelineFbx() {
     const data = zipStore([{ name: base + '.fbx', data: buildFbx(fr, base, nameOf) }]), fn = `${base}_${stamp()}_fbx.zip`;
     if (!caps.downloads) { note.textContent = 'Download is not available here.'; return; }
     await caps.downloads.save({ filename: fn, data });
-    note.textContent = `Saved ${fn}: ${fr.n} frames at ${fps} fps (${S.dur.toFixed(2)} s, ${cycTxt(A.cycles || 0)} bars), ${travel ? 'with travel' : 'in place'}, ${cc ? 'Character Creator' : 'Mixamo'} bone names.`;
+    note.textContent = `Saved ${fn}: ${fr.n} frames at ${fps} fps (${((fr.n - 1) / fps).toFixed(2)} s${seqActive() ? `, ${SEQ.motions.length} motions` : `, ${cycTxt(A.cycles || 0)} bars`}), ${travel ? 'with travel' : 'in place'}, ${cc ? 'Character Creator' : 'Mixamo'} bone names.`;
   } catch (e) { note.textContent = e && e.code === 'declined' ? 'Download cancelled.' : 'Export failed: ' + (e && e.message || e); }
 }
-function openTimelineFbx() { $('tfDlg').hidden = false; $('tfNote').textContent = `${cycTxt(A.cycles || 0)} bars · ${S.dur.toFixed(2)} s · everything on the timeline is baked in.`; }
+function openTimelineFbx() { $('tfDlg').hidden = false; $('tfNote').textContent = seqActive() ? `Whole sequence: ${SEQ.motions.length} motions · ${cycTxt(SEQ.g ? SEQ.g.TB : 0)} bars · ${SEQ.Tend.toFixed(2)} s · every motion and blend is baked in.` : `${cycTxt(A.cycles || 0)} bars · ${S.dur.toFixed(2)} s · everything on the timeline is baked in.`; }
 $('tfGo').onclick = exportTimelineFbx;
 $('tfClose').onclick = () => { $('tfDlg').hidden = true; };
 $('tfDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('tfDlg').hidden = true; });

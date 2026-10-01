@@ -33,6 +33,30 @@ function blobSafeTextures(parser) {   // (embedded glTF images decoded in memory
 // ---------------------------------------------------------------- automation curves
 // a track = sorted points { t (s), v, k (tension of the segment to the next point, −1…1) }
 const shapeU = (u, k) => (Math.abs(k) < 1e-3 ? u : Math.pow(u, Math.pow(2, k * 3)));
+// curve modes (FL Studio style) — a point's e picks the shape to the next point, its k is that shape's knob (the ring):
+//   none: single curve (k bends it) · 'inout': double / S curve (k: sharper / softer) · 'step': hold
+//   'stairs' / 'sstairs': hard / soft steps (k: count) · 'pulse': on / off (k: count) · 'wave': cosine waves that start
+//   on this value and end on the next (k: count) · 'arc': overshoots or undershoots and comes back (k: how much)
+//   'smooth': a spline through the neighbouring points (no ring)
+const curveCount = (k) => Math.max(1, Math.round(4 * Math.pow(2, 2 * (k || 0))));   // k −1…1 → 1…16, 0 → 4
+const sStep = (u) => u * u * (3 - 2 * u);
+function curveU(e, k, u) {
+  switch (e) {
+    case 'inout': { const g = u < 0.5 ? 0.5 * shapeU(2 * u, k || 0) : 1 - 0.5 * shapeU(2 - 2 * u, k || 0); return sStep(g); }
+    case 'stairs': { const n = curveCount(k) + 1; return Math.min(1, Math.floor(u * n) / (n - 1)); }
+    case 'sstairs': { const n = curveCount(k), x = u * n, i = Math.min(n - 1, Math.floor(x)), f = x - i; return (i + sStep(clamp((f - 0.55) / 0.45, 0, 1))) / n; }
+    case 'pulse': { const n = 2 * curveCount(k); return Math.min(n - 1, Math.floor(u * n)) % 2 ? 1 : 0; }
+    case 'wave': { const n = 2 * curveCount(k) - 1; return 0.5 - 0.5 * Math.cos(Math.PI * n * u); }
+    case 'arc': return u + 1.2 * (k || 0) * Math.sin(Math.PI * u);
+    default: return shapeU(u, k || 0);
+  }
+}
+function smoothSeg(pts, i, t) {   // cubic Hermite, tangents from the neighbours (flat at a peak / dip, so it never overshoots there)
+  const a = pts[i], b = pts[i + 1], h = b.t - a.t, u = (t - a.t) / h;
+  const tan = (j) => { const p = pts[j], q = pts[j - 1], n = pts[j + 1]; if (!q || !n) return 0; if ((p.v - q.v) * (n.v - p.v) <= 0) return 0; return (n.v - q.v) / Math.max(1e-6, n.t - q.t); };
+  const m0 = tan(i) * h, m1 = tan(i + 1) * h, u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * a.v + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * b.v + (u3 - u2) * m1;
+}
 function evalPts(pts, t) {
   if (!pts || !pts.length) return 0;
   if (t <= pts[0].t) return pts[0].v;
@@ -40,8 +64,9 @@ function evalPts(pts, t) {
     const a = pts[i], b = pts[i + 1];
     if (t <= b.t) {
       if (a.e === 'step') return t < b.t ? a.v : b.v;   // hold until the next point
-      const u = b.t > a.t ? (t - a.t) / (b.t - a.t) : 1;
-      return lerp(a.v, b.v, a.e === 'inout' ? u * u * (3 - 2 * u) : shapeU(u, a.k));
+      if (!(b.t > a.t)) return b.v;
+      if (a.e === 'smooth') return smoothSeg(pts, i, t);
+      return lerp(a.v, b.v, curveU(a.e, a.k, (t - a.t) / (b.t - a.t)));
     }
   }
   return pts[pts.length - 1].v;
@@ -59,7 +84,7 @@ function keyAtFlat(pts, t, v) {
   if (pts.every((p) => Math.abs(p.v - pts[0].v) < 1e-6)) for (const p of pts) p.v = v;
   setPointAt(pts, t, v);
 }
-const clonePts = (pts, mul = 1) => pts.map((p) => ({ t: p.t, v: p.v * mul, k: p.k }));
+const clonePts = (pts, mul = 1) => pts.map((p) => (p.e ? { t: p.t, v: p.v * mul, k: p.k, e: p.e } : { t: p.t, v: p.v * mul, k: p.k }));
 
 // ---------------------------------------------------------------- scene + infinite ground
 const view = $('view');
@@ -183,7 +208,7 @@ function save() {
   editVersion++;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { store.last = cur && cur.id; store.clips[cur.id] = A; store.ui = { realtime: S.realtime, lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, showResist: S.showResist !== false, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff, lockIn: S.lockIn, lockOut: S.lockOut }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
+    try { if (SEQ.on) store.seq = seqSerialize(); else { store.last = cur && cur.id; store.clips[cur.id] = A; } store.ui = { realtime: S.realtime, lenMode: S.lenMode, limits: S.limits, inPlace: S.inPlace, follow: S.follow, autoKey: S.autoKey, showIK: S.showIK, showResist: S.showResist !== false, unit: S.unit, mirrorPref: S.mirrorPref, magnet: S.magnet, falloff: S.falloff, lockIn: S.lockIn, lockOut: S.lockOut }; localStorage.setItem(STORE, JSON.stringify(store)); } catch { /* storage off: the session still works */ }
   }, 350);
 }
 
@@ -193,7 +218,7 @@ function snapshot() { return JSON.stringify({ curId: cur.id, A }); }
 function pushUndo() { if (suppressUndo || !cur) return; undoStack.push(snapshot()); if (undoStack.length > 150) undoStack.shift(); redoStack.length = 0; }
 function restoreSnapshot(s) {
   const o = JSON.parse(s);
-  if (o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
+  if (!SEQ.on && o.curId !== cur.id) { const c = clips.find((x) => x.id === o.curId); if (c) { cur = c; $('clipSel').value = cur.id; } }
   A = normalizeAuto(o.A); S.dur = A.dur; S.v0 = clamp(S.v0, 0, S.dur); S.v1 = clamp(S.v1, S.v0 + 0.05, S.dur); syncLenInputs(); S.t = Math.min(S.t, S.dur);
   selPts = new Set(); selRow = null;
   rebuildSpeedLUT(); lockCycles(true); rebuildRows(); save(); updateSelChip();
@@ -260,6 +285,7 @@ async function boot() {
   buildClipSelect(); loadBaked(); loadImported(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
   selectClip(first.id);
+  seqBoot();
   $('loading').hidden = true;
   frameCamera(true);
   resize(); requestAnimationFrame(frame);
@@ -274,7 +300,7 @@ function buildClipSelect() {
     if (og.children.length) sel.append(og);
   }
   if (cur) sel.value = cur.id;
-  sel.onchange = () => selectClip(sel.value);
+  sel.onchange = () => clipSelChanged(sel.value);
 }
 
 // bone hierarchy tree: search box + indented rows, click adds (opens the track dialog) or selects
@@ -398,7 +424,7 @@ function renderGroupList(q) {
   if (!root.children.length) root.innerHTML = '<div class="empty">No groups match.</div>';
 }
 
-function selectClip(id) {
+function selectClipRaw(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];

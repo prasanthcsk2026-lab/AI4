@@ -324,6 +324,38 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Motion sequence (several motions, one timeline)
+- **The timeline starts empty.** "+ Add motion 1" picks the first clip and its bar count; it starts at bar 1.
+- **More motions:** "+ Motion" (strip above the ruler). Pick the clip, the **start bar** (where it is fully in), the **blend bars** before it and its bars after the start.
+  - Example: Jog at bar 10 with 2 blend bars is placed from bar 8. Bars 8–9 cross-fade from the motion before; from bar 10 only the jog plays.
+  - The motion before is cut (or extended) to end at the start bar.
+- **The bars stay static:** every motion keeps its own bar count; a later motion moves only if an earlier one gets more or fewer bars.
+- **Separate automation:** every motion is a full timeline of its own: run controls, moving / cycle speed, forcers, blends, IK, bones. Nothing of one motion reaches another.
+  - Click a motion in the strip to edit its tracks. The ruler and the big bar readout show global bar numbers.
+  - Each motion has its own undo history.
+- **In the blend bars** both motions run bar for bar:
+  - the seconds per bar ease from one cadence to the other, and the ground speed eases over;
+  - **Match feet:** the new motion's loop starts where the same foot lands as in the motion before, so the feet stay in step;
+  - every bone cross-fades (eased slerp), the hips too.
+- **Strip:** click selects (and moves the playhead), drag scrubs, double-click opens the settings (start bar, blend bars, bars, match feet), right-click: settings, remove, add, clear sequence.
+- Changing a motion's clip (Clip menu) gives it a fresh automation with the same bar count.
+- Play, loop and the timeline FBX export run through the whole sequence.
+- Older saves open as motion 1 (nothing is lost).
+- Measured (Sprint 9 bars → Jog slow at bar 10, 2 blend bars): seconds per bar 0.452 → 0.527 → 0.776 → 0.850; ground speed per bar 6.60 → 5.29 → 2.74 → 2.27 m/s. Hips acceleration peak in the blend bars 196 m/s² against 118 / 234 in the motions on either side; bone turn rate peak 2180 °/s against 2683 / 1071. No jump at the joins. The other way round (Jog → Sprint) is the same.
+- Limitation: within a blend both motions keep their own travel, so a planted foot can slide a little while the weights change (10th-percentile foot speed near the ground 0.09 m/s in the blend, 0.06–0.10 outside).
+
+## Curve modes (FL Studio style)
+- Right-click a point to pick the shape of the curve from it to the next point (with several points selected, all of them change):
+  - **Single curve**, **Ease in**, **Ease out**: one bend (the ring drags it).
+  - **Double curve (S)**: slow, fast, slow (the ring: sharper / softer).
+  - **Hold**: stays, then jumps at the next point.
+  - **Stairs** / **Smooth stairs**: steps (the ring: how many, 1–16).
+  - **Pulse**: on / off between the two values (the ring: how many).
+  - **Wave**: cosine waves from this value to the next (the ring: how many).
+  - **Arc (overshoot)**: goes past the value and comes back (the ring: how much).
+  - **Smooth (spline)**: a smooth curve through the neighbouring points.
+- Older timelines look the same (their curves keep their shape). Curve modes are kept in saves and in the JSON export.
+
 ## Step length: Hard and Natural
 - **Step length (Hard)** is the old Step length: the feet reach further from the hips (knee lift, pelvis turn and arms follow).
 - **Step length (Natural)** (%, new) makes the steps longer with the legs' own motion. The extra length is covered in the air.

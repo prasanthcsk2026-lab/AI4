@@ -159,7 +159,16 @@
   .grip { cursor: row-resize; background: var(--line); }
   .grip:hover { background: var(--accent); }
   /* timeline */
-  .tl { min-height: 0; display: grid; grid-template-rows: auto 1fr auto; background: var(--panel); position: relative; }
+  .tl { min-height: 0; display: grid; grid-template-rows: auto auto 1fr auto; background: var(--panel); position: relative; }
+  .seqbar { display: grid; grid-template-columns: var(--hdr) 1fr; border-bottom: 1px solid var(--line); background: var(--tl-head, #202023); }
+  .seqhd { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-right: 1px solid var(--line); font: 600 12px var(--ui); min-width: 0; }
+  .seqhd #seqInfo { color: var(--ink-2); font-weight: 500; font-size: 11px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #seqCv { display: block; width: 100%; height: 44px; cursor: pointer; }
+  #seqEmpty { position: absolute; left: 0; right: 0; top: 45px; bottom: 0; z-index: 5; display: grid; place-items: center; background: var(--panel); }
+  #seqEmpty[hidden] { display: none; }
+  #seqEmpty .seqbox { max-width: 420px; padding: 16px; text-align: center; display: grid; gap: 8px; justify-items: center; }
+  #seqEmpty .seqbox p { margin: 0; color: var(--ink-2); font-size: 13px; }
+  #seqEmpty .seqbox button { font-size: 15px; padding: 10px 18px; }
   .hbar { display: grid; grid-template-columns: var(--hdr) 1fr; border-top: 1px solid var(--line); background: var(--panel); }
   .hbarh { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-right: 1px solid var(--line); min-width: 0; }
   .hhint { font: 500 10px var(--ui); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -376,7 +385,7 @@
   .transport button { border-radius: 3px; min-width: 32px; padding: 4px 8px; }
   .transport .clock { margin-left: 8px; }
   .transport #status { font: 500 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
-  .tl { grid-template-rows: auto 1fr auto auto; }
+  .tl { grid-template-rows: auto auto 1fr auto auto; }
   button { border-radius: 3px; } select, input[type="number"] { border-radius: 3px; }
   .grip { background: #111113; }
   /* neutral track surfaces (the stripe keeps each kind's colour) */

@@ -107,7 +107,7 @@ $('btnNextBar').onclick = () => stepBar(1);
 function updateWorkspace() {
   if (!cur) return;
   const ct = clipTime(S.t), d = cur.dur > 0 ? cur.dur : 1, k = ct / d, bar = Math.floor(k + 1e-6), q = Math.floor((k - bar) * 4 + 1e-6);
-  $('btBar').textContent = q > 0 ? `${bar + 1}.${clamp(q, 1, 3)}` : String(bar + 1);
+  $('btBar').textContent = q > 0 ? `${bar + 1 + seqBarOff()}.${clamp(q, 1, 3)}` : String(bar + 1 + seqBarOff());
   $('btSec').textContent = `${S.t.toFixed(3)} s`;
   $('btFrm').textContent = `f ${Math.round(S.t * 30)}`;
   const mc = $('menuClip'); if (mc.dataset.id !== cur.id || mc.dataset.sp !== String(cur.c && cur.c.speed)) { mc.dataset.id = cur.id; mc.dataset.sp = String(cur.c && cur.c.speed); mc.textContent = cur.name; syncClipSpeed(); }

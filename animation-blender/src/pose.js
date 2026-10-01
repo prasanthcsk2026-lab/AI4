@@ -264,6 +264,7 @@ const qI = new THREE.Quaternion(), qC = new THREE.Quaternion(), qD = new THREE.Q
 const logQ = (q, out) => { let { x, y, z, w } = q; if (w < 0) { x = -x; y = -y; z = -z; w = -w; } const s = Math.hypot(x, y, z); if (s < 1e-9) return out.set(0, 0, 0); const a = 2 * Math.atan2(s, w); return out.set(x / s * a, y / s * a, z / s * a); };
 const expV = (x, y, z, out) => { const a = Math.hypot(x, y, z); if (a < 1e-9) return out.set(0, 0, 0, 1); const s = Math.sin(a / 2) / a; return out.set(x * s, y * s, z * s, Math.cos(a / 2)); };
 function sampleClip(tau, Q, H) {   // the untouched clip at clip time tau (s), laid facing +z, in place
+  if (cur.phase) tau += cur.phase * cur.dur;   // a sequence motion starts its loop at another phase (feet matched to the motion before)
   const bk = BAKED[cur.id] || cur.c.origBk; if (bk) { sampleBaked(bk, tau, Q, H); return; }   // a baked clip plays its baked frames
   const c = cur.c;
   if (cur.kind === 'loop') {
@@ -294,7 +295,7 @@ function wholeEff(name, t) {
 // squeezed by the same amount, so the cycle length stays. The leg (thigh and below) samples the clip at that
 // re-timed phase; everything else is untouched. Auto foot-lock follows the longer contacts.
 const GND_MAX = 30;
-function clipWin(Sd) { const bk = BAKED[cur.id] || cur.c.origBk, w = (bk && bk.win) || cur.c.win; return w && w[Sd] ? w[Sd] : null; }
+function clipWin(Sd) { const bk = BAKED[cur.id] || cur.c.origBk, w = (bk && bk.win) || cur.c.win; if (!w || !w[Sd]) return null; return cur.phase ? [w[Sd][0] - cur.phase, w[Sd][1] - cur.phase] : w[Sd]; }
 function gndAt(t) { return A.gnd && cur && cur.kind === 'loop' ? clamp(evalPts(A.gnd, t), 0, GND_MAX) / 100 : 0; }
 function gndWin(Sd, g) {   // the contact window after the stretch
   const w = clipWin(Sd); if (!w) return null;
@@ -521,7 +522,7 @@ function holdStart(pts, t) {   // start of the current "hold on" span, on a 1/12
 }
 const holdCache = new Map();
 function holdTarget(bone, pts, t, tNow = t) {   // world spot the effector had (FK) when the hold (on at t) began
-  const t0 = holdStart(pts, t), bi = boneIdx.get(bone.name), key = `${editVersion}|${S.inPlace}|${bi}|${t0.toFixed(4)}|${S.travelBase.x.toFixed(3)},${S.travelBase.z.toFixed(3)}`;
+  const t0 = holdStart(pts, t), bi = boneIdx.get(bone.name), key = `${editVersion}|${S.ctxTag || 0}|${S.inPlace}|${bi}|${t0.toFixed(4)}|${S.travelBase.x.toFixed(3)},${S.travelBase.z.toFixed(3)}`;
   let p = holdCache.get(key);
   if (!p) { p = fkPositionsAt(t0)[bi].clone(); if (holdCache.size > 64) holdCache.clear(); holdCache.set(key, p); }
   p = p.clone();
@@ -543,7 +544,7 @@ function holdBlend(bone, pts, t) {
   if (t1 <= 1e-6 || evalPts(pts, t1 - step) < 0.5) return { w: 0, spot: null };
   // let go: the gap between the held spot and the foot's own path AT the release is carried on and faded out,
   // riding on that path — not a pull back toward the spot, which the swinging foot leaves further behind each frame
-  const bi = boneIdx.get(bone.name), spotAt = holdTarget(bone, pts, t1 - step, t1), k0 = `r|${editVersion}|${S.inPlace}|${bi}|${t1.toFixed(4)}`;
+  const bi = boneIdx.get(bone.name), spotAt = holdTarget(bone, pts, t1 - step, t1), k0 = `r|${editVersion}|${S.ctxTag || 0}|${S.inPlace}|${bi}|${t1.toFixed(4)}`;
   let gap = holdCache.get(k0);
   if (!gap) { gap = spotAt.clone().sub(fkPositionsAt(t1)[bi]); if (holdCache.size > 64) holdCache.clear(); holdCache.set(k0, gap); }
   const w = 1 - sm(clamp((t - t1) / bout, 0, 1));
@@ -880,8 +881,7 @@ function evaluate(t, pend) {
 function footContact(Sd, t) {
   const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk, g = gndAt(t);
   if (g > 1e-4) { const w = gndWin(Sd, g); if (w) return inWin(mod1(ct / cur.dur), w); }   // foot on ground: the longer contact
-  if (bk && bk.win && cur.kind === 'loop') return bk.win[Sd] ? inWin(mod1(ct / cur.dur), bk.win[Sd]) : null;   // a processed clip: its measured contacts
-  if (cur.kind === 'loop') return c.win && c.win[Sd] ? inWin(mod1(ct / cur.dur), c.win[Sd]) : null;
+  if (cur.kind === 'loop') { const w = clipWin(Sd); return w ? inWin(mod1(ct / cur.dur), w) : null; }   // a processed clip: its measured contacts
   const arr = Sd === 'L' ? c.cL : c.cR, fps = (gl && gl.fps) || 30;
   if (!arr) return null;
   return !!arr[clamp(Math.floor((ct % cur.dur) * fps), 0, arr.length - 1)];

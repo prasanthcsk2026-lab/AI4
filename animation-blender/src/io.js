@@ -2,8 +2,8 @@
 // ============================================================================
 //  TRANSPORT, EXPORT / IMPORT, FRAME LOOP
 // ============================================================================
-function goHome() { S.t = 0; S.travelBase.set(0, 0, 0); trailDirty = true; }
-$('btnPlay').onclick = () => { S.playing = !S.playing; if (S.playing && S.t >= S.dur - 1e-4) S.t = 0; $('btnPlay').textContent = S.playing ? 'Pause' : 'Play'; };
+function goHome() { S.t = 0; S.travelBase.set(0, 0, 0); trailDirty = true; if (SEQ.on) seqHome(); }
+$('btnPlay').onclick = () => { if (SEQ.on && !SEQ.motions.length) return; S.playing = !S.playing; if (seqActive()) { if (S.playing && SEQ.T >= SEQ.Tend - 1e-4) seqSetT(0); } else if (S.playing && S.t >= S.dur - 1e-4) S.t = 0; $('btnPlay').textContent = S.playing ? 'Pause' : 'Play'; };
 $('btnHome').onclick = goHome;
 $('btnLoop').onclick = () => { S.loop = !S.loop; syncToggles(); };
 // Length or Cycles: one sets the timeline, the other just shows the matching value (the clip's cadence never changes)
@@ -53,7 +53,7 @@ function flash(msg) { const el = $('status'); el.dataset.flash = msg; clearTimeo
 
 // ---------------------------------------------------------------- export / import (JSON)
 function exportObj() {
-  const P = (pts, mul = 1) => pts.map((p) => [+p.t.toFixed(3), +(p.v * mul).toFixed(3), +p.k.toFixed(2)]);
+  const P = (pts, mul = 1) => pts.map((p) => (p.e ? [+p.t.toFixed(3), +(p.v * mul).toFixed(3), +(p.k || 0).toFixed(2), p.e] : [+p.t.toFixed(3), +(p.v * mul).toFixed(3), +(p.k || 0).toFixed(2)]));
   const o = {
     tool: 'Animation Blender', format: 3, exportedAt: new Date().toISOString(),
     clip: { id: cur.id, name: cur.c.name, label: cur.name, kind: cur.kind, speed_mps: cur.c.speed ?? null, cycle_s: +cur.dur.toFixed(4), legsOnly: !!cur.c.legsOnly },
@@ -90,7 +90,7 @@ function exportObj() {
 function importObj(o) {
   const clipId = o.clip && (o.clip.id || ('loop:' + o.clip.name));
   if (clipId && clipId !== cur.id && clips.find((x) => x.id === clipId)) selectClip(clipId);
-  const d = +o.duration_s || S.dur, P = (a, div = 1) => (Array.isArray(a) && a.length ? a.map(([t, v, k]) => ({ t: +t, v: +v / div, k: +k || 0 })) : null);
+  const d = +o.duration_s || S.dur, P = (a, div = 1) => (Array.isArray(a) && a.length ? a.map(([t, v, k, e]) => (typeof e === 'string' ? { t: +t, v: +v / div, k: +k || 0, e } : { t: +t, v: +v / div, k: +k || 0 })) : null);
   const n = newAuto(d); n.speed = P(o.playback_speed_pct, 100) || n.speed; n.move = P(o.moving_speed_pct, 100) || n.move; n.cyc = P(o.cycle_speed_reach_time_pct) || n.cyc; if (o.show_master) n.showMaster = o.show_master;
   for (const b of o.bones || []) {
     if (!boneIdx.has(b.bone)) continue;
@@ -260,16 +260,21 @@ let last = performance.now(), frameErrCount = 0;
 function frame(now) {
   try {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
-    if (S.playing) {
+    const seqOn = seqActive(), seqIdle = SEQ.on && !SEQ.motions.length;
+    if (seqOn) seqFrame(dt);
+    else if (S.playing && !seqIdle) {
       S.t += dt;
       if (S.t >= S.dur) {
         if (S.loop) { S.t -= S.dur; if (!S.inPlace) { S.travelBase.add(trueTravel(S.dur)); trailDirty = true; } }
         else { S.t = S.dur; S.playing = false; $('btnPlay').textContent = 'Play'; }
       }
     }
+    if (seqIdle) { S.playing = false; lib.sample(lib.idle, 0, Qi[0], Hi); applyPose(Qi[0], Hi); }
+    else {
     updateTrail();
     updateReach();
-    evaluate(S.t, pending);
+    if (seqOn) seqEval(SEQ.T, pending); else evaluate(S.t, pending);
+    }
     updateSkeleton(S.t);
     updateHandles();
     updateTripod();
@@ -280,7 +285,8 @@ function frame(now) {
     renderer.render(scene, camera);
     if (S.playing) followPlayhead();
     placePlayhead();
-    $('clock').textContent = `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
+    $('clock').textContent = seqActive() ? `${SEQ.T.toFixed(2)} / ${SEQ.Tend.toFixed(2)} s · motion ${SEQ.sel + 1}: ${S.t.toFixed(2)} s` : `${S.t.toFixed(2)} / ${S.dur.toFixed(2)} s`;
+    if (SEQ.on) seqDraw();
     updateUnitChip(); updateWorkspace(); updateSpeedHud();
     const ct = clipTime(S.t), el = $('status');
     const travel = S.inPlace ? 'in place' : `travel ${hipsGround().length().toFixed(1)} m`;
@@ -300,5 +306,5 @@ function resize() {
 window.addEventListener('resize', resize);
 new ResizeObserver(() => resize()).observe(view);
 // test hook (read-only use from automated checks)
-window.__ab = { S, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, tplSave, tplList, tplOpen, tplFromTimeline, holdBlend, fkPositionsAt, footSlideReport, matchMovingSpeed, xOfPublic: (r, t) => xOf(r, t), yOfPublic: (r, v) => yOf(r, v), applySprintToJog, TPL_DEF, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip, copyBars, pasteBars, get barClip() { return barClip; }, timelineFrames, groundSpeedAt, speedSeries, curveItems, RIG_TO_CC, exportTimelineFbx, openTimelineFbx, applyDecelTemplate, DECEL_DEF, DECEL_REF, applyRunJog4, RUNJOG4, addForcer, resistAt, RESK, resistLeanParts, forcerPartForces, forcerIKPush, updateResistViz, resViz, selectForcer, pickForcer, forcerValsFromWorld, keyForcer, forcerWorldPose, setGizmoMode, get gizTarget() { return gizTarget(); }, get tcontrols() { return tcontrols; }, get gizmoMode() { return gizmoMode; }, brakePulseAt, legPhase, speedLockAfter, pushUndoPublic: () => pushUndo(), editedPublic: (key) => edited(rows.find((r) => r.key === key)), leanHeightCm, RUN, addSteady, stdMeans, get stdFeet() { return stdFeet; }, openSteadyDlg, kneeHipDrop, kneeDepthAt, armScaleAt, hipScaleAt, armCentreAt, accelAt, jumpLift, jumpPct, natJumpPct, natTravelK, natClip, plantedW, applyBlends, blendPhase, newBlend, openBlendDlg, brakeRate, brakeStrideK, brakeGain, releasePulseAt, speedRatio, clipMeans, kneeRoomAt, kneeSwingK, kneeGeometry, coneW, forcerBonePass, speedNoForcers };
+window.__ab = { S, SEQ, seqAdd, seqSelect, seqEval, seqRebuild, seqBarOfT, seqTOfBar, seqActives, seqSetT, seqRemove, seqSerialize, seqLoad, seqFrames, seqSetClip, openSeqDlg, curveU, evalPts, get camera() { return camera; }, get pending() { return pending; }, get A() { return A; }, get rig() { return rig; }, get axisInfo() { return axisInfo; }, get rows() { return rows; }, evaluate, worldP, ensureEff, ensureBone, rebuildRows, fkPositionsAt, trueTravel, effPos, EFF_BY_ID, autoFootLock, bakeGLB, zipStore, keyPending, setPending: (p) => { pending = p; }, selectEff, selectBone, flat, THREE, get boneIdx() { return boneIdx; }, ensureGroup, groupMembers, syncMirrors, setMirrorLink, keyChange, applyTrailEdit, registerIG, trailOwner, get trail() { return trail; }, igPivotPos, get reach() { return reachAt; }, applySymmetrize, newSymAuto, redirectMirrored, openAddDialog, selectGroup, GROUP_DEFS, stProcess, stSave, stFrames, buildFbx, glbFromFrames, openSymTool, get ST() { return ST; }, rebuildSpeedLUT, timeOfClipTime, clipTime, setView, get cur() { return cur; }, bakeAndReplace, revertBake, bakedDoc, get BAKED() { return BAKED; }, tplSave, tplList, tplOpen, tplFromTimeline, holdBlend, fkPositionsAt, footSlideReport, matchMovingSpeed, xOfPublic: (r, t) => xOf(r, t), yOfPublic: (r, v) => yOf(r, v), applySprintToJog, TPL_DEF, gridT: () => timeGrid().lines.filter((g) => g.level === 2).map((g) => +g.t.toFixed(3)), gndPhase, gndWin, footContact, impRetarget, impCut, impLandings, addImportedClip, get clips() { return clips; }, selectClip, copyBars, pasteBars, get barClip() { return barClip; }, timelineFrames, groundSpeedAt, speedSeries, curveItems, RIG_TO_CC, exportTimelineFbx, openTimelineFbx, applyDecelTemplate, DECEL_DEF, DECEL_REF, applyRunJog4, RUNJOG4, addForcer, resistAt, RESK, resistLeanParts, forcerPartForces, forcerIKPush, updateResistViz, resViz, selectForcer, pickForcer, forcerValsFromWorld, keyForcer, forcerWorldPose, setGizmoMode, get gizTarget() { return gizTarget(); }, get tcontrols() { return tcontrols; }, get gizmoMode() { return gizmoMode; }, brakePulseAt, legPhase, speedLockAfter, pushUndoPublic: () => pushUndo(), editedPublic: (key) => edited(rows.find((r) => r.key === key)), leanHeightCm, RUN, addSteady, stdMeans, get stdFeet() { return stdFeet; }, openSteadyDlg, kneeHipDrop, kneeDepthAt, armScaleAt, hipScaleAt, armCentreAt, accelAt, jumpLift, jumpPct, natJumpPct, natTravelK, natClip, plantedW, applyBlends, blendPhase, newBlend, openBlendDlg, brakeRate, brakeStrideK, brakeGain, releasePulseAt, speedRatio, clipMeans, kneeRoomAt, kneeSwingK, kneeGeometry, coneW, forcerBonePass, speedNoForcers };
 boot().catch((e) => { $('loading').textContent = 'Could not load: ' + e.message; console.error(e); });
