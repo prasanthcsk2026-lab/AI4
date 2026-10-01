@@ -37,7 +37,7 @@ const FORCER_COLORS = ['#ff9a3c', '#3cd2ff', '#b67cff', '#7cff9a', '#ff6fa5', '#
 const forcerIKList = () => EFFECTORS.filter((d) => d.tracks.includes('px') && (d.custom || d.kind !== 'igroup'));   // built-in controllers with a position, and your own controllers
 function newForcer(mode, dur, n) {
   const f = { id: 'f' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), name: 'Forcer ' + n, mode, collapsed: false, falloff: 'inv2', show: true, color: FORCER_COLORS[(n - 1) % FORCER_COLORS.length],
-    target: { whole: true, ik: [], stiff: 10, maxMove: 40, useCone: true, bodyReacts: true, bones: BONE_REGIONS.map(([id]) => id), boneFlex: 100 } };
+    target: { whole: true, ik: [], stiff: 10, maxMove: 40, useCone: true, bodyReacts: true, bones: [], bw: {}, boneFlex: 100 } };
   for (const k of RES_KEYS) f[k] = flat(RES_SPEC[k].ref, dur);
   f.at = { ...POS_DEF[mode] };   // position (m) and facing (°): set in 3D, not automated
   return f;
@@ -71,7 +71,12 @@ function normalizeForcers(a) {
     for (const k of ['id', 'name', 'mode', 'falloff', 'color']) if (!f[k]) f[k] = d[k];
     if (f.show == null) f.show = true;
     f.target = { ...d.target, ...(f.target || {}) }; f.target.ik = (f.target.ik || []).filter((id) => EFF_BY_ID[id]);
-    f.target.bones = (Array.isArray(f.target.bones) ? f.target.bones : d.target.bones).filter((id) => BONE_REGIONS.some(([r]) => r === id)); if (!(f.target.boneFlex >= 0)) f.target.boneFlex = 100;
+    if (!f.target.bw || typeof f.target.bw !== 'object') {   // before per-bone weights: every bone of the ticked regions at 100 %
+      const regs = Array.isArray(f.target.bones) ? f.target.bones : BONE_REGIONS.map(([r]) => r); f.target.bw = {};
+      for (const [key, , region, chain] of FBONES) if (regs.includes(region) && key !== 'hips') f.target.bw[key] = chain === 'trunk' || chain === 'head' ? 25 : 100;
+    }
+    for (const k of Object.keys(f.target.bw)) if (!FBONE_BY[k] || !(f.target.bw[k] >= 0)) delete f.target.bw[k];
+    f.target.bones = []; if (!(f.target.boneFlex >= 0)) f.target.boneFlex = 100;
   });
   return a;
 }
@@ -156,48 +161,62 @@ function forcerIKAdd(id, k, t) {   // cm on the controller's Move X / Y / Z
 // compliance: the spine is stiff, a hand light). A leg only while its foot is off the ground (a planted foot stays).
 // Runs after the IK, before the joint limits (so a knee or an elbow never bends the wrong way).
 const BONEK = { share: 0.12, maxDeg: 50 };
+// the bones a forcer can bend: [key, label, region (older saves), chain, compliance (° per N·m)]
+const FBONES = [
+  // (trunk and head: 4× the old compliance, so 100 % shows; older saves come in at 25 % there and look the same)
+  ['hips', 'Hips (pelvis)', 'spine', 'trunk', 0.48], ['spine', 'Spine (lower)', 'spine', 'trunk', 0.48], ['spine1', 'Spine (middle)', 'spine', 'trunk', 0.48], ['chest', 'Chest', 'spine', 'trunk', 0.48],
+  ['neck', 'Neck', 'head', 'head', 2.0], ['head', 'Head', 'head', 'head', 3.2],
+  ...['L', 'R'].flatMap((Sd) => { const n = Sd === 'L' ? 'Left' : 'Right'; return [
+    [Sd + 'clav', n + ' shoulder', Sd + 'arm', Sd + 'arm', 0.3], [Sd + 'upper', n + ' upper arm', Sd + 'arm', Sd + 'arm', 1.0], [Sd + 'fore', n + ' forearm', Sd + 'arm', Sd + 'arm', 1.6], [Sd + 'hand', n + ' hand', Sd + 'arm', Sd + 'arm', 3.0],
+    [Sd + 'thigh', n + ' thigh', Sd + 'leg', Sd + 'leg', 0.35], [Sd + 'shin', n + ' shin', Sd + 'leg', Sd + 'leg', 0.7], [Sd + 'foot', n + ' foot', Sd + 'leg', Sd + 'leg', 1.5]]; }),
+];
+const FBONE_BY = Object.fromEntries(FBONES.map((x) => [x[0], x]));
 let fbChains = null;
 function forcerBoneChains() {
   if (fbChains && fbChains.rig === rig) return fbChains;
   const b = rig.b, tipOf = (bone) => bone.children.find((x) => x.isBone) || bone, ch = [];
-  const mk = (region, list, extra = []) => { const bones = list.filter(([x]) => x); ch.push({ region, bones: bones.map(([bone, k]) => ({ bone, k })), pts: [...bones.map(([x]) => tipOf(x)), ...extra] }); };
-  mk('spine', [[b.spine, 0.12], [b.spine1, 0.12], [b.spine2, 0.12]], [b.head]);
-  mk('head', [[b.neck, 0.5], [b.head, 0.8]]);
-  for (const Sd of ['L', 'R']) {
-    const s = rig.side[Sd];
-    mk(Sd + 'arm', [[s.clav, 0.3], [s.upper, 1.0], [s.fore, 1.6], [s.hand, 3.0]]);
-    mk(Sd + 'leg', [[s.thigh, 0.35], [s.shin, 0.7], [s.foot, 1.5]]);
+  const boneOf = (key) => { if (key === 'hips') return b.hips; if (key === 'spine') return b.spine; if (key === 'spine1') return b.spine1; if (key === 'chest') return b.spine2; if (key === 'neck') return b.neck; if (key === 'head') return b.head; const s = rig.side[key[0]]; return s[key.slice(1)]; };
+  for (const name of ['trunk', 'head', 'Larm', 'Rarm', 'Lleg', 'Rleg']) {
+    const defs = FBONES.filter((x) => x[3] === name).map(([key, , , , k]) => ({ key, bone: boneOf(key), k })).filter((x) => x.bone);
+    const pts = defs.map((x) => (x.key === 'hips' ? b.spine : tipOf(x.bone)));
+    if (name === 'trunk') pts.push(b.head);
+    ch.push({ region: name, bones: defs, pts });
   }
   fbChains = { rig, ch }; return fbChains;
 }
-const boneTargets = (f) => (Array.isArray(f.target.bones) ? f.target.bones : BONE_REGIONS.map(([id]) => id));
-const bonesOn = () => !!(A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.boneFlex > 0 && boneTargets(f).length));
+const boneW = (f, key) => (f.target.bw && f.target.bw[key] > 0 ? f.target.bw[key] / 100 : 0);
+const boneList = (f) => Object.keys(f.target.bw || {}).filter((k) => f.target.bw[k] > 0);
+const bonesOn = () => !!(A && A.forcers && A.forcers.some((f) => forcerLive(f) && f.target.boneFlex > 0 && boneList(f).length));
 function legSwingW(Sd, t) { if (!cur || cur.kind !== 'loop') return 0.5; const lp = legPhase(Sd, clipTime(t)); return !lp ? 0.5 : lp.c ? 0 : Math.sin(Math.PI * lp.s); }
 function forcerBonePass(t) {
   if (!rig || !bonesOn()) return;
-  const C = forcerBoneChains().ch, list = A.forcers.filter((f) => forcerLive(f) && f.target.boneFlex > 0), rec = [];
-  const devs = list.map((f) => { const W = forcerWorldPose(f, t); return { f, W, flex: (f.target.boneFlex / 100) * (0.5 + 0.5 * clamp(evalPts(f.resp, t), 0, 1)), regs: new Set(boneTargets(f)) }; });
+  const C = forcerBoneChains().ch, list = A.forcers.filter((f) => forcerLive(f) && f.target.boneFlex > 0 && boneList(f).length), rec = [];
+  const devs = list.map((f) => { const W = forcerWorldPose(f, t); return { f, W, flex: (f.target.boneFlex / 100) * (0.5 + 0.5 * clamp(evalPts(f.resp, t), 0, 1)) }; });
   for (const c of C) {
     const legW = /leg$/.test(c.region) ? legSwingW(c.region[0], t) : 1; if (legW < 1e-3) continue;
-    const pts = c.pts.map((x) => worldP(x)), frc = pts.map(() => V3());
-    let any = false;
-    for (const d of devs) {
-      if (!d.regs.has(c.region)) continue;
-      const D = d.W.D, dir = d.W.dirW;
+    const use = devs.filter((d) => c.bones.some((x) => boneW(d.f, x.key) > 0)); if (!use.length) continue;
+    const pts = c.pts.map((x) => worldP(x)), joints = c.bones.map((x) => worldP(x.bone)), tqs = c.bones.map(() => V3());
+    for (const d of use) {
+      const D = d.W.D, dir = d.W.dirW, frc = pts.map(() => V3());
+      let any = false;
       pts.forEach((p, i) => {
         const ray = p.clone().sub(d.W.pos), dist = ray.length(); if (dist < 1e-4) return; ray.divideScalar(dist);
         const m = D.F * D.weight * BONEK.share * coneW(ray, { dir, half: D.half }) * resFall(dist, d.f.falloff) * d.flex * legW;
         if (Math.abs(m) > 1e-6) { frc[i].addScaledVector(ray, m); any = true; }
       });
+      if (!any) continue;
+      c.bones.forEach((x, j) => {   // torque about this joint from the forces at its own tip and every point below it, × that bone's weight
+        const w = boneW(d.f, x.key); if (w <= 0) return;
+        const tq = V3(); for (let i = j; i < pts.length; i++) tq.add(V3().crossVectors(pts[i].clone().sub(joints[j]), frc[i]));
+        tqs[j].addScaledVector(tq, w);
+      });
     }
-    if (!any) continue;
-    const joints = c.bones.map((x) => worldP(x.bone)), rots = [];
-    c.bones.forEach((x, j) => {   // torque about this joint from the forces at its own tip and every point below it
-      const tq = V3(); for (let i = j; i < pts.length; i++) tq.add(V3().crossVectors(pts[i].clone().sub(joints[j]), frc[i]));
-      const a = Math.min(BONEK.maxDeg, tq.length() * x.k) * DEG; rots.push(a > 1e-5 ? new THREE.Quaternion().setFromAxisAngle(tq.normalize(), a) : null);
-      rec.push([x.bone.name, a / DEG]);
+    const rots = c.bones.map((x, j) => { const a = Math.min(BONEK.maxDeg, tqs[j].length() * x.k) * DEG; rec.push([x.bone.name, a / DEG]); return a > 1e-5 ? new THREE.Quaternion().setFromAxisAngle(tqs[j].clone().normalize(), a) : null; });
+    c.bones.forEach((x, j) => {
+      if (!rots[j]) return;
+      rotateBoneWorld(x.bone, rots[j]);
+      if (x.key === 'hips') { const inv = rots[j].clone().invert(); for (const Sd of ['L', 'R']) rotateBoneWorld(rig.side[Sd].thigh, inv); }   // the pelvis tilts, the legs keep their line
     });
-    c.bones.forEach((x, j) => { if (rots[j]) rotateBoneWorld(x.bone, rots[j]); });
   }
   S.forcerBones = rec;
 }
@@ -372,8 +391,7 @@ function openForcerDlg(id) {
   for (const k of [...POS_KEYS, ...FACE_KEYS]) $('frc_' + k).value = +f.at[k].toFixed(k[0] === 'p' ? 2 : 1);
   $('frcName').value = f.name; $('frcFall').value = f.falloff; $('frcShow').checked = f.show !== false;
   $('frcWhole').checked = !!f.target.whole; $('frcStiff').value = f.target.stiff; $('frcMax').value = f.target.maxMove; $('frcCone').checked = !!f.target.useCone; $('frcReact').checked = !!f.target.bodyReacts;
-  const bx = $('frcBones'); bx.textContent = '';
-  for (const [id, label] of BONE_REGIONS) { const l = document.createElement('label'); l.className = 'cb'; l.innerHTML = `<input type="checkbox" value="${id}"${boneTargets(f).includes(id) ? ' checked' : ''}> ${label}`; bx.append(l); }
+  drawFrcBones(f);
   $('frcFlex').value = f.target.boneFlex;
   const box = $('frcIK'); box.textContent = '';
   for (const d of forcerIKList()) { const l = document.createElement('label'); l.className = 'cb'; l.innerHTML = `<input type="checkbox" value="${d.id}"${f.target.ik.includes(d.id) ? ' checked' : ''}> ${d.label}`; box.append(l); }
@@ -388,11 +406,29 @@ function frcApply() {
   f.target.whole = $('frcWhole').checked; f.target.stiff = clamp(+$('frcStiff').value || 10, 0, 100); f.target.maxMove = clamp(+$('frcMax').value || 40, 0, 150);
   f.target.useCone = $('frcCone').checked; f.target.bodyReacts = $('frcReact').checked;
   f.target.ik = [...$('frcIK').querySelectorAll('input:checked')].map((x) => x.value);
-  f.target.bones = [...$('frcBones').querySelectorAll('input:checked')].map((x) => x.value); f.target.boneFlex = clamp(isFinite(+$('frcFlex').value) ? +$('frcFlex').value : 100, 0, 300);
+  f.target.boneFlex = clamp(isFinite(+$('frcFlex').value) ? +$('frcFlex').value : 100, 0, 300);
   A.body = { mass: clamp(+$('resMass').value || 75, 20, 200), keepSpeed: $('resKeep').checked };
   forcerChanged();
 }
 for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep', 'frcFlex']) $(id).onchange = frcApply;
-$('frcIK').addEventListener('change', frcApply); $('frcBones').addEventListener('change', frcApply);
+$('frcIK').addEventListener('change', frcApply);
+// bones it bends: added one by one, each with its weight (% of the bend the push gives it)
+function drawFrcBones(f) {
+  const bx = $('frcBones'); bx.textContent = '';
+  const keys = Object.keys(f.target.bw || {}).sort((a, b) => FBONES.findIndex((x) => x[0] === a) - FBONES.findIndex((x) => x[0] === b));
+  if (!keys.length) { const e = document.createElement('div'); e.className = 'note'; e.textContent = 'No bones yet: the push only leans and slows the body. Add the bones it should bend.'; bx.append(e); }
+  for (const k of keys) {
+    const row = document.createElement('div'); row.className = 'fbrow';
+    row.innerHTML = `<span>${FBONE_BY[k][1]}</span><input type="number" min="0" max="200" step="5" value="${Math.round(f.target.bw[k])}" aria-label="${FBONE_BY[k][1]} weight"><span class="unitlbl">%</span><button type="button" class="mini" title="Remove">×</button>`;
+    row.querySelector('input').onchange = (e) => { pushUndo(); f.target.bw[k] = clamp(+e.target.value || 0, 0, 200); forcerChanged(); };
+    row.querySelector('button').onclick = () => { pushUndo(); delete f.target.bw[k]; forcerChanged(); drawFrcBones(f); };
+    bx.append(row);
+  }
+  const add = document.createElement('div'); add.className = 'fbrow';
+  const left = FBONES.filter(([k]) => !(k in (f.target.bw || {})));
+  add.innerHTML = `<select aria-label="Bone to add">${left.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select><input type="number" min="0" max="200" step="5" value="100" aria-label="Weight"><span class="unitlbl">%</span><button type="button" class="mini"${left.length ? '' : ' disabled'}>+ Add bone</button>`;
+  add.querySelector('button').onclick = () => { const k = add.querySelector('select').value; if (!k) return; pushUndo(); f.target.bw = f.target.bw || {}; f.target.bw[k] = clamp(+add.querySelector('input').value || 0, 0, 200); forcerChanged(); drawFrcBones(f); };
+  bx.append(add);
+}
 $('frcClose').onclick = () => { $('frcDlg').hidden = true; };
 $('frcDlg').addEventListener('keydown', (e) => { if (e.key === 'Escape') $('frcDlg').hidden = true; });

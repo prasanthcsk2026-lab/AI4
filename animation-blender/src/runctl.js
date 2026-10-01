@@ -755,7 +755,7 @@ function applySprintResist(o = {}) {
   Object.assign(f, { name: 'Resistance (4 m ahead)', falloff: 'none' });
   f.at = { px: 0, py: v.heightM, pz: v.distM, fx: 0, fy: 180, fz: 0 };   // in front, facing back at him: it pushes him back
   f.spread = flat(v.spread, S.dur); f.weight = flat(1, S.dur); f.resp = flat(0, S.dur);   // resisted: he leans into it
-  f.target.bones = ['spine', 'head', 'Lleg', 'Rleg'];   // the push bends the trunk and legs, not the arms (their swing keeps its world angle)
+  f.target.bw = { chest: 100, spine: 50, hips: 20 };   // the push bends the trunk: chest most, lower spine half, pelvis a little (the arms keep their swing)
   A.forcers = [f];
   A.armAuto = false; A.hipAuto = false; A.armCentreAuto = false;   // the bars before the push stay the clip's own; the swing eases down by its own tracks
   A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };

@@ -324,9 +324,16 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Forcer: bones it bends, one by one with a weight
+- Forcer settings → **Bones it bends** starts empty (the push then only leans and slows the body). **+ Add bone** picks one (Hips, Spine lower / middle, Chest, Neck, Head, each shoulder, upper arm, forearm, hand, thigh, shin, foot) with its **weight %** (0–200); each row can be changed or removed (×).
+- A bone turns by the push's torque about its joint × its weight. Hips tilt the pelvis while the legs keep their line.
+- "Bone flex (all)" still multiplies every bone.
+- 100 % on the trunk / head is 4× the old bend so it shows; older saves come in at 25 % there (and 100 % on arms / legs), so they look the same.
+- Resisted run template: Chest 100 %, Spine (lower) 50 %, Hips 20 %. At bar 9 (230 N): chest 1.6°, lower spine 3.2°, pelvis 2.2° back; the feet move 2 mm. The trunk lean settles at 24.8° (27.7° without the bend); arm swing centre −23.8° → −25.9°. Bars 1–3 unchanged (0.15°), bars 8–10 within 0.18°.
+
 ## Template: Sprint → resisted run (forcer 4 m ahead, bars 4–7 transition, steady from bar 8)
 - "+" → **Template: Sprint → resisted run**, on the selected motion (load the sprint first). It writes 10 bars:
-  - **Forcer** "Resistance (4 m ahead)": moving with the runner, 4 m in front at 1 m height, pointing back at him, no falloff, 60° spread, resist (he leans into it), keep speed off. Force 0 N until exactly the start of bar 4, then an S curve to 230 N at the start of bar 8, then held.
+  - **Forcer** "Resistance (4 m ahead)": moving with the runner, 4 m in front at 1 m height, pointing back at him, no falloff, 60° spread, resist (he leans into it), keep speed off; bends Chest 100 %, Spine (lower) 50 %, Hips 20 %. Force 0 N until exactly the start of bar 4, then an S curve to 230 N at the start of bar 8, then held.
   - The same S curve (bar 4 → bar 8) on: knee depth 100 → 112 %, cycle speed 100 → 106 % (the cadence drops less than the stride, as in sled studies), foot on ground 0 → +8 % (longer contacts), arm swing and hip motion 100 → 90 %.
   - Arm swing / hip motion / arm centre "follow" options are off (bars 1–3 stay the clip's own).
 - Modelled on resisted (sled) sprinting: trunk lean grows with the load, stride length drops more than stride frequency, longer ground contact, more flexed knees and hips; the slow-down is spread over the steps (no braking jerk).

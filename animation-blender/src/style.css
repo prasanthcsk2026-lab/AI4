@@ -444,5 +444,11 @@
 
 /* forcer settings */
 .frcform { overflow: auto; }
+.fblist { display: grid; gap: 4px; margin: 4px 0 8px; font-size: 12px; }
+.fblist .fbrow { display: flex; align-items: center; gap: 6px; }
+.fblist .fbrow > span:first-child { min-width: 130px; }
+.fblist .fbrow input[type=number] { width: 64px; }
+.fblist .fbrow select { min-width: 130px; }
+.fblist .note { color: var(--ink-2); }
 .frcik { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; font-size: 12px; }
 .row.resb.selected .h { outline: 1px solid #ff4fa3; }
