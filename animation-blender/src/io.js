@@ -227,17 +227,26 @@ function updateUnitChip() {
 }
 // how far forward of the hips each hand gets at its peak over the timeline (to check left / right symmetry)
 let reachAt = { v: -1, when: 0, L: 0, R: 0 };
+let reachJob = null;
+// the hand-reach and step-time readouts sample the whole timeline: spread over frames (≤ 4 ms each), so an edit never hangs
 function updateReach() {
-  const now = performance.now();
-  if (reachAt.v === editVersion || now - reachAt.when < 500 || !cur) return;
-  reachAt = { v: editVersion, when: now, L: -Infinity, R: -Infinity };
-  const n = Math.round(clamp(S.dur * 60, 60, 900)), fy = { L: [], R: [] }, ts = [];
-  for (let i = 0; i <= n; i++) {
-    const t = (i / n) * S.dur; ts.push(t);
+  if (!cur) return;
+  const key = `${editVersion}|${S.ctxTag || 0}|${S.dur}`;
+  if (reachAt.v === key) { reachJob = null; return; }
+  const n = Math.round(clamp(S.dur * 60, 60, 900));
+  if (!reachJob || reachJob.key !== key) reachJob = { key, i: 0, n, fy: { L: [], R: [] }, ts: [], L: -Infinity, R: -Infinity };
+  const J = reachJob, t0 = performance.now();
+  while (J.i <= J.n && performance.now() - t0 < 4) {
+    const t = (J.i / J.n) * S.dur; J.ts.push(t);
     evaluate(t, null);
     const hz = worldP(rig.b.hips).z;
-    for (const Sd of ['L', 'R']) { reachAt[Sd] = Math.max(reachAt[Sd], worldP(rig.side[Sd].hand).z - hz); fy[Sd].push(worldP(rig.side[Sd].foot).y); }
+    for (const Sd of ['L', 'R']) { J[Sd] = Math.max(J[Sd], worldP(rig.side[Sd].hand).z - hz); J.fy[Sd].push(worldP(rig.side[Sd].foot).y); }
+    J.i++;
   }
+  if (J.i <= J.n) return;
+  reachJob = null;
+  reachAt = { v: key, when: performance.now(), L: J.L, R: J.R };
+  const fy = J.fy, ts = J.ts;
   // step times from the feet as they are now: a foot lands when it comes down within 2 cm of its lowest
   const lands = [];
   for (const Sd of ['L', 'R']) {

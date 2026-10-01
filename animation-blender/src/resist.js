@@ -223,8 +223,30 @@ function forcerBonePass(t) {
 
 // ---------------------------------------------------------------- the sum on the body at time t
 const RES0 = { back: 0, side: 0, up: 0, load: 0, lean: 0, sideLean: 0, stepK: 1, cadK: 1, armK: 1, heightCm: 0, widthCm: 0, hipShare: 0.5, headRx: 0, legLoad: 0, legKnee: 1 };
+// speed: the last answer is kept (one evaluate asks ~100 times for the same t), and the timing builders read the
+// cadence / step factors from a 120 Hz table made once per build (the forcer tracks do not move inside one)
+let resMemo = null, resTab = null;
+function resistClear() { resMemo = null; resTab = null; }
+const resGen = () => `${editVersion}|${S.ctxTag || 0}|${S.dur}`;
 function resistAt(t) {
   if (!resistOn()) return RES0;
+  const live = typeof pending !== 'undefined' && pending && pending.kind === 'forcer';   // a gizmo drag: always fresh
+  if (!live && resMemo && resMemo.t === t && resMemo.A === A && resMemo.g === resGen()) return resMemo.r;
+  const r = resistAtRaw(t);
+  if (!live) resMemo = { t, A, g: resGen(), r };
+  return r;
+}
+function resistTabBegin() {   // the 120 Hz table of the cadence / step factors, for one timing build
+  resTab = null; if (!resistOn()) return;
+  const n = Math.max(2, Math.ceil(S.dur * 120) + 1), cad = new Float32Array(n), step = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const R = resistAtRaw((i / (n - 1)) * S.dur); cad[i] = R.cadK; step[i] = R.stepK; }
+  resTab = { n, cad, step, dur: S.dur, A };
+}
+function resistTabEnd() { resTab = null; resMemo = null; }
+function resistTabAt(arr, t) { const f = clamp(t / resTab.dur, 0, 1) * (resTab.n - 1), i = Math.min(Math.floor(f), resTab.n - 2); return lerp(arr[i], arr[i + 1], f - i); }
+const resistCad = (t) => (resTab && resTab.A === A ? resistTabAt(resTab.cad, t) : resistAt(t).cadK);
+const resistStep = (t) => (resTab && resTab.A === A ? resistTabAt(resTab.step, t) : resistAt(t).stepK);
+function resistAtRaw(t) {
   const N = V3(); let upper = 0, all = 0, headZ = 0, legSum = 0;
   const addPart = (q, fv, rf = 1) => { const g = fv.clone().multiplyScalar(rf); N.add(g); const m = g.length(); all += m; if (q.upper) upper += m; if (q.id === 'head') headZ += g.z; };
   for (const f of A.forcers) {
@@ -267,7 +289,7 @@ function forcerVizBuild(f) {
   woofer.rotation.x = Math.PI / 2; woofer.position.set(0, -0.06, -0.02); g.add(woofer);
   const tw = new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 10), new THREE.MeshStandardMaterial({ color: '#9aa0aa', metalness: 0.7, roughness: 0.25 })); tw.position.set(0, 0.14, 0); tw.scale.z = 0.5; g.add(tw);
   // the cone as nested shells (full, ¾, ½, ¼ of the spread): brightest on the centre line, fading to the edge
-  const cones = [1, 0.75, 0.5, 0.25].map((u) => { const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })); m.userData.u = u; g.add(m); return m; }), cone = cones[0];
+  const cones = [1, 0.5].map((u) => { const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })); m.userData.u = u; g.add(m); return m; }), cone = cones[0];
   const edge = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 })); g.add(edge);
   const waves = []; for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(new THREE.TorusGeometry(1, 0.01, 6, 48), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.6, depthWrite: false })); g.add(m); waves.push(m); }
   const arrows = new THREE.Group(); scene.add(arrows); scene.add(g);
@@ -277,7 +299,7 @@ function forcerVizBuild(f) {
 function forcerVizCone(v, half, L) {
   const key = `${half.toFixed(3)}|${L.toFixed(2)}`; if (v.key === key) return; v.key = key;
   const R = L * Math.tan(Math.min(half, 1.45));
-  for (const c of v.cones) { const r = L * Math.tan(Math.min(half * c.userData.u, 1.45)), geo = new THREE.ConeGeometry(Math.max(0.005, r), L, 40, 1, true); geo.translate(0, -L / 2, 0); geo.rotateX(-Math.PI / 2); c.geometry.dispose(); c.geometry = geo; }
+  for (const c of v.cones) { const r = L * Math.tan(Math.min(half * c.userData.u, 1.45)), geo = new THREE.ConeGeometry(Math.max(0.005, r), L, 24, 1, true); geo.translate(0, -L / 2, 0); geo.rotateX(-Math.PI / 2); c.geometry.dispose(); c.geometry = geo; }
   const pts = []; for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; pts.push(0, 0, 0, Math.cos(a) * R, Math.sin(a) * R, L); }
   const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); v.edge.geometry.dispose(); v.edge.geometry = eg;
 }
@@ -298,7 +320,7 @@ function updateResistViz() {
     v.g.position.copy(pos); v.g.lookAt(pos.clone().add(dirW));
     const L = clamp(D.pos.length() + 0.35, 0.8, 2.5); forcerVizCone(v, D.half, L);
     const push = D.F >= 0, col = push ? f.color : '#4aa3ff', mag = Math.min(1, Math.abs(D.F * D.weight) / 300), sel = S.selForcer === f.id;
-    for (const c of v.cones) { c.material.color.set(col); c.material.opacity = 0.015 + 0.045 * mag; } v.edge.material.color.set(col); v.trim.material.color.set(f.color);
+    for (const c of v.cones) { c.material.color.set(col); c.material.opacity = 0.025 + 0.07 * mag; } v.edge.material.color.set(col); v.trim.material.color.set(f.color);
     v.cabMat.emissive.set(sel ? '#ff4fa3' : '#15171b');
     const speed = 0.35 + 0.9 * mag;
     v.waves.forEach((m, i) => {
@@ -384,7 +406,7 @@ function removeForcerNow(id) {
   if (S.selForcer === id) S.selForcer = null;
   forcerChanged();
 }
-function forcerChanged() { moveEndCache = null; editVersion++; trailDirty = true; holdCache.clear(); pinPointsToBar(); lockCycles(true); syncLenInputs(); rebuildRows(); save(); }
+function forcerChanged() { resistClear(); moveEndCache = null; editVersion++; trailDirty = true; holdCache.clear(); pinPointsToBar(); lockCycles(true); syncLenInputs(); rebuildRows(); save(); }
 // per forcer settings (+ the body settings shared by all)
 let dlgForcer = null;
 function openForcerDlg(id) {

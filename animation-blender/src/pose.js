@@ -195,11 +195,12 @@ function cycleRate() { return 1; }   // the clip always plays at its own cadence
 // The cycle-speed track is a speed in % (100 = neutral, 150 = 1.5× as fast); it acts in clip time.
 function rebuildSpeedLUT() {
   const n = Math.max(2, Math.ceil(S.dur * 960) + 1), lut = new Float32Array(n), nom = new Float32Array(n), dt = S.dur / (n - 1), k = cycleRate();
+  resistClear(); resistTabBegin();
   for (let i = 1; i < n; i++) {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
     const cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
-    lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * resistAt((t0 + t1) / 2).cadK * dt;
+    lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * resistCad((t0 + t1) / 2) * dt;
   }
   if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
     const tg = A.cycles * cur.dur, e = lut[n - 1];
@@ -208,7 +209,7 @@ function rebuildSpeedLUT() {
   }
   S.speedLUTNom = nom;
   S.speedLUT = lut; editVersion++;
-  rebuildTravelLUT(); gridCache = null;
+  rebuildTravelLUT(); resistTabEnd(); gridCache = null;
   if (typeof viewFreeze !== 'undefined' && viewFreeze) { /* dragging a timing point: keep the view */ }
   else if (S.viewAll !== false) { S.v0 = 0; S.v1 = dispDur(); } else { const D = dispDur(); S.v1 = Math.min(S.v1, D); S.v0 = Math.min(S.v0, Math.max(0, S.v1 - 0.05)); }
   updateHScroll(); drawRuler();
@@ -318,7 +319,7 @@ const gndArr = { L: null, R: null }, gndH = V3();
 const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefined; };
 // Stride length (master track, % of the clip's own): each foot reaches that much further ahead of / behind the hips
 // (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
-function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistAt(t).stepK * (brakeActive() ? brakeStrideK(t) : 1), 0.3, 1.5) : 1; }   // resistance shortens the steps too
+function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistStep(t) * (brakeActive() ? brakeStrideK(t) : 1), 0.3, 1.5) : 1; }   // resistance shortens the steps too
 let armChain = null;
 let stepNm = null;
 function stepNames() { if (stepNm && stepNm.rig === rig) return stepNm; stepNm = { rig, knee: new Set(['L', 'R'].map((S) => rig.side[S].shin.name)), arm: new Set(['L', 'R'].map((S) => rig.side[S].upper.name)) }; return stepNm; }

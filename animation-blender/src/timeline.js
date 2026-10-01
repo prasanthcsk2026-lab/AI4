@@ -463,7 +463,7 @@ function clipTimeFrom(t0, c0, t1) {
   for (let i = 0; i < n; i++) {
     const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
     const cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
-    c += play * (cyc / 100) * brakeRate(a + dt / 2, c) * resistAt(a + dt / 2).cadK * dt;
+    c += play * (cyc / 100) * brakeRate(a + dt / 2, c) * resistCad(a + dt / 2) * dt;
   }
   return c;
 }
@@ -478,6 +478,10 @@ function pinPointsToBar() {
 // put every point at the real time where the (new) timing reaches its bar; D = the timeline length to use
 function placeByClipTime(arrs, snap, D) {
   if (Math.abs(D - S.dur) > 1e-9) { S.dur = A.dur = +D; S.t = Math.min(S.t, S.dur); }
+  resistClear(); resistTabBegin();   // the forcer tracks stay put while the speed points are solved
+  try { placeByClipTimeInner(arrs, snap); } finally { resistTabEnd(); }
+}
+function placeByClipTimeInner(arrs, snap) {
   arrs.forEach((pts, i) => pts.forEach((p, j) => { if (snap[i][j] == null) p.t = S.dur; }));   // end anchors ride to the end
   // the speed tracks' own points shape the timing that places them: each is solved (bisection) for the real time
   // at which the timing reaches its bar, in bar order; a couple of passes settle the two tracks against each other

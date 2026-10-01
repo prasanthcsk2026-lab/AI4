@@ -324,6 +324,12 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Faster with forcers
+- One evaluate asked the forcers ~100 times for the same moment: the last answer is now kept (a live gizmo drag is always fresh). The timing builders (bar table, travel, placing points on their bars) read the forcers' cadence / step factors from a 120 Hz table made once per build.
+- The hand-reach / step-time readouts sampled the whole timeline in one go after every edit; they now run spread over frames (≤ 4 ms per frame).
+- The forcer's cone is 2 shells of 24 segments (was 4 × 40): half the transparent overdraw.
+- Measured (Sprint → resisted run template, 10 bars): timing table rebuild 30.6 → 7.4 ms; one evaluate 0.75 → 0.55 ms; a forcer setting change 154 → 77 ms, and the work after it (CPU profile, edit + 3 frames) ≈ 336 → 80 ms. The template's results are unchanged (speed per bar, lean, arm angle, bars 1–3 / 8–10 checks identical).
+
 ## Template: Walk → Run; Foot on ground below 0
 - **Foot on ground** now goes from −30 to +30 % of the cycle: − shortens each contact (the swing gets the time: a run's flight), + lengthens it (braking). Jump, heel lift, knee depth and the planted-foot logic follow the changed contacts.
 - "+" → **Template: Walk → Run (Standard walk, symmetrized)**: loads Standard walk into the selected motion (or adds motion 1), symmetrizes it once (Symmetrize tool, average mode; a clip already processed is kept), then over 8 bars: cycle speed 135 %, step length hard 125 % × natural 135 % (the extra flown), foot on ground −4 %, jump 80 %, knee depth 170 %, elbow +50°, arm swing 95 %, lean +14°, arm swing stays vertical. All flat tracks: edit or key them.
