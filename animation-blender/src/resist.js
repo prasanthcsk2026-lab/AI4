@@ -70,6 +70,7 @@ function normalizeForcers(a) {
     for (const k of RES_KEYS) if (!Array.isArray(f[k]) || !f[k].length) f[k] = d[k];
     for (const k of ['id', 'name', 'mode', 'falloff', 'color']) if (!f[k]) f[k] = d[k];
     if (f.show == null) f.show = true;
+    if (f.react !== 'brake') f.react = 'resist'; if (!isFinite(f.cadShare)) f.cadShare = 100; if (!isFinite(f.hipRise)) f.hipRise = 20;
     f.target = { ...d.target, ...(f.target || {}) }; f.target.ik = (f.target.ik || []).filter((id) => EFF_BY_ID[id]);
     if (!f.target.bw || typeof f.target.bw !== 'object') {   // before per-bone weights: every bone of the ticked regions at 100 %
       const regs = Array.isArray(f.target.bones) ? f.target.bones : BONE_REGIONS.map(([r]) => r); f.target.bw = {};
@@ -226,7 +227,7 @@ const RES0 = { back: 0, side: 0, up: 0, load: 0, lean: 0, sideLean: 0, stepK: 1,
 // speed: the last answer is kept (one evaluate asks ~100 times for the same t), and the timing builders read the
 // cadence / step factors from a 120 Hz table made once per build (the forcer tracks do not move inside one)
 let resMemo = null, resTab = null;
-function resistClear() { resMemo = null; resTab = null; }
+function resistClear() { resMemo = null; resTab = null; brkCum = null; }
 const resGen = () => `${editVersion}|${S.ctxTag || 0}|${S.dur}`;
 function resistAt(t) {
   if (!resistOn()) return RES0;
@@ -246,11 +247,50 @@ function resistTabEnd() { resTab = null; resMemo = null; }
 function resistTabAt(arr, t) { const f = clamp(t / resTab.dur, 0, 1) * (resTab.n - 1), i = Math.min(Math.floor(f), resTab.n - 2); return lerp(arr[i], arr[i + 1], f - i); }
 const resistCad = (t) => (resTab && resTab.A === A ? resistTabAt(resTab.cad, t) : resistAt(t).cadK);
 const resistStep = (t) => (resTab && resTab.A === A ? resistTabAt(resTab.step, t) : resistAt(t).stepK);
+// ---------------------------------------------------------------- brake mode: the force slows him down
+// A forcer set to Brake decelerates the body: a = F / m (the force's backward part on the body, in the cone). The
+// speed is what is left of the clip's speed after ∫a dt (it stays down once the force ends); the body leans back by
+// atan(a / g) (to stay balanced while slowing, the centre of mass sits behind the feet) and the hips rise (knees
+// straighten into the braking). The speed loss is split between cadence and step length by the cadence share:
+// cadence × speedK^share, steps × speedK^(1 − share) (above 100 % the steps get longer: flown, the natural step).
+const isBrake = (f) => f.react === 'brake';
+const brakeOn = () => !!(A && A.forcers && A.forcers.some((f) => isBrake(f) && forcerLive(f) && f.target.whole));
+function brakeAccAt(t) {   // → { a (m/s²), hip (cm), share } from every brake forcer at t
+  let a = 0, hip = 0, sw = 0, sh = 0; const m = (A.body && A.body.mass) || 75;
+  for (const f of A.forcers) {
+    if (!isBrake(f) || !forcerLive(f) || !f.target.whole) continue;
+    let back = 0; for (const q of forcerPartForces(f, t).parts) back -= q.f.z;
+    const ai = Math.max(0, back) / m; a += ai; hip += (f.hipRise ?? 20) * ai / GRAV;
+    sw += ai; sh += ai * (f.cadShare ?? 100) / 100;
+  }
+  return { a, hip, share: sw > 1e-9 ? sh / sw : 1 };
+}
+let brkCum = null;
+function brakeCum() {   // ∫a dt over the timeline at 120 Hz, and the share at each sample
+  const key = `${resGen()}|${A.forcers.length}`;
+  if (brkCum && brkCum.key === key && brkCum.A === A) return brkCum;
+  const n = Math.max(2, Math.ceil(S.dur * 120) + 1), dt = S.dur / (n - 1), c = new Float32Array(n), sh = new Float32Array(n);
+  let prev = brakeAccAt(0); sh[0] = prev.share;
+  for (let i = 1; i < n; i++) { const now = brakeAccAt(i * dt); c[i] = c[i - 1] + 0.5 * (prev.a + now.a) * dt; sh[i] = now.a > 1e-6 ? now.share : sh[i - 1]; prev = now; }
+  brkCum = { key, A, n, c, sh, dur: S.dur }; return brkCum;
+}
+function brakeState(t) {   // → { a, hip, speedK, cad, step }
+  const B0 = brakeAccAt(t), T = brakeCum(), f = clamp(t / T.dur, 0, 1) * (T.n - 1), i = Math.min(Math.floor(f), T.n - 2), u = f - i;
+  const v0 = cur && cur.c && cur.c.speed > 0.1 ? cur.c.speed : 1, dv = lerp(T.c[i], T.c[i + 1], u), share = lerp(T.sh[i], T.sh[i + 1], u);
+  const k = clamp(1 - dv / v0, 0.15, 1);
+  return { a: B0.a, hip: B0.hip, speedK: k, cad: Math.pow(k, share), step: Math.pow(k, 1 - share) };
+}
+const brakeNatK = (t) => (brakeOn() ? Math.max(1, brakeState(t).step) : 1);   // longer steps: flown (the natural step)
 function resistAtRaw(t) {
+  const R = resistAtRaw0(t); if (!brakeOn()) return R;
+  const b = brakeState(t);
+  return { ...R, lean: R.lean - Math.atan2(b.a, GRAV) / DEG, heightCm: R.heightCm + b.hip, cadK: R.cadK * b.cad, stepK: R.stepK * Math.min(1, b.step), brakeA: b.a, brakeK: b.speedK };
+}
+function resistAtRaw0(t) {
   const N = V3(); let upper = 0, all = 0, headZ = 0, legSum = 0;
   const addPart = (q, fv, rf = 1) => { const g = fv.clone().multiplyScalar(rf); N.add(g); const m = g.length(); all += m; if (q.upper) upper += m; if (q.id === 'head') headZ += g.z; };
   for (const f of A.forcers) {
-    if (!forcerLive(f)) continue;
+    if (!forcerLive(f) || isBrake(f)) continue;
     const rf = 1 - clamp(evalPts(f.resp, t), 0, 1);   // the part the runner resists (the rest it yields to)
     if (f.target.whole) for (const q of forcerPartForces(f, t).parts) { addPart(q, q.f, rf); if (/thigh|shin/.test(q.id)) legSum += q.f.length(); }
     for (const id of f.target.ik) if (id === 'Lfoot' || id === 'Rfoot') {   // a pushed foot drags the leg too
@@ -413,6 +453,7 @@ function openForcerDlg(id) {
   const f = A.forcers.find((x) => x.id === id); if (!f) return; dlgForcer = id;
   for (const k of [...POS_KEYS, ...FACE_KEYS]) $('frc_' + k).value = +f.at[k].toFixed(k[0] === 'p' ? 2 : 1);
   $('frcName').value = f.name; $('frcFall').value = f.falloff; $('frcShow').checked = f.show !== false;
+  $('frcReact').value = f.react || 'resist'; $('frcShare').value = f.cadShare ?? 100; $('frcHip').value = f.hipRise ?? 20; $('frcBrakeOpts').hidden = f.react !== 'brake';
   $('frcWhole').checked = !!f.target.whole; $('frcStiff').value = f.target.stiff; $('frcMax').value = f.target.maxMove; $('frcCone').checked = !!f.target.useCone; $('frcReact').checked = !!f.target.bodyReacts;
   drawFrcBones(f);
   $('frcFlex').value = f.target.boneFlex;
@@ -426,6 +467,7 @@ function frcApply() {
   pushUndo();
   for (const k of [...POS_KEYS, ...FACE_KEYS]) { const v = parseFloat($('frc_' + k).value); if (isFinite(v)) f.at[k] = k[0] === 'p' ? clamp(v, k === 'py' ? 0 : -200, 200) : clamp(v, -180, 180); }
   f.name = $('frcName').value.trim() || f.name; f.falloff = $('frcFall').value; f.show = $('frcShow').checked;
+  f.react = $('frcReact').value === 'brake' ? 'brake' : 'resist'; f.cadShare = clamp(isFinite(+$('frcShare').value) ? +$('frcShare').value : 100, -100, 300); f.hipRise = clamp(isFinite(+$('frcHip').value) ? +$('frcHip').value : 20, 0, 100); $('frcBrakeOpts').hidden = f.react !== 'brake';
   f.target.whole = $('frcWhole').checked; f.target.stiff = clamp(+$('frcStiff').value || 10, 0, 100); f.target.maxMove = clamp(+$('frcMax').value || 40, 0, 150);
   f.target.useCone = $('frcCone').checked; f.target.bodyReacts = $('frcReact').checked;
   f.target.ik = [...$('frcIK').querySelectorAll('input:checked')].map((x) => x.value);
@@ -433,7 +475,7 @@ function frcApply() {
   A.body = { mass: clamp(+$('resMass').value || 75, 20, 200), keepSpeed: $('resKeep').checked };
   forcerChanged();
 }
-for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep', 'frcFlex']) $(id).onchange = frcApply;
+for (const id of ['frc_px', 'frc_py', 'frc_pz', 'frc_fx', 'frc_fy', 'frc_fz', 'frcName', 'frcFall', 'frcShow', 'frcWhole', 'frcStiff', 'frcMax', 'frcCone', 'frcReact', 'resMass', 'resKeep', 'frcFlex', 'frcReact', 'frcShare', 'frcHip']) $(id).onchange = frcApply;
 $('frcIK').addEventListener('change', frcApply);
 // bones it bends: added one by one, each with its weight (% of the bend the push gives it)
 function drawFrcBones(f) {

@@ -644,8 +644,15 @@ function clampLimbDir(L) {   // hip / shoulder: the limb's direction in the pelv
 function applyLimits(before) {
   const hits = new Set();
   limitDefs().forEach((L, i) => {
-    if (L.bone.quaternion.angleTo(before[i]) < 0.2 * DEG) return;   // untouched by the IK
-    if (L.kind === 'st' ? clampSwingTwist(L) : clampLimbDir(L)) hits.add(L.bone.name);
+    const moved = L.bone.quaternion.angleTo(before[i]); if (moved < 0.2 * DEG) return;   // untouched by the IK
+    const q0 = L.bone.quaternion.clone();
+    if (L.kind === 'st' ? clampSwingTwist(L) : clampLimbDir(L)) {
+      hits.add(L.bone.name);
+      // eased in by how much the IK moved the joint (full from 4°): a clip pose already past a limit is not snapped
+      // the moment a small change touches it
+      const w = smoothB((moved - 0.2 * DEG) / (3.8 * DEG));
+      if (w < 1) { L.bone.quaternion.copy(q0.slerp(L.bone.quaternion, w)); L.bone.updateMatrixWorld(true); }
+    }
   });
   S.limitHits = hits;
 }

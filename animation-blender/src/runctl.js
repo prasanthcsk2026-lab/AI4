@@ -160,16 +160,17 @@ function heelLift(sd, target, baseQ, w = 1, air = false) {
   const hip = worldP(sd.thigh), R = (sd.leg.l1 + sd.leg.l2) * 0.985, d0 = target.distanceTo(hip); if (d0 <= R) return;
   const r0 = rig.bp(sd.foot).sub(rig.bp(sd.toe)).applyQuaternion(baseQ), toe = target.clone().sub(r0), ax = heelAxis(r0);
   const at = (a) => toe.clone().add(r0.clone().applyAxisAngle(ax, a)), N = 16;
-  let best = -1, prev = 0;
-  for (let k = 1; k <= N; k++) {   // the least lift that reaches
-    const a = HEEL_MAX * k / N;
-    if (at(a).distanceTo(hip) <= R) { let lo = prev, hi = a; for (let it = 0; it < 14; it++) { const m = (lo + hi) / 2; if (at(m).distanceTo(hip) > R) lo = m; else hi = m; } best = hi; break; }
-    prev = a;
-  }
-  if (air) best = Math.min(best < 0 ? HEEL_MAX : best, 15 * DEG);   // just before touchdown: a little (never the search below: it can jump)
-  else if (best < 0) {   // out of reach even then: the lift that gets closest (a continuous search, so it does not jump)
+  let best;
+  if (air) {   // just before touchdown: a little (the least lift that reaches, at most 15°)
+    best = -1; let prev = 0;
+    for (let k = 1; k <= N; k++) { const a = HEEL_MAX * k / N; if (at(a).distanceTo(hip) <= R) { let lo = prev, hi = a; for (let it = 0; it < 14; it++) { const m = (lo + hi) / 2; if (at(m).distanceTo(hip) > R) lo = m; else hi = m; } best = hi; break; } prev = a; }
+    best = Math.min(best < 0 ? HEEL_MAX : best, 15 * DEG);
+  } else {
+    // the lift that brings the toe closest (a continuous search), eased in by how far out of reach the foot is: the
+    // least lift that just reaches grows without bound in speed near the edge (a 10° → 26° flick in 4 ms), this does not
     let lo = 0, hi = HEEL_MAX; for (let it = 0; it < 30; it++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (at(m1).distanceTo(hip) <= at(m2).distanceTo(hip)) hi = m2; else lo = m1; }
-    best = (lo + hi) / 2;
+    const aC = (lo + hi) / 2, dC = at(aC).distanceTo(hip), x = d0 - dC > 1e-6 ? clamp((d0 - R) / (d0 - dC), 0, 1) : 1;
+    best = aC * (1 - (1 - x) * (1 - x));
   }
   best *= w; if (best <= 0) return;
   target.copy(at(best)); baseQ.premultiply(qAxis(ax, best));
@@ -559,8 +560,8 @@ function jumpLift(t) {   // m the hips rise at t
 //  extra flight = extra step length ÷ moving speed, hop height = g · flight² ÷ 8 (on top of the clip's own flight).
 // ============================================================================
 const NAT_SPEC = { range: [50, 160], ref: 100, color: '#a8e07a', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
-const natOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && !trackOff(A.stepNat, 100));
-const natAt = (t) => (A && A.stepNat ? Math.max(0.3, evalPts(A.stepNat, t) / 100) : 1);
+const natOn = () => !!(A && cur && cur.kind === 'loop' && clipWin('L') && clipWin('R') && (!trackOff(A.stepNat, 100) || brakeOn()));
+const natAt = (t) => (A && A.stepNat ? Math.max(0.3, evalPts(A.stepNat, t) / 100) : 1) * brakeNatK(t);   // a brake forcer's longer steps are flown too
 let natTab = null;
 function natClip() {   // per clip: the flight share of a cycle (neither foot down)
   const key = `${cur.id}|${cur.dur}|${!!BAKED[cur.id]}`; if (natTab && natTab.key === key) return natTab;
@@ -849,50 +850,68 @@ function tplWrite(bars, spec, after) {   // spec: { track: [[bar, value, curve?]
   ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs();
 }
 const SC = 'inout';   // an S curve to the next point
+// the braking itself is a Brake forcer (4 m ahead, facing him, no falloff): its force slows him (a = F / m), leans him
+// back (atan(a / g)), lifts the hips and splits the speed loss between cadence and step length (cadence share); the
+// force is solved so the speed lands on the template's target, then it ends (the speed stays down, the lean comes back)
 const BRAKE_TPL = {
-  leanBack: { bars: 10, spec: { lean: [[4, 0, SC], [6, -8, SC], [7, -3]], kneeDepth: [[4, 100, SC], [6, 88, SC], [7, 95]], stepNat: [[4, 100, SC], [6, 118, SC], [7, 112]], cyc: [[4, 100, SC], [6, 70, SC], [7, 57]], armSwing: [[4, 100, SC], [7, 80]] }, jogArms: [5, 7] },   // long steps: the natural step (more ground in the air; a hard step past 100 % takes the back foot out of reach)
-  choppy: { bars: 10, spec: { lean: [[4, 0, SC], [6, -8, SC], [7, -5]], kneeDepth: [[4, 100, SC], [6, 88, SC], [7, 90]], stride: [[4, 100, SC], [6, 65, SC], [7, 70]], cyc: [[4, 100, SC], [6, 115, SC], [7, 110]], brake: [[4, 0, SC], [5, 0.4, SC], [7, 0]], armSwing: [[4, 100, SC], [7, 80]] } },
-  sleep: { bars: 14, spec: { lean: [[4, 0, SC], [14, -5]], stepNat: [[4, 100, SC], [14, 112]], cyc: [[4, 100, SC], [14, 50]] }, jog: { clip: 'loop:Jog_slow', start: 15, blend: 2, bars: 8, stepNat: 110 }, walk: { clip: 'loop:Standard_walk', start: 23, blend: 3, bars: 6 } },
+  leanBack: { bars: 10, on: [4, 5, 6, 7], target: 0.64, share: 140, hip: 20, spec: { armSwing: [[4, 100, SC], [7, 85]] }, jogArms: [5, 7] },
+  choppy: { bars: 10, on: [4, 5, 6, 7], target: 0.77, share: -30, hip: 20, spec: { armSwing: [[4, 100, SC], [7, 80]] } },
+  sleep: { bars: 14, on: [4, 6, 12, 14], target: 0.55, share: 120, hip: 10, spec: {}, jog: { clip: 'loop:Jog_slow', start: 15, blend: 2, bars: 8, stepNat: 110 }, walk: { clip: 'loop:Standard_walk', start: 23, blend: 3, bars: 6 } },
 };
+function brakeForcer(v, B, P, st) {   // the Brake forcer; st.F is solved toward the target speed at the end of the braking
+  let f = (A.forcers || []).find((x) => x.tpl === 'brake');
+  if (!f) { f = newForcer('moving', S.dur, 1); Object.assign(f, { tpl: 'brake', name: 'Braking (4 m ahead)', falloff: 'none', react: 'brake' }); f.at = { px: 0, py: 1.0, pz: 4, fx: 0, fy: 180, fz: 0 }; f.target.bw = {}; A.forcers = [f]; }
+  Object.assign(f, { cadShare: v.share, hipRise: v.hip }); f.spread = flat(60, S.dur); f.weight = flat(1, S.dur); f.resp = flat(0, S.dur);
+  const [a0, a1, a2, a3] = v.on;
+  f.force = [P(0, 0), P(B(a0), 0, SC), P(B(a1), st.F), P(B(a2), st.F, SC), P(B(a3), 0), P(S.dur, 0)];
+  resistClear();
+  const got = brakeState(B(a3)).speedK;   // speed left when the force ends
+  if (got < 0.999) st.F = clamp(st.F * (1 - v.target) / Math.max(1e-3, 1 - got), 5, 3000);
+  f.force = [P(0, 0), P(B(a0), 0, SC), P(B(a1), st.F), P(B(a2), st.F, SC), P(B(a3), 0), P(S.dur, 0)];
+  resistClear();
+  return f;
+}
 function brakeTplCheck() {
   if (!cur || cur.kind !== 'loop') return 'Load the sprint (a loop clip) as the motion first.';
   if (!(cur.c.speed > 0.05)) return 'This clip has no travel speed: set its m/s (Clip → Travel) first.';
   return null;
 }
+function brakeTplShow(extra) {
+  A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };
+  A.runShow = { ...extra };
+}
+const brakeMsg = (v, st) => `${Math.round(st.F)} N for ${v.on[3] - v.on[0]} bars (bars ${v.on[0]}–${v.on[3]}) → ${Math.round(v.target * 100)} % of the speed, cadence share ${v.share} %`;
 function applyBrakeLeanBack() {
   const bad = brakeTplCheck(); if (bad) return bad;
-  const v = BRAKE_TPL.leanBack, jog = clips.find((c) => c.id === 'loop:Jog_slow');
+  const v = BRAKE_TPL.leanBack, jog = clips.find((c) => c.id === 'loop:Jog_slow'), st = { F: 120 };
   pushUndo();
-  tplWrite(v.bars, v.spec, jog ? (B, P) => {   // the slow jog's arm swing comes in (both arms, symmetric) while the legs keep the long steps
-    const bl = (A.blends || []).find((x) => x.tpl === 'jogArms') || newBlend(jog.id, 'arms', S.dur);
-    Object.assign(bl, { tpl: 'jogArms', sym: true }); bl.weight = [P(0, 0), P(B(v.jogArms[0]), 0, SC), P(B(v.jogArms[1]), 1), P(S.dur, 1)]; bl.swing = flat(1, S.dur);
-    A.blends = [bl];
-  } : null);
-  A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };
-  A.runShow = { lean: true, kneeDepth: true, stepNat: true, cyc: true, armSwing: true };
-  ensureEnds(); rebuildRows(); save();
-  return `Lean-back braking → decel jog: bars 4–6 spine −8°, knee depth 88 % (hips up), step (natural) 118 %, cycle speed 70 %; from bar 7 a jog with long steps (112 %, cadence 57 %) and the slow jog's arms${jog ? '' : ' (Jog slow missing: no arm blend)'}.`;
+  tplWrite(v.bars, v.spec, (B, P) => {
+    brakeForcer(v, B, P, st);
+    if (jog) {   // the slow jog's arm swing comes in (both arms, symmetric) while the legs keep the long steps
+      const bl = (A.blends || []).find((x) => x.tpl === 'jogArms') || newBlend(jog.id, 'arms', S.dur);
+      Object.assign(bl, { tpl: 'jogArms', sym: true }); bl.weight = [P(0, 0), P(B(v.jogArms[0]), 0, SC), P(B(v.jogArms[1]), 1), P(S.dur, 1)]; bl.swing = flat(1, S.dur);
+      A.blends = [bl];
+    }
+  });
+  brakeTplShow({ armSwing: true }); ensureEnds(); rebuildRows(); save();
+  return `Braking 1 · lean back, long steps → decel jog: a Brake forcer ${brakeMsg(v, st)} (leans back atan(a/g), hips up, longer steps); then a decel jog with the slow jog's arms${jog ? '' : ' (Jog slow missing: no arm blend)'}.`;
 }
 function applyBrakeChoppy() {
   const bad = brakeTplCheck(); if (bad) return bad;
-  const v = BRAKE_TPL.choppy;
-  pushUndo(); tplWrite(v.bars, v.spec);
-  A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };
-  A.runShow = { lean: true, kneeDepth: true, stride: true, cyc: true, brake: true, armSwing: true };
-  ensureEnds(); rebuildRows(); save();
-  return 'Lean-back + choppy steps: bars 4–6 spine −8°, knee depth 88 % (hips up), step 65 %, cycle speed 115 %, contact braking 40 % at bar 5; from bar 7 held (step 70 %, cadence 110 %).';
+  const v = BRAKE_TPL.choppy, st = { F: 90 };
+  pushUndo(); tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
+  brakeTplShow({ armSwing: true }); ensureEnds(); rebuildRows(); save();
+  return `Braking 2 · lean back, choppy steps: a Brake forcer ${brakeMsg(v, st)} (faster, shorter steps; leans back, hips up).`;
 }
 function applyBrakeSleep() {
   const bad = brakeTplCheck(); if (bad) return bad;
   if (!seqActive()) return 'Add the sprint as a motion first.';
   if (SEQ.sel !== SEQ.motions.length - 1) return 'Select the last motion (the sprint): the jog and the walk are added after it.';
-  const v = BRAKE_TPL.sleep;
+  const v = BRAKE_TPL.sleep, st = { F: 40 };
   if (!clips.find((c) => c.id === v.jog.clip) || !clips.find((c) => c.id === v.walk.clip)) return 'Jog slow / Standard walk missing from the library.';
   const si = SEQ.sel;
-  pushUndo(); tplWrite(v.bars, v.spec);
-  A.showMaster = { ...A.showMaster, run: true, mspeed: true, cycle: false, stride: false, move: false, gnd: false };
-  A.runShow = { lean: true, stepNat: true, cyc: true };
-  ensureEnds(); save();
+  pushUndo(); tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
+  brakeTplShow({}); ensureEnds(); save();
   const startBar = SEQ.motions[si].G + v.bars + 1;   // the jog is fully in right after the sprint's bars
   seqRebuild(true);
   if (seqAdd(v.jog.clip, startBar, v.jog.blend, v.jog.bars, true) === false) return 'Could not add the jog.';
@@ -903,5 +922,5 @@ function applyBrakeSleep() {
   const walkStart = startBar + v.jog.bars;
   if (seqAdd(v.walk.clip, walkStart, v.walk.blend, v.walk.bars, true) === false) return 'Could not add the walk.';
   seqSelect(si, false); seqSetT(0);
-  return `Sleep deceleration: sprint coasting down over bars 4–${v.bars} (cycle speed 50 %, natural step 112 %, spine −5°, no braking), jog (long steps) fully in at bar ${startBar}, walk at bar ${walkStart}.`;
+  return `Braking 3 · sleep deceleration: a light Brake forcer ${brakeMsg(v, st)} lets the sprint coast down; jog (long steps) fully in at bar ${startBar}, walk at bar ${walkStart}.`;
 }
