@@ -324,6 +324,15 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## No slow motion: cadence floor, clip handover
+- Playing the sprint clip at half its cadence read as slow motion (Braking 1 went 265 → 142 steps/min with sprint poses). A Brake forcer now keeps the cadence at **≥ 85 %** of the clip's; the rest of the speed loss comes off the steps. Cadence share default 35 %.
+- Where the speed drops further, the templates hand over to a slower clip (motion sequence) that plays at its own cadence:
+  - **Braking 1** (14 bars, 3 motions): the sprint starts braking at bar 4 (Brake forcer: leans back, hips up), hands over to **Run medium** (bars 4–5 blend) whose own steps are longer (1.66 m against 1.49) and which brakes on (Brake forcer, share 70 %, contact braking 40 %); **Jog slow** with long steps (natural 120 %) is fully in at bar 10.
+    - Speed 6.60 → 6.12 → 4.78 → 4.36 → 4.17 → 3.95 → 3.00 → 2.72 m/s; step 1.49 → 1.56 m (longer while braking) → 1.16 m jog; cadence 265 → 243 → 186 (blend) → 157 (Run medium: 87 % of its 180) → 141 (jog's own); spine 11.8° further back; peak slow-down 2.35 m/s².
+  - **Braking 2** (choppy) needed no change: its cadence goes up (265 → 287).
+  - **Braking 3** (27 bars, 4 motions): sprint coasts (Brake forcer 75 N, bars 4–8, cadence ≥ 230), **Run medium** coasts on from bar 10 (cadence 189 → 164, steps 1.65 → 1.43 m), **Jog slow** (natural 110 %) from bar 15, **Standard walk** from bar 22. Speed 6.60 → 5.38 (7) → 4.95 (10) → 4.50 (12) → 2.50 (15) → 1.38 (22); peak 1.44 m/s².
+- Every bar's cadence is the clip's own or ≥ 85 % of it (only the blend bars sit between two clips). Bars 1–3 untouched (0.16°); no jerk (hips ≤ 288 m/s² against 138–330 in the plain bars).
+
 ## Forcer: Brake mode; braking templates made with it
 - Forcer settings → **Body response: Brake (slows down)**. The force's backward part on the body decelerates him: **a = F / m**. The speed is what is left of the clip's after ∫a dt (it stays down when the force ends); he leans back **atan(a / g)**; the hips rise (**Hip rise**, cm per g of braking, default 20).
   - **Cadence share** splits the speed loss: cadence × k^share, step × k^(1 − share) (k = speed left). 100 % = cadence only; above 100 % = longer steps (flown: the natural step); below 0 = faster, shorter steps.

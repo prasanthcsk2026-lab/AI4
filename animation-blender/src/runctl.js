@@ -854,9 +854,21 @@ const SC = 'inout';   // an S curve to the next point
 // back (atan(a / g)), lifts the hips and splits the speed loss between cadence and step length (cadence share); the
 // force is solved so the speed lands on the template's target, then it ends (the speed stays down, the lean comes back)
 const BRAKE_TPL = {
-  leanBack: { bars: 10, on: [4, 5, 6, 7], target: 0.64, share: 140, hip: 20, spec: { armSwing: [[4, 100, SC], [7, 85]] }, jogArms: [5, 7] },
+  // the sprint starts braking (lean back, hips up) and hands over to Run medium, whose own steps are longer (1.66 m
+  // against 1.49) at its own cadence: long braking steps without slow motion; it brakes on, then a long-step jog
+  leanBack: { bars: 5, on: [4, 5, 5, 6], target: 0.88, share: 35, hip: 20, spec: {},
+    chain: [
+      { clip: 'loop:Run_medium', start: 6, blend: 2, bars: 3, brake: { on: [1, 2, 4, 5], target: 0.85, share: 70, hip: 20 }, spec: { brake: [[1, 0, SC], [2, 0.4, SC], [4, 0.4, SC], [5, 0]] } },
+      { clip: 'loop:Jog_slow', start: 10, blend: 2, bars: 5, stepNat: 120 },
+    ] },
   choppy: { bars: 10, on: [4, 5, 6, 7], target: 0.77, share: -30, hip: 20, spec: { armSwing: [[4, 100, SC], [7, 80]] } },
-  sleep: { bars: 14, on: [4, 6, 12, 14], target: 0.55, share: 120, hip: 10, spec: {}, jog: { clip: 'loop:Jog_slow', start: 15, blend: 2, bars: 8, stepNat: 110 }, walk: { clip: 'loop:Standard_walk', start: 23, blend: 3, bars: 6 } },
+  // no braking: light Brake forcers let each clip coast down; every clip plays at its own cadence (≥ 85 %)
+  sleep: { bars: 8, on: [4, 5, 7, 8], target: 0.8, share: 35, hip: 8, spec: {},
+    chain: [
+      { clip: 'loop:Run_medium', start: 10, blend: 2, bars: 5, brake: { on: [3, 4, 6, 7], target: 0.85, share: 35, hip: 8 } },
+      { clip: 'loop:Jog_slow', start: 15, blend: 2, bars: 7, stepNat: 110 },
+      { clip: 'loop:Standard_walk', start: 22, blend: 3, bars: 6, sym: true },
+    ] },
 };
 function brakeForcer(v, B, P, st) {   // the Brake forcer; st.F is solved toward the target speed at the end of the braking
   let f = (A.forcers || []).find((x) => x.tpl === 'brake');
@@ -881,20 +893,31 @@ function brakeTplShow(extra) {
   A.runShow = { ...extra };
 }
 const brakeMsg = (v, st) => `${Math.round(st.F)} N for ${v.on[3] - v.on[0]} bars (bars ${v.on[0]}–${v.on[3]}) → ${Math.round(v.target * 100)} % of the speed, cadence share ${v.share} %`;
+function seqTail(si) {   // a template that adds motions after the selected one needs it to be the last
+  if (!seqActive()) return 'Add the sprint as a motion first.';
+  if (si !== SEQ.motions.length - 1) return 'Select the last motion (the sprint): the next motions are added after it.';
+  return null;
+}
+function seqAppend(m) {   // add a motion after the last one and write its tracks (flat natural step, an optional coasting Brake forcer)
+  if (!clips.find((c) => c.id === m.clip)) return `${m.clip.split(':')[1]} is missing from the library.`;
+  if (m.sym) symmetrizeClip(m.clip);
+  seqRebuild(true);
+  if (seqAdd(m.clip, m.start, m.blend, m.bars, true) === false) return `Could not add ${m.clip.split(':')[1]}.`;
+  const st = { F: 40 };
+  const spec = { ...(m.spec || {}), ...(m.stepNat ? { stepNat: [[1, m.stepNat]] } : {}) };
+  tplWrite(A.cycles, spec, m.brake ? (B, P) => brakeForcer(m.brake, B, P, st) : null);
+  brakeTplShow(Object.fromEntries(Object.keys(spec).map((k) => [k, true]))); ensureEnds(); rebuildRows(); save(); seqRebuild(true);
+  return null;
+}
 function applyBrakeLeanBack() {
-  const bad = brakeTplCheck(); if (bad) return bad;
-  const v = BRAKE_TPL.leanBack, jog = clips.find((c) => c.id === 'loop:Jog_slow'), st = { F: 120 };
+  const bad = brakeTplCheck() || seqTail(SEQ.sel); if (bad) return bad;
+  const v = BRAKE_TPL.leanBack, st = { F: 60 }, si = SEQ.sel;
   pushUndo();
-  tplWrite(v.bars, v.spec, (B, P) => {
-    brakeForcer(v, B, P, st);
-    if (jog) {   // the slow jog's arm swing comes in (both arms, symmetric) while the legs keep the long steps
-      const bl = (A.blends || []).find((x) => x.tpl === 'jogArms') || newBlend(jog.id, 'arms', S.dur);
-      Object.assign(bl, { tpl: 'jogArms', sym: true }); bl.weight = [P(0, 0), P(B(v.jogArms[0]), 0, SC), P(B(v.jogArms[1]), 1), P(S.dur, 1)]; bl.swing = flat(1, S.dur);
-      A.blends = [bl];
-    }
-  });
-  brakeTplShow({ armSwing: true }); ensureEnds(); rebuildRows(); save();
-  return `Braking 1 · lean back, long steps → decel jog: a Brake forcer ${brakeMsg(v, st)} (leans back atan(a/g), hips up, longer steps); then a decel jog with the slow jog's arms${jog ? '' : ' (Jog slow missing: no arm blend)'}.`;
+  tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
+  brakeTplShow({}); ensureEnds(); rebuildRows(); save();
+  for (const m of v.chain) { const err = seqAppend(m); if (err) return err; }
+  seqSelect(si, false); seqSetT(0);
+  return `Braking 1 · lean back, long braking steps → decel jog: the sprint starts braking at bar 4 (Brake forcer, leans back, hips up) and hands over to Run medium (its own longer steps, at its own cadence), which brakes on with contact braking; Jog slow with long steps (natural ${v.chain[1].stepNat} %) fully in at bar ${v.chain[1].start}.`;
 }
 function applyBrakeChoppy() {
   const bad = brakeTplCheck(); if (bad) return bad;
@@ -904,23 +927,11 @@ function applyBrakeChoppy() {
   return `Braking 2 · lean back, choppy steps: a Brake forcer ${brakeMsg(v, st)} (faster, shorter steps; leans back, hips up).`;
 }
 function applyBrakeSleep() {
-  const bad = brakeTplCheck(); if (bad) return bad;
-  if (!seqActive()) return 'Add the sprint as a motion first.';
-  if (SEQ.sel !== SEQ.motions.length - 1) return 'Select the last motion (the sprint): the jog and the walk are added after it.';
-  const v = BRAKE_TPL.sleep, st = { F: 40 };
-  if (!clips.find((c) => c.id === v.jog.clip) || !clips.find((c) => c.id === v.walk.clip)) return 'Jog slow / Standard walk missing from the library.';
-  const si = SEQ.sel;
+  const bad = brakeTplCheck() || seqTail(SEQ.sel); if (bad) return bad;
+  const v = BRAKE_TPL.sleep, st = { F: 40 }, si = SEQ.sel;
   pushUndo(); tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
-  brakeTplShow({}); ensureEnds(); save();
-  const startBar = SEQ.motions[si].G + v.bars + 1;   // the jog is fully in right after the sprint's bars
-  seqRebuild(true);
-  if (seqAdd(v.jog.clip, startBar, v.jog.blend, v.jog.bars, true) === false) return 'Could not add the jog.';
-  Object.assign(A, { armAuto: false, hipAuto: false, armCentreAuto: false, speedLock: false });
-  A.stepNat = flat(v.jog.stepNat, S.dur); A.showMaster = { ...A.showMaster, run: true, mspeed: true }; A.runShow = { stepNat: true };
-  moveEndCache = null; editVersion++; rebuildSpeedLUT(); lockCycles(true); rebuildRows(); save(); seqRebuild(true);
-  symmetrizeClip(v.walk.clip);
-  const walkStart = startBar + v.jog.bars;
-  if (seqAdd(v.walk.clip, walkStart, v.walk.blend, v.walk.bars, true) === false) return 'Could not add the walk.';
+  brakeTplShow({}); ensureEnds(); rebuildRows(); save();
+  for (const m of v.chain) { const err = seqAppend(m); if (err) return err; }
   seqSelect(si, false); seqSetT(0);
-  return `Braking 3 · sleep deceleration: a light Brake forcer ${brakeMsg(v, st)} lets the sprint coast down; jog (long steps) fully in at bar ${startBar}, walk at bar ${walkStart}.`;
+  return `Braking 3 · sleep deceleration: the sprint coasts (Brake forcer ${brakeMsg(v, st)}), Run medium coasts on from bar ${v.chain[0].start}, Jog slow from bar ${v.chain[1].start}, Standard walk from bar ${v.chain[2].start}; every clip at its own cadence.`;
 }

@@ -317,7 +317,7 @@
       <h3 class="imph">Target</h3>
       <div class="barsform"><label class="cb"><input type="checkbox" id="frcWhole" checked> Whole body (lean, steps, cadence)</label></div>
       <div class="barsform"><label>Body response <select id="frcReact"><option value="resist">Resist (keeps going, leans into the push)</option><option value="brake">Brake (slows down: a = F / m, leans back)</option></select></label></div>
-      <div class="barsform" id="frcBrakeOpts" hidden><label>Cadence share <input type="number" id="frcShare" min="-100" max="300" step="10" value="100"> % <span class="note">(of the speed loss: 100 = cadence only · above 100 = longer steps · below 0 = faster, shorter steps)</span></label><label>Hip rise <input type="number" id="frcHip" min="0" max="100" step="1" value="20"> cm per g of braking</label></div>
+      <div class="barsform" id="frcBrakeOpts" hidden><label>Cadence share <input type="number" id="frcShare" min="-100" max="300" step="5" value="35"> % <span class="note">(of the speed loss on the cadence, the rest on the steps · the cadence stays ≥ 85 % of the clip's · below 0 = faster, shorter steps)</span></label><label>Hip rise <input type="number" id="frcHip" min="0" max="100" step="1" value="20"> cm per g of braking</label></div>
       <h3 class="imph">Bones it bends</h3>
       <div id="frcBones" class="fblist"></div>
       <div class="barsform"><label>Bone flex (all) <input type="number" id="frcFlex" min="0" max="300" step="5" value="100"> % (× every bone's weight)</label></div>
