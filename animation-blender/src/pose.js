@@ -758,7 +758,7 @@ function solveIK(t, pend) {
       // continuous: a foot that is too far out sideways / ahead to be reached by lowering fades out (no step in the hips)
       // only a planted foot pulls the hips down (a swinging leg just stretches): full in contact, easing out over the
       // first 8 % of the swing and in over the last 8 % (no step at toe-off / touchdown, no dip in the flight)
-      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null, cw = !lp ? 1 : heelOn ? (lp.c ? Math.min(smoothB(lp.u / 0.1), smoothB((1 - lp.u) / 0.15)) : 0) : lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));   // with the heel lift a planted foot mostly reaches by itself: only mid-contact pulls, eased in / out; a leg in the air never pulls
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null, cw = !lp ? 1 : heelOn ? (lp.c ? Math.min(smoothB(lp.u / 0.1), smoothB((1 - lp.u) / 0.45)) : 0) : lp.c ? 1 : Math.max(1 - smoothB(lp.s / 0.08), smoothB((lp.s - 0.92) / 0.08));   // with the heel lift a planted foot mostly reaches by itself: only mid-contact pulls, eased in / out; a leg in the air never pulls
       if (h.lengthSq() > reach * reach && horiz2 < reach * reach) drop = Math.max(drop, cw * (h.y - Math.sqrt(reach * reach - horiz2)) * smoothB((reach * reach - horiz2) / (0.15 * reach * reach)));
     }
     drop = clamp(drop, 0, 0.25);

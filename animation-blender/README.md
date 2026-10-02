@@ -324,6 +324,24 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Braking templates (on the selected motion, usually the sprint)
+- "+" → **Braking 1 · lean back, long steps → decel jog** (10 bars): bars 4–6 spine −8°, knee depth 88 % (the hips go up), natural step 118 %, cycle speed 70 %; from bar 7 a jog with long steps (natural 112 %, cadence 57 %) whose arms are the slow jog's (Blend motion: Jog slow, arms, symmetric, weight 0 → 100 % over bars 5–7).
+- **Braking 2 · lean back, choppy steps** (10 bars): bars 4–6 spine −8°, knee depth 88 %, hard step 65 %, cycle speed 115 %, contact braking up to 40 % at bar 5; from bar 7 held (step 70 %, cadence 110 %).
+- **Braking 3 · sleep deceleration → jog → walk** (28 bars, three motions): the sprint coasts down over bars 4–14 (cycle speed → 50 %, natural step → 112 %, spine → −5°, no braking); Jog slow (natural step 110 %) is fully in at bar 15 (blend 13–14); Standard walk (symmetrized) at bar 23 (blend 20–22). Select the last motion (the sprint) first.
+- All: bars 1–3 are the clip's own (largest bone difference 0.16°); the held bars match within 0.17°; the run "follow" options are off; arm swing stays vertical.
+- Measured on Run fast (6.6 m/s):
+
+| | Bar 3 | Braking (bar 6) | Held |
+|---|---|---|---|
+| 1 · speed / cadence / step | 6.60 m/s · 265 · 1.49 m | 5.42 · 186 · 1.75 | 4.21 m/s · 151 · 1.67 m; hips +2.2 cm |
+| 2 · speed / cadence / step | 6.60 · 265 · 1.49 | 4.97 · 295 · 1.01 | 5.08 m/s · 292 · 1.04 m; hips +2.1 cm |
+
+  - 1: slow-down peak 1.48 m/s², spine 7.6° further back at bar 6, hips up 3.5 cm while braking. 2: peak 2.86 m/s² (the contact braking at bar 5), then it settles.
+  - 3: speed per bar 6.60 → 6.41 (bar 6) → 5.68 (9) → 4.46 (12) → 2.72 (14) → 2.50 jog → 1.84 (21) → 1.38 walk; step 1.49 → 1.63 m while coasting; peak slow-down 1.19 m/s² (in the sprint → jog blend).
+  - No jerk: hips acceleration in the changes ≤ 276 m/s² against 238 in the plain bars (template 1).
+- **Fix found on the way:** a hard step length over 100 % or a backward lean could take the back foot out of reach late in its contact; the hips then dropped up to 6.7 cm within a few milliseconds (a jerk: 1346 m/s²). A planted foot now lets the hips go over the last 45 % of its contact (was 15 %), so the foot leaves instead (Braking 1 with a hard step: 1346 → 315 m/s²). The other templates' numbers are unchanged.
+- The long steps use the natural step length (more ground in the air): the hard one past ~105 % still stretches the back leg hard.
+
 ## Faster with forcers
 - One evaluate asked the forcers ~100 times for the same moment: the last answer is now kept (a live gizmo drag is always fresh). The timing builders (bar table, travel, placing points on their bars) read the forcers' cadence / step factors from a 120 Hz table made once per build.
 - The hand-reach / step-time readouts sampled the whole timeline in one go after every edit; they now run spread over frames (≤ 4 ms per frame).
