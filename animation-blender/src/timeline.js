@@ -21,6 +21,7 @@ const SPEC = {
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   a: { range: [-ADJ_MAX, ADJ_MAX], ref: 0, color: COL.adjust, scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 },
+  thr: { range: [0, 100], ref: 0, color: '#ff9f43', scale: 1, unit: '% throttle', fmt: (v) => Math.round(v) + '%', snap: 1 },
   timing: { range: [-TIMING_MAX, TIMING_MAX], ref: 0, color: COL.timing, scale: 100, unit: '% cycle', fmt: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', snap: 0.01 },
 };
 function effSpec(k) {
@@ -136,10 +137,11 @@ function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   // master tracks are optional (the "+" button); hidden ones keep working with their values
   // the master tracks (each its own block, so they can be moved too; hidden ones keep working with their values)
-  const MASTERS = ['mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
-  const masterOn = (k) => (k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
+  const MASTERS = ['thr', 'mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
+  const masterOn = (k) => (k === 'thr' ? !!cur && cur.kind === 'proc' : k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
   const drawMaster = (k) => {
-    if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
+    if (k === 'thr') addTrackRow('thr', SPEC.thr, () => A.throttle, (p) => { A.throttle = p; }, 'Throttle <i>% · 15 walk · 25 jog · 50 run · 100 fast run</i>', null);
+    else if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
     else if (k === 'speed') addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
     else if (k === 'run') drawRunBlock();
     else if (k === 'move') addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
@@ -437,7 +439,7 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
+const TIMING_KEYS = new Set(['thr', 'speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
@@ -450,7 +452,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat, a.fwd);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat, a.fwd, a.throttle);
   for (const b of a.blends || []) for (const k of BLEND_KEYS) out.push(b[k]);
   if (a.runMuted) for (const k of Object.keys(a.runMuted).sort()) if (Array.isArray(a.runMuted[k])) out.push(a.runMuted[k]);   // muted run controls keep their timing
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);

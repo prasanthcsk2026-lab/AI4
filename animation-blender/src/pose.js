@@ -247,6 +247,7 @@ function trueTravel(t, out = V3()) {
 function rawTravel(t, out = V3()) {   // the clip's own root travel at timeline time t
   out.set(0, 0, 0);
   if (!cur) return out;
+  if (cur.kind === 'proc') return procTravel(t, out);   // procedural: the planned travel
   const ct = clipTime(t), c = cur.c;
   if (cur.kind === 'loop' || c.imported) {
     const d = (c.speed || 0) * ct, dir = c.dir || 0;
@@ -265,6 +266,7 @@ const qI = new THREE.Quaternion(), qC = new THREE.Quaternion(), qD = new THREE.Q
 const logQ = (q, out) => { let { x, y, z, w } = q; if (w < 0) { x = -x; y = -y; z = -z; w = -w; } const s = Math.hypot(x, y, z); if (s < 1e-9) return out.set(0, 0, 0); const a = 2 * Math.atan2(s, w); return out.set(x / s * a, y / s * a, z / s * a); };
 const expV = (x, y, z, out) => { const a = Math.hypot(x, y, z); if (a < 1e-9) return out.set(0, 0, 0, 1); const s = Math.sin(a / 2) / a; return out.set(x * s, y * s, z * s, Math.cos(a / 2)); };
 function sampleClip(tau, Q, H) {   // the untouched clip at clip time tau (s), laid facing +z, in place
+  if (cur.kind === 'proc') { procSample(tau, Q, H); return; }   // procedural: the gait model, no clip
   if (cur.phase) tau += cur.phase * cur.dur;   // a sequence motion starts its loop at another phase (feet matched to the motion before)
   const bk = BAKED[cur.id] || cur.c.origBk; if (bk) { sampleBaked(bk, tau, Q, H); return; }   // a baked clip plays its baked frames
   const c = cur.c;
@@ -903,6 +905,7 @@ function solveIK(t, pend) {
 // full pose at time t: FK automation → travel → IK (the live gizmo change folded in)
 const Qf = { v: null }, Hf = V3();
 function evaluate(t, pend) {
+  if (cur && cur.kind === 'proc') { try { procEvaluate(t); } catch (err) { if (!evaluate.warnedP) { evaluate.warnedP = true; console.warn('procedural pose failed:', err); } } return; }
   if (!Qf.v) Qf.v = new Float32Array(B * 4);
   composePose(t, Qf.v, Hf, pend);
   applyPose(Qf.v, Hf);
@@ -911,6 +914,7 @@ function evaluate(t, pend) {
 
 // ---------------------------------------------------------------- auto foot-lock from the clip's contacts
 function footContact(Sd, t) {
+  if (cur.kind === 'proc') return procContact(Sd, t);
   const c = cur.c, ct = clipTime(t), bk = BAKED[cur.id] || cur.c.origBk, g = gndAt(t);
   if (Math.abs(g) > 1e-4) { const w = gndWin(Sd, g); if (w) return inWin(mod1(ct / cur.dur), w); }   // foot on ground: the longer / shorter contact
   if (cur.kind === 'loop') { const w = clipWin(Sd); return w ? inWin(mod1(ct / cur.dur), w) : null; }   // a processed clip: its measured contacts

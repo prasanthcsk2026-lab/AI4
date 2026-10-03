@@ -324,6 +324,48 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Procedural IK locomotion (experiment): Throttle track
+- **What it is:** a clip called *Procedural IK locomotion* (group *Procedural*, also in **+ Motion**). It plays no motion clip. 1 bar = 1 s.
+- **The gait model:** trained once, on first use, from 6 library clips:
+  - Walks: Standard walk 1.38 m/s, Casual walk 1.50.
+  - Runs: CMU 16_35 2.53, CMU 35_17 2.75, CMU 09_07 3.03, Run steady 3.98.
+  - Run medium is left out (its arm swing). Run fast is left out (it is Run steady at a forced cadence).
+  - What each clip gives: per bone a mean rotation plus 5 Fourier harmonics over the cycle; the hips the same way; the cadence and the stride.
+  - Contacts are measured from the feet (ankle low and still in the world). Phase 0 is the left touchdown.
+- **Throttle %** (the first track): sets the target speed.
+
+  | Throttle | 0 | 5 | 10 | 15 | 20 | 25 | 40 | 50 | 70 | 100 |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | m/s | 0 | 0.5 | 1.0 | 1.4 | 1.75 | 2.6 | 3.4 | 4.0 | 5.2 | 6.6 |
+
+- **Speed controller:** a jerk-limited speed controller (gain 1.3/s, a 0.8 m/s² floor eased out over the last 0.25 m/s, acceleration ≤ 2.6 m/s², braking ≤ 3.2 m/s², jerk ≤ 6 m/s³). It accelerates or decelerates until the new throttle's speed is reached, then holds it, with no overshoot.
+  - Example: 70 % → 40 % slows 5.2 → 3.4 m/s in about 1.5 s, then runs steady at 3.4.
+  - It starts steady at the first throttle value: 0 = standing.
+- **Cadence, stride and gait follow the speed:**
+  - Between two trained speeds, both clips are blended.
+  - Walk ↔ run blend over 1.8–2.5 m/s.
+  - Slower than the slowest walk: cadence ∝ v^0.45 (≥ 50 %) and smaller motion, down to the standing mean pose at 0.
+  - Faster than Run steady: cadence ∝ √v. The longer stride comes from a shorter contact and a longer flight: each leg's phase is warped, so its contact plays k× faster. That keeps the planted foot in step with the ground and needs no longer reach.
+- **IK legs:**
+  - Every touchdown leaves a footprint, planned ahead at 240 Hz from the Throttle track. The planted foot stays on it.
+  - A swinging foot follows the model's foot plus a gap. The gap goes from the lift-off one to the next touchdown's and is gone by 60 % of the swing.
+  - The gap never takes the foot further from the hip than the model's own foot (or 98.5 % of the leg), eased in over the first quarter of the swing.
+  - Two-bone IK in the model's knee plane, keeping the model's thigh and shin twist and the foot's world turn.
+- **Lean:** whole-body lean 0.9 · atan(a / g), limited to −12° … +16°. A quarter goes in the pelvis and the rest up the spine; the head takes back 40 %. It leans forward while accelerating and back while braking.
+- **Measured** (the 16-bar demo: 0 → 12 % → 25 % → 70 % → 40 % → 0):
+  - Speed per second: 0, 0, 0.92, 1.16, 1.16, 2.43, 2.60, 2.60, 4.50, 5.19, 5.20, 3.68, 3.40, 3.40, 1.16, 0.04, 0.
+  - Cadence (steps/min): 95 at the 1.16 m/s walk, 152 at the 2.6 m/s jog, 162 at 3.4 m/s, 183 at 5.2 m/s.
+  - Planted-foot slide: ≤ 0.2 cm in 24 run contacts and 6 walk contacts.
+  - Hips acceleration peak 68 m/s².
+  - Highest bone turn rates (thigh 856, knee about 1050, upper arm 739 °/s) are at 5.2 m/s, where the cadence is 1.14× Run steady's own (thigh 732, knee 768, upper arm 637 °/s).
+  - Plan build 7 ms. One pose 0.25 ms.
+- **Limits:**
+  - The Throttle track is the only control: the other run controls, forcers and IK tracks do not act on this motion yet. Playback speed is ignored.
+  - The run style above 4 m/s is Run steady's, with high hands and low hips.
+  - The feet land close to the centre line (as in the CMU clips).
+  - Throttle 100 = 6.6 m/s. No sprint was trained.
+  - Turning is not modelled (straight line only).
+
 ## CMU mocap arms and jog, BVH import, running on the spot, run → jog hop
 - **Why the arms looked wrong in the blends:** Run medium swings the forward arm up to 69° in front with the elbow half open (shoulder −66° … +69°, 135° in all); Jog slow carries the hands low with the elbow at 40–88°. Running-form studies give elbows of about 90° (70–120°) and hands from the hip to the chest. The CMU captures match that: elbow 95–130°, hands 26–45 cm above the hips, arm in phase with the opposite thigh (r = 0.95–0.97).
 - **BVH import:** Import accepts .bvh (CMU and others). The CMU files' first T-pose frame is the rest pose (and left out); their spine (LowerBack / Spine / Spine1) maps onto Spine / Spine1 / Spine2; the lowest toe is put 2 cm above the ground (the files floated 5–14 cm).

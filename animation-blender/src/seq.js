@@ -40,7 +40,7 @@ function seqBuildCtx(m, autoObj, bars) {
     cur = seqClip(m.clipId, m.phase);
     freshCaches(); editVersion = (editVersion | 0) + 1;
     const n = Math.max(1, bars || (autoObj && autoObj.cycles) || 8);
-    A = normalizeAuto(autoObj && autoObj.speed ? autoObj : newAuto(+(n * cur.dur).toFixed(3), n));
+    A = normalizeAuto(autoObj && autoObj.speed ? autoObj : cur.kind === 'proc' ? procNewAuto(n) : newAuto(+(n * cur.dur).toFixed(3), n));
     if (!(autoObj && autoObj.speed)) { A.cycles = n; A.cycLocked = true; }
     S.dur = A.dur; S.t = 0; S.viewAll = true; undoStack = []; redoStack = []; selPts = new Set(); selRow = null;
     rebuildSpeedLUT(); ensureEnds();
@@ -358,7 +358,7 @@ let seqDlgEdit = null;
 function openSeqDlg(editI, clipId) {
   seqDlgEdit = editI == null ? null : editI;
   const cs = $('sqClip'); cs.textContent = '';
-  for (const grp of ['Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
+  for (const grp of ['Procedural', 'Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) cs.append(og);
