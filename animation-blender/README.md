@@ -324,6 +324,40 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Fielding braking: Slow / Controlled / Hard (procedural), three templates
+A fielder sprints to the ball and slows as he reaches it. He runs all the way until he stops: the motion follows the speed down, never below the slow jog (CMU jog 16_35), never a walk.
+
+**Braking selector:** top-right of the Throttle lane, *Brake: slow / controlled / hard*. It acts whenever the throttle drops from a run. Each type sets:
+- the braking force, its onset (jerk) and the tail into the stop;
+- the cadence (controlled and hard hold it up while the steps shorten);
+- a Deceleration pose of its own while braking (lean back, landing ahead, heel strike, arms in front). The Deceleration pose track adds on top.
+
+The hips keep their height.
+
+| Type | Peak decel | Stop time | Steps | What it looks like |
+|---|---|---|---|---|
+| Slow (gather) | 1.8 m/s² | 3.1 s | 8 | Cadence falls with the speed (224 → 113 steps/min), steps 1.24 → 0.57 m, lean back ~5° |
+| Controlled (chop steps) | 3.0 m/s² | 2.0 s | 6 | Cadence held ~206 steps/min while the steps shorten 1.21 → 1.02 → 0.63 → 0.40 → 0.11 m, lean back ~10° |
+| Hard (plant & stop) | 5.5 m/s² (reached in 0.16 s) | 1.15 s | 3 | A long braking step (1.07 m), then 0.51 m and stop, lean back ~19° |
+
+All three are measured from the Sprint at 4.58 m/s. In every one:
+- the walk motions' weight stays 0.000 from the brake to the stop;
+- the planted feet do not slide (0.0 cm);
+- he ends standing.
+
+Sports-science background for the three types:
+- Braking steps carry impact forces up to 2.7× those of the first acceleration steps.
+- Faster stops come from bigger braking force per contact (hip/knee flexion, ankle dorsiflexion).
+- Sources: [Harper et al. 2022, Sports Medicine](https://link.springer.com/article/10.1007/s40279-022-01693-0), [PMC review](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC9474351/).
+- The per-type numbers (steps to stop, lean) are chosen within that picture. They are not measured cricket data.
+
+**Templates** (+ menu, *Template: Fielding · sprint → … braking*):
+- Each starts from standing straight into the Sprint, with Acceleration pose 100 % through the drive phase (0.5–2 s, fading by 3.2 s).
+- Full speed until 6 s, then the throttle to 0 with that braking type.
+- 12 / 10 / 9 bars. The toast reports the measured stop time, distance and step count.
+
+Turning and the pose after stopping are not part of this.
+
 ## Procedural IK v3: real clip speeds, symmetrized training set, instant start, Acceleration / Deceleration pose
 - **Each motion at its own speed.** Every training clip's speed is now measured from its planted feet: the ankle's backward speed relative to the hips in contact. The files' numbers were 11–15 % high. The throttle picks a motion slot; between two slots the speed and the motion blend. No speed beyond the Sprint clip's own (7.5 m/s is gone).
 
