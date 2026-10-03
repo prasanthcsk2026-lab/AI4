@@ -324,6 +324,59 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Procedural IK v3: real clip speeds, symmetrized training set, instant start, Acceleration / Deceleration pose
+- **Each motion at its own speed.** Every training clip's speed is now measured from its planted feet: the ankle's backward speed relative to the hips in contact. The files' numbers were 11–15 % high. The throttle picks a motion slot; between two slots the speed and the motion blend. No speed beyond the Sprint clip's own (7.5 m/s is gone).
+
+  | Throttle | 0 | 10 | 20 | 35 | 45 | 55 | 75 | 100 |
+  |---|---|---|---|---|---|---|---|---|
+  | Motion | stand | Standard walk | Casual walk 1 | CMU jog 16_35 | CMU jog 35_17 | CMU run 09_07 | Run steady | Sprint |
+  | m/s | 0 | 1.16 | 1.33 | 2.14 | 2.38 | 2.62 | 3.41 | 4.58 |
+  | steps/min | – | 103 | 116 | 150 | 157 | 164 | 160 | 225 |
+
+  At every slot the motion runs exactly as captured: contact fraction equal to the clip's, no warp, foot slide 0.0 cm. Faster or slower inside a motion comes from Step length / Cycle speed.
+- **Symmetrized training set** (`assets/proc_clips.json`, clip group *Procedural set (symmetrized)*): the 7 clips above, each through the Symmetrize tool's *Phase matching + average arms* (left lands on the bar, right half a cycle later). They can be loaded and checked like any clip. The originals are untouched. The procedural motion now trains from this set (no symmetrizing at run time).
+- **Shoulders too high in the CMU jogs:** CMU 16_35, 35_17 and 09_07 had the shoulder joints 1–5 cm *above* the neck base; every other clip has them 4–12 cm below. That is an 8–12 cm shrug from the BVH retarget's collarbones. In the set, their collarbones are replaced by Jog slow's mean collarbone rotation and the upper arms counter-turned, so the arm swing is kept. Now −7.8 … −5.8 cm.
+- **Instant start.** From standing, a throttle step now:
+  - Starts the push at once (jerk up to 40 m/s³ for the first 0.3 s; up to 6 m/s² for a sprint, 1.3 for a walk).
+  - Cross-fades to the asked motion in 0.08 s.
+  - Puts the left (push) foot down and starts the right one's swing.
+  - Swings arms and legs out at once, not with the still-low speed.
+- **Start measured** (step 0 → throttle at 1.0 s; the body's biggest joint change is 60° after 0.05 s):
+
+  | Start | 1st touchdown | Steps (m) | Speed at 1st step |
+  |---|---|---|---|
+  | Sprint (100 %) | 0.43 s | 0.50, 0.82, 0.97, 1.10, 1.15, 1.21 | 1.84 m/s |
+  | Jog (35 %) | 0.57 s | 0.47, 0.71, 0.82 | – |
+  | Walk (10 %) | 0.77 s | 0.50, 0.70, 0.63 | – |
+
+  Before this, the first sprint step was 0.04 m: the foot landed next to the standing one, because the cycle phase kept running while standing and the swing scaled with the still-tiny speed.
+- **Acceleration pose / Deceleration pose tracks** (0–100 %, under the Throttle). Pose only: the speed stays the throttle's. They act on the whole body: the planned footprints, the leg IK, the ankles and toes, the arms. Eased over 0.12 s.
+
+  | | Acceleration pose 100 % | Deceleration pose 100 % |
+  |---|---|---|
+  | Lean | 30° forward (35 % pelvis, 65 % spine; head keeps 60 % of its level) | 15° back |
+  | Hips | 12 cm forward, 4 cm down | 10 cm back, 8 cm down; brought down further while a braking foot reaches ahead |
+  | Feet land | 10 cm further back | 14 cm further ahead |
+  | Knee drive in the swing | +8 cm | −3 cm |
+  | Ankle | Push-off: foot down 20° late in the contact, heel up with the ball kept down | Heel strike: toes up 15° |
+  | Toes | Bend at push-off | Up 10° more |
+  | Arms | Swing × 1.4, elbows +15° | Swing × 0.7, centre 20° forward, 10° out |
+
+  Measured at 55 % (CMU run 09_07, 2.62 m/s at every setting):
+  - Trunk lean 9.6° → 19.8° → 30.1° (Acceleration 0/50/100 %) and → −0.6° (Deceleration 100 %).
+  - The planted foot lands 2 cm ahead of the hips; with Acceleration 100 % 20 cm behind; with Deceleration 100 % 26 cm ahead.
+  - Foot slide 0.0 cm.
+- **The automatic lean from the speed controller is gone.** The two pose tracks set the lean.
+- **Elbow bend on a nearly straight arm** (here and on clips): the bend axis came from the arm's own plane, which flips when the arm is almost straight. The forearm turned 8000 °/s in one frame. The hinge is now kept in the upper arm's frame from the last clearly bent pose (blended in 15°–40°).
+- **Measured, 0 → 100 → 0 with both pose tracks ramped in 0.1–0.2 s:**
+  - Foot slide 0.0 cm (Stop: run and Stop: walk out).
+  - Highest turn rates: forearm 1851, thigh 1712, foot 1953 °/s, hips acceleration 276 m/s². These come from the deliberately sharp pose ramps.
+  - Without the pose tracks, all are within the clips' own ranges (thigh ≤ 727 °/s on the demo).
+- **Limits:**
+  - Fast pose-track ramps (< 0.2 s) make fast body changes.
+  - Deceleration pose 100 % at a sprint is a deep, crouched brake.
+  - Forcers and IK tracks still do not act on a procedural motion.
+
 ## Procedural IK locomotion v2: throttle picks the motion, run controls on top, Sprint, stop style
 - **The motion comes from the throttle, not from the speed.**
   - Every trained clip, and standing, is an entry with a weight. The throttle's speed sets the target weights (the one or two clips around it).

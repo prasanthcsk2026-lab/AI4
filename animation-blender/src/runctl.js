@@ -303,6 +303,7 @@ function applyHipMotion(t) {   // in solveIK, before anything else moves the hip
 function applyArmShape(t) {   // in solveIK: elbow bend and arm crossing (world)
   applyArmShapeV(A.elbowBend ? evalPts(A.elbowBend, t) : 0, A.armCross ? evalPts(A.armCross, t) : 0, armCentreAt(t));
 }
+const ELBOW_HINGE = {};
 function applyArmShapeV(eb, cr, ce) {
   if (Math.abs(eb) < 1e-3 && Math.abs(cr) < 1e-3 && Math.abs(ce) < 1e-3) return;
   const chest = worldP(rig.b.spine2);
@@ -320,9 +321,18 @@ function applyArmShapeV(eb, cr, ce) {
       const ax = V3().crossVectors(v, med.normalize()); if (ax.lengthSq() > 1e-8) rotateBoneWorld(sd.upper, qAxis(ax.normalize(), cr * DEG));
     }
     if (Math.abs(eb) > 1e-3) {   // more (+) or less (−) bend at the elbow, kept within 3°…150°
-      const sh = worldP(sd.upper), el = worldP(sd.fore), u = el.clone().sub(sh), f = worldP(sd.hand).sub(el), ax = V3().crossVectors(u, f);
+      const sh = worldP(sd.upper), el = worldP(sd.fore), u = el.clone().sub(sh), f = worldP(sd.hand).sub(el);
+      let ax = V3().crossVectors(u, f);
+      const a = u.angleTo(f), a2 = clamp(a + eb * DEG, 3 * DEG, 150 * DEG), w = smoothB((a - 15 * DEG) / (25 * DEG));
+      // a nearly straight arm has no bend plane of its own (its cross product flips): the elbow's hinge, kept in the
+      // upper arm's frame from the last clearly bent pose, takes over below 40° (blended 15°…40°)
+      const ul = worldQ(sd.upper), hk = Sd;
+      if (a > 40 * DEG && ax.lengthSq() > 1e-10) ELBOW_HINGE[hk] = ax.clone().normalize().applyQuaternion(ul.clone().invert());
+      if (w < 1 && ELBOW_HINGE[hk]) {
+        const hw = ELBOW_HINGE[hk].clone().applyQuaternion(ul).normalize();
+        if (ax.lengthSq() > 1e-10) { ax.normalize(); if (ax.dot(hw) < 0) ax.negate(); ax = hw.lerp(ax, w); } else ax = hw;
+      }
       if (ax.lengthSq() < 1e-10) continue;
-      const a = u.angleTo(f), a2 = clamp(a + eb * DEG, 3 * DEG, 150 * DEG);
       rotateBoneWorld(sd.fore, qAxis(ax.normalize(), a2 - a));
     }
   }
