@@ -324,6 +324,38 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Sprint → braking: cadence up, steps down (forcer), arms by speed
+**Brake forcer, new speed-loss option** "cadence up, steps down" (Forcer dialog → *Speed loss*):
+- Each 1 % more cadence takes *Step % per cadence %* off the step length (default 2). So the speed is (1 + c)(1 − 2c).
+- The forcer's braking (a = F / m, ∫a dt) sets the speed. The cadence rises and the step shortens to give exactly that speed.
+- The spine leans back with the braking, atan(a / g), as before.
+
+**Speed-matched blends:**
+- A blend can follow the moving speed: none at or above the faster motion's speed, fully in at its own clip's speed.
+- Blends ordered fast → slow give the motion of the speed he is running at, blended between neighbours.
+- The weight track scales that.
+- The header shows *speed-matched (from → to m/s)*.
+
+**Template** (+ menu, *Sprint → braking · cadence up, steps down*):
+- Uses the loaded clip if it is a fast run (≥ 4 m/s), otherwise loads Run fast.
+- A Brake forcer over bars 4–8, solved to half the sprint's speed.
+- Arms from Run steady → CMU run 09_07 → CMU jog 35_17 → CMU jog 16_35, by speed.
+
+**Measured on Run fast** (6.60 m/s, 265 steps/min):
+
+| Bar | m/s | Steps/min | Cadence | Step | Trunk | Arms |
+|---|---|---|---|---|---|---|
+| 1–3 | 6.60 | 265 | – | – | +11.8° | – |
+| 4 | 6.14 | 282 | +5.8 % | −11.6 % | −6.8° | Run steady 0.08 |
+| 5 | 4.80 | 317 | +19.7 % | −39.5 % | −7.8° | Run steady 0.77 |
+| 6 | 3.56 | 343 | +29.4 % | −58.7 % | −7.5° | Run steady 1, CMU run 09_07 0.42 |
+| 7–10 | 3.01 | 352 | +32.8 % | −65.6 % | +11.8° (force ended) | – |
+
+- Step loss / cadence gain = 2.00 at every bar.
+- Bars 1–3 match the plain sprint within 0.55°.
+- Highest turn rates while braking: foot 2495, forearm 1565 °/s (bars 1–3: 1241, 1295).
+- **Note:** Run fast is already Run steady at 1.66× its cadence, so +33 % gives 352 steps/min. The imported Sprint.fbx (225 steps/min) would end at ~299. A larger *Step % per cadence %* (3–4) keeps the cadence lower for the same speed loss.
+
 ## CMU mocap arms and jog, BVH import, running on the spot, run → jog hop
 - **Why the arms looked wrong in the blends:** Run medium swings the forward arm up to 69° in front with the elbow half open (shoulder −66° … +69°, 135° in all); Jog slow carries the hands low with the elbow at 40–88°. Running-form studies give elbows of about 90° (70–120°) and hands from the hip to the chest. The CMU captures match that: elbow 95–130°, hands 26–45 cm above the hips, arm in phase with the opposite thigh (r = 0.95–0.97).
 - **BVH import:** Import accepts .bvh (CMU and others). The CMU files' first T-pose frame is the rest pose (and left out); their spine (LowerBack / Spine / Spine1) maps onto Spine / Spine1 / Spine2; the lowest toe is put 2 cm above the ground (the files floated 5–14 cm).

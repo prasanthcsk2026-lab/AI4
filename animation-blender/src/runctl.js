@@ -640,11 +640,18 @@ function blendPhase(src, p) {   // this clip's phase → the source clip's (left
 }
 const blendFK = { a: null, b: null, Q1: null, Q2: null, H1: null, H2: null };
 function newBlend(clipId, region, dur) { const b = { id: 'l' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), clipId, region, sym: true, collapsed: false }; b.weight = flat(0, dur); b.swing = flat(1, dur); return b; }
+// a speed-matched blend: its weight follows the moving speed, 0 at or above `from` (the faster motion's speed), 1 at
+// or below `to` (its own clip's speed). Blends in order fast → slow give the motion of the speed he runs at
+function blendSpeedW(bl, t) {
+  if (!bl.speed) return 1;
+  const v = avgSpeedAt(t), { from, to } = bl.speed;
+  return smoothB((from - v) / Math.max(1e-3, from - to));
+}
 function applyBlends(t, Qout) {   // in composePose, after this clip's arm swing
   if (!A.blends || !A.blends.length || !cur || cur.kind !== 'loop') return;
   for (const bl of A.blends) {
     if (bl.bypass) continue;
-    const w = clamp(evalPts(bl.weight, t), 0, 1); if (w < 1e-4) continue;
+    const w = clamp(evalPts(bl.weight, t), 0, 1) * blendSpeedW(bl, t); if (w < 1e-4) continue;
     const src = clips.find((c) => c.id === bl.clipId && c.kind === 'loop'); if (!src || src === cur) continue;
     if (!blendFK.a) { blendFK.a = new VirtualFK(rig); blendFK.b = new VirtualFK(rig); blendFK.Q1 = new Float32Array(B * 4); blendFK.Q2 = new Float32Array(B * 4); blendFK.H1 = V3(); blendFK.H2 = V3(); }
     const ps = blendPhase(src, mod1(clipTime(t) / cur.dur)), idx = blendBones(bl.region), F = blendFK.a, G = blendFK.b;
@@ -678,13 +685,13 @@ function drawBlendBlock(id) {
   const src = clips.find((c) => c.id === bl.clipId);
   const hr = mkRow('bone sym blendb'); Object.assign(hr, { kind: 'blend', blend: id });
   hr.h.innerHTML = `<button type="button" class="mini" data-act="fold" aria-expanded="${!bl.collapsed}">${bl.collapsed ? '▸' : '▾'}</button><span class="symtag" style="background:#6fc3e8;color:#111">BLEND</span><span class="name"></span><button type="button" class="mini" data-act="set" title="Source clip, body part, symmetric">⚙</button><button type="button" class="mini" data-act="del" title="Remove">×</button>`;
-  hr.h.querySelector('.name').textContent = `${regionLabel(bl.region)} ← ${src ? src.name : '(missing clip)'}`;
+  hr.h.querySelector('.name').textContent = `${regionLabel(bl.region)} ← ${src ? src.name : '(missing clip)'}${bl.speed ? ` · speed-matched (${bl.speed.from.toFixed(2)} → ${bl.speed.to.toFixed(2)} m/s)` : ''}`;
   hr.h.querySelector('[data-act="fold"]').onclick = () => { bl.collapsed = !bl.collapsed; rebuildRows(); save(); };
   hr.h.querySelector('[data-act="set"]').onclick = () => openBlendDlg(id);
   hr.h.querySelector('[data-act="del"]').onclick = () => confirmDelete(`Remove the blend "${regionLabel(bl.region)} ← ${src ? src.name : ''}" and its tracks?`, () => { pushUndo(); A.blends = A.blends.filter((x) => x.id !== id); A.rowOrder = (A.rowOrder || []).filter((k) => k !== 'bld:' + id); editVersion++; rebuildRows(); save(); });
   addBypass(hr, bl, null);
   hr.lane.innerHTML = '<div class="summary"></div>';
-  hr.lane.firstChild.textContent = `${regionLabel(bl.region)} from ${src ? src.name : '?'}, matched to this clip's steps${bl.sym ? ', made symmetric' : ''}. Weight 100 % = that motion fully; its own swing % scales it (this clip's Arm swing stays on this clip's arms).`;
+  hr.lane.firstChild.textContent = `${regionLabel(bl.region)} from ${src ? src.name : '?'}, matched to this clip's steps${bl.sym ? ', made symmetric' : ''}.${bl.speed ? ` Speed-matched: none at ${bl.speed.from.toFixed(2)} m/s or faster, fully in at ${bl.speed.to.toFixed(2)} m/s (its own speed) and slower; the weight track scales that.` : ''} Weight 100 % = that motion fully; its own swing % scales it (this clip's Arm swing stays on this clip's arms).`;
   tracksEl.append(hr.el); rows.push(hr);
   if (bl.collapsed) return;
   addTrackRow(`l|${id}|weight`, BLEND_SPEC.weight, () => bl.weight, (p) => { bl.weight = p; }, 'Blend weight <i>% of the other clip\'s motion</i>', { type: 'blend', id, k: 'weight' });
@@ -892,7 +899,7 @@ const BRAKE_TPL = {
 function brakeForcer(v, B, P, st) {   // the Brake forcer; st.F is solved toward the target speed at the end of the braking
   let f = (A.forcers || []).find((x) => x.tpl === 'brake');
   if (!f) { f = newForcer('moving', S.dur, 1); Object.assign(f, { tpl: 'brake', name: 'Braking (4 m ahead)', falloff: 'none', react: 'brake' }); f.at = { px: 0, py: 1.0, pz: 4, fx: 0, fy: 180, fz: 0 }; f.target.bw = {}; A.forcers = [f]; }
-  Object.assign(f, { cadShare: v.share, hipRise: v.hip }); f.spread = flat(60, S.dur); f.weight = flat(1, S.dur); f.resp = flat(0, S.dur);
+  Object.assign(f, { cadShare: v.share, hipRise: v.hip, split: v.ratio ? 'ratio' : 'share', stepPerCad: v.ratio || 2 }); f.spread = flat(60, S.dur); f.weight = flat(1, S.dur); f.resp = flat(0, S.dur);
   const [a0, a1, a2, a3] = v.on;
   f.force = [P(0, 0), P(B(a0), 0, SC), P(B(a1), st.F), P(B(a2), st.F, SC), P(B(a3), 0), P(S.dur, 0)];
   resistClear();
@@ -964,4 +971,30 @@ function applyBrakeSleep() {
   for (const m of v.chain) { const err = seqAppend(m); if (err) return err; }
   seqSelect(si, false); seqSetT(0);
   return `Braking 3 · sleep deceleration: the sprint coasts (Brake forcer ${brakeMsg(v, st)}), Run medium coasts on from bar ${v.chain[0].start}, Jog slow from bar ${v.chain[1].start}, Standard walk from bar ${v.chain[2].start}; every clip at its own cadence.`;
+}
+
+// ---------------------------------------------------------------- Sprint → braking: cadence up, steps down
+// The sprint with a Brake forcer (4 m ahead, facing him): every 1 % more cadence takes 2 % off the step length, so the
+// speed falls ((1 + c)(1 − 2c)), the spine leans back with the braking (atan(a / g)), and the arms come from the motion
+// of the speed he is running at (speed-matched blends of the slower clips, fast → slow). Braking bars 4–8, down to
+// half the sprint's speed (jog speed).
+const CADBRAKE = { bars: 10, on: [4, 5, 7, 8], target: 0.5, share: 35, hip: 10, ratio: 2, spec: {}, arms: ['loop:Run_steady', 'cmu:09_07', 'cmu:35_17', 'cmu:16_35'], sprint: 'loop:Run_steady_fast' };
+function applySprintCadBrake(o = {}) {
+  const v = { ...CADBRAKE, ...o };
+  if (!(cur && cur.kind === 'loop' && cur.c.speed >= 4)) {   // load the sprint (the loaded clip if it is a fast run)
+    if (!clips.find((c) => c.id === v.sprint)) return 'The sprint clip is missing.';
+    if (!seqActive()) seqAdd(v.sprint, 1, 0, v.bars); else seqSetClip(SEQ.sel, v.sprint);
+  }
+  const bad = brakeTplCheck(); if (bad) return bad;
+  const st = { F: 120 };
+  pushUndo();
+  tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
+  // the arms: the slower clips' arms, each fully in at its own speed (blended between neighbours), fast → slow
+  const v0 = cur.c.speed, srcs = v.arms.map((id) => clips.find((c) => c.id === id && c.kind === 'loop')).filter((c) => c && c.c.speed < v0 - 0.05).sort((a, b) => b.c.speed - a.c.speed);
+  A.blends = []; let from = v0;
+  for (const c of srcs) { const bl = newBlend(c.id, 'arms', S.dur); bl.sym = true; bl.weight = flat(1, S.dur); bl.swing = flat(1, S.dur); bl.speed = { from, to: c.c.speed }; bl.collapsed = true; A.blends.push(bl); from = c.c.speed; }
+  brakeTplShow({}); A.showMaster.mspeed = true;
+  editVersion++; ensureEnds(); rebuildSpeedLUT(); rebuildRows(); save();
+  const per = []; for (let b = 1; b <= v.bars; b++) { const t = timeOfClipTime((b - 0.5) * cur.dur), s = brakeState(t); per.push(`${b}: ${(v0 * s.speedK).toFixed(2)} m/s ×${s.cad.toFixed(2)} cad ×${s.step.toFixed(2)} step`); }
+  return `Sprint → braking (cadence up, steps down): Brake forcer ${Math.round(st.F)} N over bars ${v.on[0]}–${v.on[3]}, each 1 % more cadence takes ${v.ratio} % off the step; arms from ${srcs.map((c) => c.name).join(' → ')} by speed. Per bar ${per.join(' · ')}.`;
 }

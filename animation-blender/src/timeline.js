@@ -301,6 +301,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Template: Braking 2 · lean back, choppy steps (10 bars)', action: () => toast(applyBrakeChoppy()) },
     { label: 'Template: Braking 3 · sleep deceleration → run → jog → walk (27 bars, 4 motions)', action: () => toast(applyBrakeSleep()) },
     { label: 'Template: Braking 4 · decelerate → jog on the spot (18 bars, 3 motions)', action: () => toast(applyBrakeInPlace()) },
+    { label: 'Template: Sprint → braking · cadence up, steps down (forcer, arms by speed)', action: () => toast(applySprintCadBrake()) },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);
