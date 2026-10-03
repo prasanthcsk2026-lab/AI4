@@ -121,10 +121,10 @@ new MutationObserver(() => { if (!$('symTool').hidden) $('symTool').scrollIntoVi
 // ---- travel speed of the current clip (Clip panel): imported clips take it here; library clips show theirs
 function syncClipSpeed() {
   if (!cur) return;
-  const inp = $('clipSpeed'), imp = !!(cur.c && cur.c.imported), sp = +(cur.c && cur.c.speed) || 0;
+  const inp = $('clipSpeed'), imp = !!(cur.c && cur.c.imported && !cur.c.cmu), sp = +(cur.c && cur.c.speed) || 0;
   if (document.activeElement !== inp) inp.value = sp.toFixed(2);
   inp.disabled = !imp;
-  $('clipSpeedNote').textContent = imp ? (sp < 0.03 ? '⚠ in place: type a speed' : '') : 'library clip';
+  $('clipSpeedNote').textContent = imp ? (sp < 0.03 ? '⚠ in place: type a speed' : '') : cur.c && cur.c.cmu ? 'CMU mocap' : 'library clip';
 }
 $('clipSpeed').onchange = async () => { if (!cur || !cur.c.imported) return; await impSetSpeed(cur, +$('clipSpeed').value); syncClipSpeed(); toast(`${cur.name}: travel ${(+cur.c.speed).toFixed(2)} m/s.`); };
 $('btnInPlace').addEventListener('click', () => {   // turning In place off on a clip that has no travel: say why nothing moves

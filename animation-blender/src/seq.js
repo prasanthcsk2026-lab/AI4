@@ -358,7 +358,7 @@ let seqDlgEdit = null;
 function openSeqDlg(editI, clipId) {
   seqDlgEdit = editI == null ? null : editI;
   const cs = $('sqClip'); cs.textContent = '';
-  for (const grp of ['Loops', 'One-shot moves', 'Imported']) {
+  for (const grp of ['Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) cs.append(og);

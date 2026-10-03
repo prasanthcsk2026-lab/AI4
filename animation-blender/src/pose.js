@@ -319,7 +319,12 @@ const gndArr = { L: null, R: null }, gndH = V3();
 const boneOn = (n) => { const b = A.bones[n]; return b && !b.bypass ? b : undefined; };
 // Stride length (master track, % of the clip's own): each foot reaches that much further ahead of / behind the hips
 // (foot IK), the ground covered grows by the same share (no sliding), and the arm swing follows when strideArms is on
-function strideK(t) { return A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistStep(t) * (brakeActive() ? brakeStrideK(t) : 1), 0.3, 1.5) : 1; }   // resistance shortens the steps too
+// the reach of a foot in front of / behind the hips, scaled along the way he runs (the clip's direction); sideways stays
+function reachScale(p, hips, k) {
+  const dir = (cur && cur.c && cur.c.dir) || 0, ux = Math.sin(dir), uz = Math.cos(dir), a = (p.x - hips.x) * ux + (p.z - hips.z) * uz;
+  p.x += ux * a * (k - 1); p.z += uz * a * (k - 1); return p;
+}
+function strideK(t) { return (A && A.stride ? clamp(evalPts(A.stride, t) / 100 * resistStep(t) * (brakeActive() ? brakeStrideK(t) : 1), 0.3, 1.5) : 1) * fwdAt(t); }   // forward travel: 0 = running on the spot   // resistance shortens the steps too
 let armChain = null;
 let stepNm = null;
 function stepNames() { if (stepNm && stepNm.rig === rig) return stepNm; stepNm = { rig, knee: new Set(['L', 'R'].map((S) => rig.side[S].shin.name)), arm: new Set(['L', 'R'].map((S) => rig.side[S].upper.name)) }; return stepNm; }
@@ -444,7 +449,7 @@ function fkPositionsAt(t) {
   composePose(t, Qh.v, Hh, null);
   fk.v.run(Qh.v, Hh, 0);
   const k = strideK(t);
-  if (Math.abs(k - 1) > 1e-4) { const P = fk.v.P, hz = P[boneIdx.get(rig.b.hips.name)].z; for (const Sd of ['L', 'R']) { const f = P[boneIdx.get(rig.side[Sd].foot.name)]; f.z = hz + (f.z - hz) * k; } }
+  if (Math.abs(k - 1) > 1e-4) { const P = fk.v.P, hp = P[boneIdx.get(rig.b.hips.name)]; for (const Sd of ['L', 'R']) { const f = P[boneIdx.get(rig.side[Sd].foot.name)]; reachScale(f, hp, k); } }
   return fk.v.P;
 }
 
@@ -713,7 +718,7 @@ function solveIK(t, pend) {
   // 0. hip motion (about the clip's average; the feet stay at their FK spots above) and the arms' shape
   if (hipMotionOn()) applyHipMotion(t);
   if (armShapeOn()) applyArmShape(t);
-  const hz0 = worldP(b.hips).z;   // stride scales the planted-foot spots about the hips as they were before the hips moved
+  const hp0 = worldP(b.hips), hz0 = hp0.z;   // stride scales the planted-foot spots about the hips as they were before the hips moved
   // 1. hips
   let feetPin = 1;
   if (on('hips')) {
@@ -734,8 +739,8 @@ function solveIK(t, pend) {
     const need = on(fId) || on(Sd + 'knee') || (on('hips') && feetPin > 0) || on('spine') || strideOn || sf || brakeActive() || resistOn() || Math.abs(kDrop) > 1e-6;
     if (!need) continue;
     const carried = worldP(sd.foot), carriedQ = rig.delta(sd.foot);
-    if (strideOn) { const hz = worldP(b.hips).z; carried.z = hz + (carried.z - hz) * sk; }   // stride: the foot reaches further ahead / behind the hips
-    const fkFoot = (sf ? sf[Sd].p : fkRef[Sd].foot).clone(); if (strideOn) fkFoot.z = hz0 + (fkFoot.z - hz0) * sk;
+    if (strideOn) reachScale(carried, worldP(b.hips), sk);   // stride: the foot reaches further ahead / behind the hips (along the way he runs)
+    const fkFoot = (sf ? sf[Sd].p : fkRef[Sd].foot).clone(); if (strideOn) reachScale(fkFoot, hp0, sk);
     const pinW = sf ? 1 : on('hips') ? feetPin : 0;
     carried.y += kDrop;   // the carried foot went down with the hips: back to its own height
     let base = carried.clone().lerp(fkFoot, pinW);
@@ -748,6 +753,10 @@ function solveIK(t, pend) {
     const target = base.clone().add(effPosOff(fId, t, pend, w)).add(gx.dpos);
     baseQ = gx.q.clone().multiply(baseQ);
     if (jumpOn()) target.y += jumpFootRise(Sd, t);   // a hop: the foot leaves the ground earlier and lands later
+    if (strideOn && sk < 0.999) {   // shorter reach (running on the spot): a swinging foot pulled in under the hips keeps its toe off the ground
+      const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null;
+      if (lp && !lp.c && sd.toe) { const r = rig.bp(sd.toe).sub(rig.bp(sd.foot)).applyQuaternion(baseQ), toeY = target.y + r.y, floor = 0.02 * Math.sin(Math.PI * lp.s); if (toeY < floor) target.y += floor - toeY; }
+    }
     if (heelOn) {   // a planted foot out of reach rolls up onto its toe: from just before touchdown, easing out before toe-off
       const lp = cur && cur.kind === 'loop' ? legPhase(Sd, clipTime(t), t) : null;
       let hw = !lp ? 1 : lp.c ? smoothB((1 - lp.u) / 0.15) : smoothB((lp.s - 0.88) / 0.12);   // fades in before touchdown, out before toe-off

@@ -300,6 +300,7 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Template: Braking 1 · lean back, long braking steps → decel jog (14 bars, 3 motions)', action: () => toast(applyBrakeLeanBack()) },
     { label: 'Template: Braking 2 · lean back, choppy steps (10 bars)', action: () => toast(applyBrakeChoppy()) },
     { label: 'Template: Braking 3 · sleep deceleration → run → jog → walk (27 bars, 4 motions)', action: () => toast(applyBrakeSleep()) },
+    { label: 'Template: Braking 4 · decelerate → jog on the spot (18 bars, 3 motions)', action: () => toast(applyBrakeInPlace()) },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);
@@ -449,7 +450,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat, a.fwd);
   for (const b of a.blends || []) for (const k of BLEND_KEYS) out.push(b[k]);
   if (a.runMuted) for (const k of Object.keys(a.runMuted).sort()) if (Array.isArray(a.runMuted[k])) out.push(a.runMuted[k]);   // muted run controls keep their timing
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);

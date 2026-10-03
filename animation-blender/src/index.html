@@ -95,7 +95,7 @@
       </details>
       <details class="dsec" open data-sec="io"><summary>Import / Export</summary>
         <div class="io dgrid">
-          <button type="button" id="btnImportAnim" title="Import an FBX animation (Character Creator CC_Base_ or Mixamo bones)">Import FBX…</button>
+          <button type="button" id="btnImportAnim" title="Import an FBX (Character Creator CC_Base_ or Mixamo bones) or a BVH (CMU mocap and others) animation">Import FBX / BVH…</button>
           <button type="button" id="btnExport" title="Export the automation as JSON, or the baked animation as glTF">Export…</button>
           <button type="button" id="btnImport" title="Load automation JSON">Import JSON</button>
         </div>
@@ -206,7 +206,7 @@
     <h2 id="impTitle">Import animation (FBX)</h2>
     <div class="bakebody">
       <p>Character Creator / iClone FBX (CC_Base_ bones). The clip is kept in this browser (cache) until you press <b>Save to project</b>.</p>
-      <input type="file" id="impFile" accept=".fbx">
+      <input type="file" id="impFile" accept=".fbx,.bvh">
       <div id="impSetup" hidden>
         <div class="impgrid">
           <label>Name <input type="text" id="impName" spellcheck="false"></label>

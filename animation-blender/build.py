@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent
 SRC, ASSETS, DIST = ROOT / 'src', ROOT / 'assets', ROOT / 'dist'
 # module order matters only for top-level statements; every file shares one module scope
 JS = ['engine.js', 'core.js', 'axes.js', 'pose.js', 'mirror.js', 'timeline.js', 'viewport.js', 'bake.js', 'fbx.js', 'symtool.js', 'import.js', 'template.js', 'ui.js', 'extras.js', 'steady.js', 'runctl.js', 'resist.js', 'seq.js', 'io.js']
-ASSET_FILES = ['character.glb.txt', 'motionlib.json', 'getups.json']
+ASSET_FILES = ['character.glb.txt', 'motionlib.json', 'getups.json', 'cmu_clips.json']
 
 
 def main():

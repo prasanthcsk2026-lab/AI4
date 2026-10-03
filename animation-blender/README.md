@@ -324,6 +324,17 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## CMU mocap arms and jog, BVH import, running on the spot, run → jog hop
+- **Why the arms looked wrong in the blends:** Run medium swings the forward arm up to 69° in front with the elbow half open (shoulder −66° … +69°, 135° in all); Jog slow carries the hands low with the elbow at 40–88°. Running-form studies give elbows of about 90° (70–120°) and hands from the hip to the chest. The CMU captures match that: elbow 95–130°, hands 26–45 cm above the hips, arm in phase with the opposite thigh (r = 0.95–0.97).
+- **BVH import:** Import accepts .bvh (CMU and others). The CMU files' first T-pose frame is the rest pose (and left out); their spine (LowerBack / Spine / Spine1) maps onto Spine / Spine1 / Spine2; the lowest toe is put 2 cm above the ground (the files floated 5–14 cm).
+- **Built-in "CMU mocap" clips** (retargeted, symmetrized, loop seams below the biggest frame-to-frame step): CMU jog 35_17 (2.75 m/s, 157 steps/min), CMU jog 16_35 (2.53, 150), CMU run-jog 35_22 (3.10, 171), CMU run 09_07 (3.03, 164). Source: CMU Graphics Lab Motion Capture Database, BVH conversion by B. Hahne (cgspeed), via github.com/una-dinosauria/cmu-mocap.
+- **Forward travel %** (Run controls, new): the ground covered and the feet's reach in front of / behind the hips go with it (along the way he runs); at 0 he runs on the spot: planted feet under the hips, a swinging foot pulled in keeps its toe off the ground. Jog forward 2.96 → 0 m/s over two bars; thigh lift 37° moving, 56° on the spot.
+- **Templates now:**
+  - Braking 1 and 3: the run phase (Run medium) takes its arms from CMU run 09_07 (Blend motion, symmetric, swing 120 %): shoulder −50° … +9°, elbow 89–122°. The jog is CMU jog 35_17 (full capture).
+  - Run → jog: a small hop at the handover (Jump 0 → 30 % → 0, S curves, peak at the end of the blend bars): hips bounce 8 cm, no jerk (hips acceleration ≤ 127 m/s² against 157 in the plain sprint).
+  - **Braking 4 · decelerate → jog on the spot** (18 bars, 3 motions): as Braking 1, then the CMU jog's forward travel eases 100 → 0 % (bars 11–14) with the spine a little more upright, and he jogs on the spot to bar 18. Speed per bar 6.60 → 4.78 → 4.17 → 3.02 → 2.50 → 1.38 → 0.26 → 0; cadence stays 156–157.
+- Not done: I cannot watch YouTube videos here; the changes rest on published running studies and on measuring the CMU captures against the library clips.
+
 ## No slow motion: cadence floor, clip handover
 - Playing the sprint clip at half its cadence read as slow motion (Braking 1 went 265 → 142 steps/min with sprint poses). A Brake forcer now keeps the cadence at **≥ 85 %** of the clip's; the rest of the speed loss comes off the steps. Cadence share default 35 %.
 - Where the speed drops further, the templates hand over to a slower clip (motion sequence) that plays at its own cadence:

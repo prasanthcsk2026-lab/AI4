@@ -154,7 +154,7 @@ const S = {
 let A = null;                                         // automation of the current clip (see newAuto)
 let editVersion = 0;                                  // bumps on every edit (caches key on it)
 
-function newAuto(dur, cycles = 5) { return { dur, cycles, runShow: {}, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), armCentre: flat(0, dur), brakeRhythm: flat(1, dur), jump: flat(0, dur), stepNat: flat(100, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
+function newAuto(dur, cycles = 5) { return { dur, cycles, runShow: {}, sym: {}, symOrder: [], lean: flat(0, dur), hipRot: flat(0, dur), brake: flat(0, dur), kneeDepth: flat(100, dur), armSwing: flat(100, dur), elbowBend: flat(0, dur), armCross: flat(0, dur), armCentre: flat(0, dur), brakeRhythm: flat(1, dur), jump: flat(0, dur), stepNat: flat(100, dur), fwd: flat(100, dur), hipMotion: flat(100, dur), cyc: flat(100, dur), cycV2: true, gnd: flat(0, dur), stride: flat(100, dur), strideArms: true, showMaster: { speed: false, move: false, cycle: false, gnd: false, stride: false }, speed: flat(1, dur), move: flat(1, dur), bones: {}, order: [], groups: {}, groupOrder: [], ik: {}, ikOrder: [], heights: {}, zoom: {} }; }
 function newBoneAuto(dur) {
   return {
     collapsed: false, withChildren: false, show: { whole: true },
@@ -175,7 +175,7 @@ function normalizeAuto(a) {
   for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   if (!Array.isArray(a.kneeDepth) || !a.kneeDepth.length) a.kneeDepth = flat(100, a.dur);
   a.blends = (Array.isArray(a.blends) ? a.blends : []).filter((b) => b && b.clipId); for (const b of a.blends) for (const k of BLEND_KEYS) if (!Array.isArray(b[k]) || !b[k].length) b[k] = flat(k === 'weight' ? 0 : 1, a.dur);
-  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
+  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100], ['fwd', 100]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
@@ -229,10 +229,11 @@ function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); con
 let clipboard = null;   // { type: 'points'|'track'|'bone'|'eff', ... }
 
 async function boot() {
-  const [b64, libJson, gJson] = await Promise.all([
+  const [b64, libJson, gJson, cmuJson] = await Promise.all([
     window.__local('character.glb.txt').then((r) => { if (!r.ok) throw new Error('character file missing'); return r.text(); }),
     window.__local('motionlib.json').then((r) => { if (!r.ok) throw new Error('motion library missing'); return r.json(); }),
     window.__local('getups.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    window.__local('cmu_clips.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   const bin = Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0));
   const g = await new GLTFLoader().register(blobSafeTextures).parseAsync(bin.buffer, '');
@@ -282,6 +283,7 @@ async function boot() {
   $('lenMode').value = S.lenMode;
   $('unitSel').value = S.unit;
   syncToggles();
+  if (cmuJson) loadCmuClips(cmuJson);
   buildClipSelect(); loadBaked(); loadImported(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
   selectClip(first.id);
@@ -294,7 +296,7 @@ async function boot() {
 // ---------------------------------------------------------------- UI: clip + bones
 function buildClipSelect() {
   const sel = $('clipSel'); sel.textContent = '';
-  for (const grp of ['Loops', 'One-shot moves', 'Imported']) {
+  for (const grp of ['Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) sel.append(og);

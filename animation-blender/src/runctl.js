@@ -407,9 +407,14 @@ function runDefs() {
     ['hipMotion', HIPMO_SPEC, 'Hip motion', `% · pelvis turn, drop, bob, sway${A.hipAuto !== false ? ' · × moving speed' : ''}`],
     ['jump', JUMP_SPEC, 'Jump', `% · a hop at each change of foot (100 % = 6 cm)${A.jumpAuto !== false ? ' · + longer steps' : ''}`],
     ['kneeDepth', KNEE_SPEC, 'Knee depth', '% · deeper knees, the hips come down (feet stay)'],
+    ['fwd', FWD_SPEC, 'Forward travel', '% · 100 runs forward · 0 runs on the spot (the feet land under the hips)'],
   ];
 }
-const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth'];
+const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth', 'fwd'];
+// forward travel: the ground covered and the feet's reach in front of / behind the hips both go with it, so at 0 he runs
+// on the spot (planted feet stay under the hips, no slide); the legs, arms and cadence keep their own motion
+const FWD_SPEC = { range: [0, 100], ref: 100, color: '#7fd4ff', scale: 1, unit: '%', fmt: (v) => Math.round(v) + '%', snap: 1 };
+const fwdAt = (t) => (A && A.fwd ? clamp(evalPts(A.fwd, t) / 100, 0, 1) : 1);
 const runRef = (k) => (runDefs().find((d) => d[0] === k) || [0, { ref: 0 }])[1].ref;
 const runPts = (k) => (A.runMuted && A.runMuted[k]) || A[k];   // the control's own points (muted or not)
 function runShowInit(a) {   // older saves: the controls that do something show; the rest wait behind +
@@ -853,21 +858,32 @@ const SC = 'inout';   // an S curve to the next point
 // the braking itself is a Brake forcer (4 m ahead, facing him, no falloff): its force slows him (a = F / m), leans him
 // back (atan(a / g)), lifts the hips and splits the speed loss between cadence and step length (cadence share); the
 // force is solved so the speed lands on the template's target, then it ends (the speed stays down, the lean comes back)
+// the arms in the run phase come from a CMU run (Run medium's own forward arm swings up to 69° with the elbow half open);
+// the jog is a CMU jog capture (elbows ~100–120°, hands from the hips to the chest, as in running-form studies)
+const RUN_ARMS = { clip: 'cmu:09_07', swing: 1.2 };
+// run → jog: a small hop at the handover (an S-curve bump on Jump, peak at the end of the blend bars, gone a bar later)
+const HOP = [[1, 0, SC], [2, 30, SC], [3.5, 0]];
 const BRAKE_TPL = {
   // the sprint starts braking (lean back, hips up) and hands over to Run medium, whose own steps are longer (1.66 m
   // against 1.49) at its own cadence: long braking steps without slow motion; it brakes on, then a long-step jog
   leanBack: { bars: 5, on: [4, 5, 5, 6], target: 0.88, share: 35, hip: 20, spec: {},
     chain: [
-      { clip: 'loop:Run_medium', start: 6, blend: 2, bars: 3, brake: { on: [1, 2, 4, 5], target: 0.85, share: 70, hip: 20 }, spec: { brake: [[1, 0, SC], [2, 0.4, SC], [4, 0.4, SC], [5, 0]] } },
-      { clip: 'loop:Jog_slow', start: 10, blend: 2, bars: 5, stepNat: 120 },
+      { clip: 'loop:Run_medium', start: 6, blend: 2, bars: 3, brake: { on: [1, 2, 4, 5], target: 0.85, share: 70, hip: 20 }, spec: { brake: [[1, 0, SC], [2, 0.4, SC], [4, 0.4, SC], [5, 0]] }, arms: RUN_ARMS },
+      { clip: 'cmu:35_17', start: 10, blend: 2, bars: 5, stepNat: 115, hop: HOP },
     ] },
   choppy: { bars: 10, on: [4, 5, 6, 7], target: 0.77, share: -30, hip: 20, spec: { armSwing: [[4, 100, SC], [7, 80]] } },
   // no braking: light Brake forcers let each clip coast down; every clip plays at its own cadence (≥ 85 %)
   sleep: { bars: 8, on: [4, 5, 7, 8], target: 0.8, share: 35, hip: 8, spec: {},
     chain: [
-      { clip: 'loop:Run_medium', start: 10, blend: 2, bars: 5, brake: { on: [3, 4, 6, 7], target: 0.85, share: 35, hip: 8 } },
-      { clip: 'loop:Jog_slow', start: 15, blend: 2, bars: 7, stepNat: 110 },
+      { clip: 'loop:Run_medium', start: 10, blend: 2, bars: 5, brake: { on: [3, 4, 6, 7], target: 0.85, share: 35, hip: 8 }, arms: RUN_ARMS },
+      { clip: 'cmu:35_17', start: 15, blend: 2, bars: 7, stepNat: 108, hop: HOP },
       { clip: 'loop:Standard_walk', start: 22, blend: 3, bars: 6, sym: true },
+    ] },
+  // Braking 1, then the jog comes to a stop where it is and goes on running on the spot (forward travel → 0)
+  inPlace: { bars: 5, on: [4, 5, 5, 6], target: 0.88, share: 35, hip: 20, spec: {},
+    chain: [
+      { clip: 'loop:Run_medium', start: 6, blend: 2, bars: 3, brake: { on: [1, 2, 4, 5], target: 0.85, share: 70, hip: 20 }, spec: { brake: [[1, 0, SC], [2, 0.4, SC], [4, 0.4, SC], [5, 0]] }, arms: RUN_ARMS },
+      { clip: 'cmu:35_17', start: 10, blend: 2, bars: 9, hop: HOP, spec: { fwd: [[4, 100, SC], [7, 0]], lean: [[4, 0, SC], [7, -4]] } },
     ] },
 };
 function brakeForcer(v, B, P, st) {   // the Brake forcer; st.F is solved toward the target speed at the end of the braking
@@ -903,21 +919,32 @@ function seqAppend(m) {   // add a motion after the last one and write its track
   if (m.sym) symmetrizeClip(m.clip);
   seqRebuild(true);
   if (seqAdd(m.clip, m.start, m.blend, m.bars, true) === false) return `Could not add ${m.clip.split(':')[1]}.`;
-  const st = { F: 40 };
-  const spec = { ...(m.spec || {}), ...(m.stepNat ? { stepNat: [[1, m.stepNat]] } : {}) };
-  tplWrite(A.cycles, spec, m.brake ? (B, P) => brakeForcer(m.brake, B, P, st) : null);
+  const st = { F: 40 }, arms = m.arms && clips.find((c) => c.id === m.arms.clip);
+  const spec = { ...(m.spec || {}), ...(m.stepNat ? { stepNat: [[1, m.stepNat]] } : {}), ...(m.hop ? { jump: m.hop } : {}) };
+  tplWrite(A.cycles, spec, (B, P) => {
+    if (m.brake) brakeForcer(m.brake, B, P, st);
+    if (arms) { const bl = newBlend(arms.id, 'arms', S.dur); Object.assign(bl, { tpl: 'arms', sym: true }); bl.weight = flat(1, S.dur); bl.swing = flat(m.arms.swing || 1, S.dur); A.blends = [bl]; }
+  });
   brakeTplShow(Object.fromEntries(Object.keys(spec).map((k) => [k, true]))); ensureEnds(); rebuildRows(); save(); seqRebuild(true);
   return null;
 }
-function applyBrakeLeanBack() {
+function brakeChainTpl(v, label) {
   const bad = brakeTplCheck() || seqTail(SEQ.sel); if (bad) return bad;
-  const v = BRAKE_TPL.leanBack, st = { F: 60 }, si = SEQ.sel;
+  const st = { F: 60 }, si = SEQ.sel;
   pushUndo();
   tplWrite(v.bars, v.spec, (B, P) => brakeForcer(v, B, P, st));
   brakeTplShow({}); ensureEnds(); rebuildRows(); save();
   for (const m of v.chain) { const err = seqAppend(m); if (err) return err; }
   seqSelect(si, false); seqSetT(0);
-  return `Braking 1 · lean back, long braking steps → decel jog: the sprint starts braking at bar 4 (Brake forcer, leans back, hips up) and hands over to Run medium (its own longer steps, at its own cadence), which brakes on with contact braking; Jog slow with long steps (natural ${v.chain[1].stepNat} %) fully in at bar ${v.chain[1].start}.`;
+  return label;
+}
+function applyBrakeLeanBack() {
+  const v = BRAKE_TPL.leanBack;
+  return brakeChainTpl(v, `Braking 1 · lean back, long braking steps → decel jog: the sprint starts braking at bar 4 (Brake forcer: leans back, hips up), hands over to Run medium (its own longer steps, CMU run arms) which brakes on; a CMU jog (long steps, a small hop at the handover) fully in at bar ${v.chain[1].start}.`);
+}
+function applyBrakeInPlace() {
+  const v = BRAKE_TPL.inPlace;
+  return brakeChainTpl(v, `Braking 4 · decelerate → jog on the spot: as Braking 1, then the CMU jog stops travelling over bars 13–16 (forward travel 100 → 0 %) and keeps jogging on the spot to bar ${v.chain[1].start + v.chain[1].bars - 1}.`);
 }
 function applyBrakeChoppy() {
   const bad = brakeTplCheck(); if (bad) return bad;

@@ -1,6 +1,6 @@
 
 // ============================================================================
-//  IMPORT ANIMATION (FBX)
+//  IMPORT ANIMATION (FBX or BVH)
 //  An FBX with motion (Character Creator; Mixamo names work too) is read with three.js' FBXLoader, its bones are
 //  matched to this character, and every frame is retargeted:
 //    target world rotation = (source rotation since its rest pose) · (rest-direction alignment) · target bind
@@ -40,13 +40,40 @@ function addImportedClip(rec) {
   const old = clips.findIndex((x) => x.id === rec.id); if (old >= 0) clips.splice(old, 1);
   clips.push({ id: rec.id, name: rec.name, label: `${rec.name} · imported · ${rec.where === 'project' ? 'project' : 'cache'} · ${(rec.n / rec.fps).toFixed(2)} s`, kind: rec.kind, c, dur: rec.n / rec.fps, group: 'Imported', rec });
 }
+// CMU mocap clips that ship with the app (retargeted from the CMU database's BVH and symmetrized here)
+function loadCmuClips(o) {
+  for (const r of (o && o.clips) || []) {
+    if (!Array.isArray(r.bones) || r.bones.length !== B || r.bones.some((n, i) => n !== rig.bones[i].name)) continue;   // made for this rig
+    const bk = { n: r.n, loop: true, fps: r.fps, q: b64ToF32(r.q), hp: b64ToF32(r.hp), win: r.win };
+    const c = { name: r.name, speed: r.speed, dir: r.dir, n: r.n, imported: true, cmu: true, origBk: bk };
+    clips.push({ id: r.id, name: r.name, label: `${r.name} · ${r.speed.toFixed(2)} m/s · CMU mocap`, kind: 'loop', c, dur: r.n / r.fps, group: 'CMU mocap', rec: r });
+  }
+}
 async function loadImported() {
   try { for (const rec of await idbAll()) addImportedClip(rec); } catch (e) { console.warn('Imported clips unavailable:', e); }
   buildClipSelect(); markBakedClips();
 }
 
 // ---------------------------------------------------------------- read + match
+// a BVH (CMU mocap and others): its skeleton as bones under a group, its one take
+function impReadBvh(text, name) {
+  const res = new BVHLoader().parse(text), obj = new THREE.Group();
+  obj.add(res.skeleton.bones[0]); obj.updateMatrixWorld(true);
+  const bones = res.skeleton.bones.filter((b) => !/_?end$/i.test(b.name) && b.name !== 'ENDSITE');
+  // the rest pose is the file's first frame (the CMU / cgspeed files start with one T-pose frame: the hips exactly
+  // unrotated, then the motion; that frame is the rest and is left out of the take); its hips height grounds the motion
+  const qt = res.clip.tracks.filter((t) => t.name.endsWith('.quaternion')), tpose = qt.length && qt[0].times.length > 3 && Math.abs(qt[0].values[3]) > 0.999999 && Math.abs(qt[0].values[7]) < 0.99999;
+  const mixer = new THREE.AnimationMixer(obj), act = mixer.clipAction(res.clip); act.play(); mixer.setTime(0); obj.updateMatrixWorld(true);
+  const rest = new Map(bones.map((b) => [b, { q: b.getWorldQuaternion(new THREE.Quaternion()), p: b.getWorldPosition(V3()) }]));
+  act.stop(); mixer.uncacheRoot(obj);
+  if (tpose) { const ft = qt[0].times[1] - qt[0].times[0]; res.clip = THREE.AnimationUtils.subclip(res.clip, 'Take 1', 1, qt[0].times.length, 1 / ft); }
+  res.clip.name = res.clip.name === 'animation' ? 'Take 1' : res.clip.name;
+  return { obj, bones, rest, takes: [res.clip], name, bvh: true };
+}
+// CMU's spine is LowerBack → Spine → Spine1 (Neck → Neck1 → Head): onto Spine / Spine1 / Spine2 here
+const CMU_TO_RIG = { lowerback: 'Spine', spine: 'Spine1', spine1: 'Spine2', neck: 'Neck', head: 'Head' };
 async function impRead(file) {
+  if (/\.bvh$/i.test(file.name)) return impReadBvh(await file.text(), file.name.replace(/\.bvh$/i, ''));
   const buf = await file.arrayBuffer();
   const obj = new FBXLoader().parse(buf, '');
   obj.updateMatrixWorld(true);
@@ -57,6 +84,7 @@ async function impRead(file) {
 }
 function impAutoMap(src) {   // this rig's bone → the file's bone
   const bySrc = new Map();
+  if (src.bones.some((b) => /^lowerback$/i.test(b.name))) for (const b of src.bones) { const t = CMU_TO_RIG[normName(b.name)]; if (t) bySrc.set(t, b); }   // a CMU skeleton
   for (const b of src.bones) {
     const n = normName(b.name), cc = n.replace(/^ccbase/, '');
     const target = CC_TO_RIG[cc] || rig.bones.find((x) => normName(x.name) === n)?.name;
@@ -99,6 +127,11 @@ function impRetarget(src, map, take, fps = 30) {
     hp0.toArray(hp, f * 3);
   }
   action.stop(); mixer.uncacheRoot(src.obj);
+  if (src.bvh) {   // a BVH's rest height does not match its feet (the CMU files float 5–14 cm): the lowest toe goes to 2 cm
+    const F = new VirtualFK(rig), ti = ['L', 'R'].map((S) => boneIdx.get(rig.side[S].toe.name)); let lo = Infinity;
+    for (let f = 0; f < n; f++) { F.run(q.subarray(f * B * 4, (f + 1) * B * 4), V3(hp[f * 3], hp[f * 3 + 1], hp[f * 3 + 2]), 0); for (const i of ti) lo = Math.min(lo, F.P[i].y); }
+    if (isFinite(lo)) for (let f = 0; f < n; f++) hp[f * 3 + 1] -= lo - 0.02;
+  }
   return { n, fps, q, hp };
 }
 // left-foot landings in the retargeted frames (feet low and nearly still)
