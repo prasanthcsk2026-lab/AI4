@@ -48,6 +48,7 @@ function bakeAndReplace() {
   A = newAuto(S.dur); S.selected = S.selEff = S.selGroup = null;
   undoStack = []; redoStack = [];   // the old automation belonged to the old clip
   moveEndCache = null; rebuildSpeedLUT(); rebuildRows(); save(); afterSelect(); markBakedClips();
+  if (cur.id.startsWith('procset:')) return `Saved your edit of "${cur.name}" to the Procedural set (this browser's cache): the procedural motion now trains on it (Sym: average). Bake → "Save to project" adds it to the project.`;
   return `Baked ${bk.n} frames into "${cur.name}". It now plays the baked motion; the timeline starts clean.`;
 }
 function revertBake() {
@@ -63,7 +64,7 @@ function loadBaked() {
   markBakedClips();
 }
 function markBakedClips() {
-  for (const o of $('clipSel').querySelectorAll('option')) { const c = clips.find((x) => x.id === o.value); if (c) o.textContent = c.label + (BAKED[c.id] && !c.c.imported ? ' · baked' : ''); }
+  for (const o of $('clipSel').querySelectorAll('option')) { const c = clips.find((x) => x.id === o.value); if (c) o.textContent = c.label + (BAKED[c.id] && c.id.startsWith('procset:') ? ' · edited (cache)' : BAKED[c.id] && !c.c.imported ? ' · baked' : ''); }
 }
 function bakedDoc() {   // the baked clip in a plain, documented form
   const bk = BAKED[cur.id] || bakeFrames();

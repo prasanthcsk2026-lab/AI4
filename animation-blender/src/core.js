@@ -175,7 +175,7 @@ function normalizeAuto(a) {
   for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   if (!Array.isArray(a.kneeDepth) || !a.kneeDepth.length) a.kneeDepth = flat(100, a.dur);
   a.blends = (Array.isArray(a.blends) ? a.blends : []).filter((b) => b && b.clipId); for (const b of a.blends) for (const k of BLEND_KEYS) if (!Array.isArray(b[k]) || !b[k].length) b[k] = flat(k === 'weight' ? 0 : 1, a.dur);
-  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100], ['fwd', 100]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
+  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100], ['fwd', 100], ['throttle', 0], ['brkNat', 0], ['brkCtl', 0], ['brkHard', 0]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
@@ -229,11 +229,12 @@ function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); con
 let clipboard = null;   // { type: 'points'|'track'|'bone'|'eff', ... }
 
 async function boot() {
-  const [b64, libJson, gJson, cmuJson] = await Promise.all([
+  const [b64, libJson, gJson, cmuJson, procJson] = await Promise.all([
     window.__local('character.glb.txt').then((r) => { if (!r.ok) throw new Error('character file missing'); return r.text(); }),
     window.__local('motionlib.json').then((r) => { if (!r.ok) throw new Error('motion library missing'); return r.json(); }),
     window.__local('getups.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     window.__local('cmu_clips.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    window.__local('proc_clips.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   const bin = Uint8Array.from(atob(b64.trim()), (c) => c.charCodeAt(0));
   const g = await new GLTFLoader().register(blobSafeTextures).parseAsync(bin.buffer, '');
@@ -284,6 +285,8 @@ async function boot() {
   $('unitSel').value = S.unit;
   syncToggles();
   if (cmuJson) loadCmuClips(cmuJson);
+  if (procJson) loadCmuClips(procJson);   // the procedural training set (symmetrized)
+  procRegister();   // the procedural IK locomotion (experiment)
   buildClipSelect(); loadBaked(); loadImported(); buildBoneTree(); computeAxisInfo(); buildEffectors(); ensureGizmo(); buildSkeleton(); buildHandles(); buildTripod();
   const first = clips.find((x) => x.id === store.last) || clips.find((x) => x.c.name === 'Run_steady_fast') || clips[0];
   selectClip(first.id);
@@ -296,7 +299,7 @@ async function boot() {
 // ---------------------------------------------------------------- UI: clip + bones
 function buildClipSelect() {
   const sel = $('clipSel'); sel.textContent = '';
-  for (const grp of ['Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
+  for (const grp of ['Procedural', 'Procedural set (symmetrized)', 'Loops', 'CMU mocap', 'Mocap', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) sel.append(og);
@@ -430,7 +433,7 @@ function selectClipRaw(id) {
   cur = clips.find((x) => x.id === id) || clips[0];
   $('clipSel').value = cur.id;
   const saved = store.clips && store.clips[cur.id];
-  A = normalizeAuto(saved && saved.speed ? saved : newAuto(+(5 * cur.dur).toFixed(3), 5));
+  A = normalizeAuto(saved && saved.speed ? saved : cur.kind === 'proc' ? procNewAuto(16) : newAuto(+(5 * cur.dur).toFixed(3), 5));
   S.dur = A.dur; syncLenInputs(); S.v0 = 0; S.v1 = S.dur; updateHScroll();
   S.t = 0; S.travelBase.set(0, 0, 0); selPts = new Set(); selRow = null; undoStack = []; redoStack = [];
   moveEndCache = null;
