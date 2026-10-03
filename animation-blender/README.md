@@ -355,8 +355,8 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   | | Acceleration pose 100 % | Deceleration pose 100 % |
   |---|---|---|
   | Lean | 30° forward (35 % pelvis, 65 % spine; head keeps 60 % of its level) | 15° back |
-  | Hips | 12 cm forward, 4 cm down | 10 cm back, 8 cm down; brought down further while a braking foot reaches ahead |
-  | Feet land | 10 cm further back | 14 cm further ahead |
+  | Hips | 12 cm forward, 4 cm down | 10 cm back, same height (v62: the 8 cm drop is gone) |
+  | Feet land | 10 cm further back | up to 14 cm further ahead, as far as the leg reaches from its hip at the motion's own hip height (v62) |
   | Knee drive in the swing | +8 cm | −3 cm |
   | Ankle | Push-off: foot down 20° late in the contact, heel up with the ball kept down | Heel strike: toes up 15° |
   | Toes | Bend at push-off | Up 10° more |
@@ -366,6 +366,13 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - Trunk lean 9.6° → 19.8° → 30.1° (Acceleration 0/50/100 %) and → −0.6° (Deceleration 100 %).
   - The planted foot lands 2 cm ahead of the hips; with Acceleration 100 % 20 cm behind; with Deceleration 100 % 26 cm ahead.
   - Foot slide 0.0 cm.
+- **v62: Deceleration pose no longer lowers the hips.**
+  - Before, there were two drops. 8 cm was built into the pose. Up to 5 cm more came from the leg reaching a foot that landed 26–41 cm ahead: this leg is 0.76 m with the hips at 0.87 m, nearly straight already.
+  - Now the landing shift stops where the leg reaches.
+  - Hips mean height at Deceleration 0 / 50 / 100 %: 0.870 / 0.870 / 0.866 m (was 0.871 / 0.831 / 0.788).
+  - The foot lands 12 cm ahead at 55 % and 27 cm at the sprint. Foot slide 0.0 cm.
+  - Hips acceleration peak in the 0 → 100 → 0 test: 276 → 121 m/s².
+  - For lower hips, use Knee depth.
 - **The automatic lean from the speed controller is gone.** The two pose tracks set the lean.
 - **Elbow bend on a nearly straight arm** (here and on clips): the bend axis came from the arm's own plane, which flips when the arm is almost straight. The forearm turned 8000 °/s in one frame. The hinge is now kept in the upper arm's frame from the last clearly bent pose (blended in 15°–40°).
 - **Measured, 0 → 100 → 0 with both pose tracks ramped in 0.1–0.2 s:**

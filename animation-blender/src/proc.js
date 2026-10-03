@@ -24,7 +24,7 @@ const PROC_FAMK = { walk: { beta: 0.45, lo: 0.75, dMul: 1.25, dCap: 0.75, ext: 0
 // start: from standing the push comes at once (jerk ≤ jerk0 for the first 0.3 s), up to accWalk … accSprint by the motion asked for
 const PROC_DYN = { gain: 1.3, bias: 0.8, near: 3, accWalk: 1.3, accSprint: 6.0, acc1: 1.5, dec: 3.5, jerk: 7, jerk0: 40, styleTau: 0.25, startTau: 0.08, standTau: 0.45, boostUp: 0.08, boostDown: 0.35 };
 // the Acceleration pose / Deceleration pose tracks (0–100 %): pose only, the speed is the throttle's
-const PROC_POSE = { accLean: 30, decLean: -15, accHipZ: 0.12, decHipZ: -0.10, accHipY: -0.04, decHipY: -0.08, accLand: -0.10, decLand: 0.14, accKnee: 0.08, decKnee: -0.03, accPlantar: 20, decDorsi: 15, decToe: 10, accArm: 0.4, decArm: -0.3, accElbow: 15, decCentre: 20, decCross: -10 };
+const PROC_POSE = { accLean: 30, decLean: -15, accHipZ: 0.12, decHipZ: -0.10, accHipY: -0.04, decHipY: 0, accLand: -0.10, decLand: 0.14, accKnee: 0.08, decKnee: -0.03, accPlantar: 20, decDorsi: 15, decToe: 10, accArm: 0.4, decArm: -0.3, accElbow: 15, decCentre: 20, decCross: -10 };
 function procThrSpeed(p) { const E = procEntries(); return tableLerp(PROC_SLOTS.map(([q, id]) => [q, id === 'stand' ? 0 : (E.find((e) => !e.stand && e.c.id === id) || { v: 0 }).v]), clamp(p, 0, 100)); }
 let PROC = null;
 
@@ -229,10 +229,18 @@ function procFootFK(g, ph, out) {   // the model's feet → out.L / out.R, in pl
   const P = PROC.planQ || (PROC.planQ = new Float32Array(B * 4)), fkv = PROC.planFK || (PROC.planFK = new VirtualFK(rig));
   const H = procPose(g, ph, P, V3()); fkv.run(P, H, 0);
   const hp = fkv.P[boneIdx.get(rig.b.hips.name)];
-  for (const Sd of ['L', 'R']) { const f = fkv.P[boneIdx.get(rig.side[Sd].foot.name)].clone(); f.z = hp.z + (f.z - hp.z) * g.fwd + procLand(g); out['u' + Sd] = f.clone(); out[Sd] = f; }
+  for (const Sd of ['L', 'R']) { const f = fkv.P[boneIdx.get(rig.side[Sd].foot.name)].clone(); f.z = hp.z + (f.z - hp.z) * g.fwd; f.z = procLandZ(g, Sd, f, fkv.P[boneIdx.get(rig.side[Sd].thigh.name)]); out['u' + Sd] = f.clone(); out[Sd] = f; }
   return out;
 }
 const procLand = (g) => PROC_POSE.accLand * g.wa + PROC_POSE.decLand * g.wd;   // m the feet land ahead (+) / back (−) of where the motion puts them
+// the pose tracks' landing shift, kept within the leg's reach from its hip joint at the motion's own hip height (with
+// the pose's hip shift): a braking foot lands as far ahead as the leg reaches, the hips are not pulled down for it
+function procLandZ(g, Sd, f, thigh) {
+  const PP = PROC_POSE, z = f.z + procLand(g); if (z <= f.z + 1e-6) return z;
+  const leg = rig.side[Sd].leg, Rr = (leg.l1 + leg.l2) * 0.985, hz = thigh.z + PP.accHipZ * g.wa + PP.decHipZ * g.wd, hy = thigh.y + PP.accHipY * g.wa + PP.decHipY * g.wd;
+  const dy = hy - f.y, dx = thigh.x - f.x, h2 = Rr * Rr - dy * dy - dx * dx;
+  return h2 <= 0 ? f.z : Math.max(f.z, Math.min(z, hz + Math.sqrt(h2)));
+}
 function procPlan() {
   if (!procModel()) return null;
   const key = procPlanKey();
@@ -337,7 +345,7 @@ function procEvaluate(t) {
   const b = rig.b, hp0 = worldP(b.hips);
   const fkRef = {};
   for (const Sd of ['L', 'R']) {
-    const sd = rig.side[Sd], footFK = worldP(sd.foot), footU = footFK.clone(); footU.z = hp0.z + (footU.z - hp0.z) * g.fwd + procLand(g);   // (where the plan puts the feet: forward travel, the pose tracks)
+    const sd = rig.side[Sd], footFK = worldP(sd.foot), footU = footFK.clone(); footU.z = hp0.z + (footU.z - hp0.z) * g.fwd; footU.z = procLandZ(g, Sd, footU, worldP(sd.thigh));   // (where the plan puts the feet: forward travel, the pose tracks)
     fkRef[Sd] = { foot: footU, footU, footQ: rig.delta(sd.foot), hip: worldP(sd.thigh), knee: worldP(sd.shin), footFK, thighQ: rig.delta(sd.thigh), shinQ: rig.delta(sd.shin) };
   }
   // the body: the Acceleration / Deceleration pose tracks lean the whole body forward / back (35 % in the pelvis,
