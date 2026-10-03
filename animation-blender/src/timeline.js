@@ -21,9 +21,6 @@ const SPEC = {
   whole: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   w: { range: [0, W_MAX], ref: 1, color: COL.weight, scale: 100, unit: '%', fmt: pct, snap: 0.05 },
   a: { range: [-ADJ_MAX, ADJ_MAX], ref: 0, color: COL.adjust, scale: 1, unit: '°', fmt: (v) => sgn(v, 1, '°'), snap: 1 },
-  accp: { range: [0, 100], ref: 0, color: '#6fd08c', scale: 1, unit: '% pose', fmt: (v) => Math.round(v) + '%', snap: 1 },
-  decp: { range: [0, 100], ref: 0, color: '#e07a6f', scale: 1, unit: '% pose', fmt: (v) => Math.round(v) + '%', snap: 1 },
-  thr: { range: [0, 100], ref: 0, color: '#ff9f43', scale: 1, unit: '% throttle', fmt: (v) => Math.round(v) + '%', snap: 1 },
   timing: { range: [-TIMING_MAX, TIMING_MAX], ref: 0, color: COL.timing, scale: 100, unit: '% cycle', fmt: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', snap: 0.01 },
 };
 function effSpec(k) {
@@ -139,13 +136,10 @@ function rebuildRows() {
   tracksEl.textContent = ''; rows = [];
   // master tracks are optional (the "+" button); hidden ones keep working with their values
   // the master tracks (each its own block, so they can be moved too; hidden ones keep working with their values)
-  const MASTERS = ['thr', 'accp', 'decp', 'mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
-  const masterOn = (k) => (k === 'thr' || k === 'accp' || k === 'decp' ? !!cur && cur.kind === 'proc' : k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
+  const MASTERS = ['mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
+  const masterOn = (k) => (k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
   const drawMaster = (k) => {
-    if (k === 'thr') procStopUI(addTrackRow('thr', SPEC.thr, () => A.throttle, (p) => { A.throttle = p; }, 'Throttle <i>% · picks the motion: 10 walk · 35 jog · 55 run · 75 run steady · 100 sprint</i>', null));
-    else if (k === 'accp') addTrackRow('accp', SPEC.accp, () => A.accPose, (p) => { A.accPose = p; }, 'Acceleration pose <i>% · leans forward, hips over the feet, push-off · not the speed</i>', null);
-    else if (k === 'decp') addTrackRow('decp', SPEC.decp, () => A.decPose, (p) => { A.decPose = p; }, 'Deceleration pose <i>% · leans back, feet land ahead, heel strike · not the speed</i>', null);
-    else if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
+    if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
     else if (k === 'speed') addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
     else if (k === 'run') drawRunBlock();
     else if (k === 'move') addTrackRow('move', SPEC.move, () => A.move, (p) => { A.move = p; }, 'Travel trim <i>× ground covered (feet may slide)</i>', null);
@@ -307,9 +301,6 @@ $('btnAddMaster').onclick = (e) => {
     { label: 'Template: Braking 2 · lean back, choppy steps (10 bars)', action: () => toast(applyBrakeChoppy()) },
     { label: 'Template: Braking 3 · sleep deceleration → run → jog → walk (27 bars, 4 motions)', action: () => toast(applyBrakeSleep()) },
     { label: 'Template: Braking 4 · decelerate → jog on the spot (18 bars, 3 motions)', action: () => toast(applyBrakeInPlace()) },
-    { label: 'Template: Fielding · sprint → slow braking (gather, procedural)', action: () => toast(applyFieldBrake('slow')) },
-    { label: 'Template: Fielding · sprint → controlled braking (chop steps, procedural)', action: () => toast(applyFieldBrake('controlled')) },
-    { label: 'Template: Fielding · sprint → hard braking (plant and stop, procedural)', action: () => toast(applyFieldBrake('hard')) },
     { label: 'Template: Sprint → Jog 2 m/s, braking (bars 3–7)', action: () => toast(applyDecelTemplate()) },
     { label: 'Template: Sprint → Decel 2.1 m/s, braking run (bars 3–7)', action: () => toast(applyDecelTemplate(DECEL_REF)) },
   ]);
@@ -446,7 +437,7 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['thr', 'accp', 'decp', 'fwd', 'speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
+const TIMING_KEYS = new Set(['speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
@@ -459,7 +450,7 @@ function allPointArraysOf(a) {   // every point array of an automation object, i
   for (const id of a.ikOrder) { const e = a.ik[id]; for (const k in e.tr) out.push(e.tr[k]); }
   for (const k of a.symOrder) { const sy = a.sym[k]; out.push(sy.weight, sy.offset); }
   if (a.steady && a.steady.tr) for (const k of STD_KEYS) out.push(a.steady.tr[k]);
-  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat, a.fwd, a.throttle, a.accPose, a.decPose);
+  out.push(a.lean, a.hipRot, a.brake, a.kneeDepth, a.armSwing, a.elbowBend, a.armCross, a.hipMotion, a.armCentre, a.brakeRhythm, a.jump, a.stepNat, a.fwd);
   for (const b of a.blends || []) for (const k of BLEND_KEYS) out.push(b[k]);
   if (a.runMuted) for (const k of Object.keys(a.runMuted).sort()) if (Array.isArray(a.runMuted[k])) out.push(a.runMuted[k]);   // muted run controls keep their timing
   for (const f of a.forcers || []) for (const k of RES_KEYS) out.push(f[k]);
@@ -475,7 +466,7 @@ function clipTimeFrom(t0, c0, t1) {
   let c = c0;
   for (let i = 0; i < n; i++) {
     const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
-    const cyc = cur && cur.kind === 'proc' ? 100 : Math.max(5, evalPts(A.cyc, a + dt / 2));
+    const cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
     c += play * (cyc / 100) * brakeRate(a + dt / 2, c) * resistCad(a + dt / 2) * dt;
   }
   return c;
