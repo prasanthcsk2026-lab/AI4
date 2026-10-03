@@ -384,10 +384,11 @@ function openSymTool() {
   const sel = $('stClip'); sel.textContent = '';
   for (const c of clips.filter((x) => x.kind === 'loop')) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label + (BAKED[c.id] ? ' · baked' : ''); sel.append(o); }
   sel.value = cur.kind === 'loop' ? cur.id : sel.options[0].value;
-  $('symTool').hidden = false; $('stSaveProj').hidden = !caps.db; stModeUI();
+  $('symTool').hidden = false; $('stSaveProj').hidden = !caps.db; stModeUI(); $('stProcSym').value = procSymMode();
   stLoad(sel.value);
 }
 $('btnSym').onclick = openSymTool;
+$('stProcSym').onchange = () => { pushUndo(); A.procSym = $('stProcSym').value; if (PROC) PROC.plan = null; editVersion++; rebuildSpeedLUT(); save(); };
 $('stClip').onchange = () => stLoad($('stClip').value);
 for (const id of ['stArms', 'stLegs', 'stRetime', 'stStart', 'stSplit', 'stCenter', 'stSwing', 'stZone', 'stEven']) $(id).onchange = stRun;
 $('stEase').oninput = () => { $('stEasev').textContent = (+$('stEase').value > 0 ? '+' : '') + $('stEase').value; };

@@ -452,6 +452,3 @@
 .fblist .note { color: var(--ink-2); }
 .frcik { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 8px; font-size: 12px; }
 .row.resb.selected .h { outline: 1px solid #ff4fa3; }
-/* procedural motion: the stop style on the Throttle row */
-.proclane { position: absolute; top: 2px; right: 6px; z-index: 3; display: flex; gap: 4px; }
-.procstop { font-size: 10px; padding: 0 2px; height: 18px; background: var(--bg2, #26272b); color: inherit; border: 1px solid #3a3b40; border-radius: 3px; }

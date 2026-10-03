@@ -355,6 +355,42 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - Bars 1–3 match the plain sprint within 0.55°.
 - Highest turn rates while braking: foot 2495, forearm 1565 °/s (bars 1–3: 1241, 1295).
 - **Note:** Run fast is already Run steady at 1.66× its cadence, so +33 % gives 352 steps/min. The imported Sprint.fbx (225 steps/min) would end at ~299. A larger *Step % per cadence %* (3–4) keeps the cadence lower for the same speed loss.
+## Procedural IK v5: stronger lean, hips up, a real first step, Brake run distance, Sym mode in the Symmetrize tool
+
+- **Lean.** The trunk is measured as the hips → neck line from the vertical; standing reads about −7°.
+  - Speeding up: forward by 30° × (speed still to gain). A sprint start peaks at **48.5°**, then straightens about 7° per step: 48 → 40 → 33 → 25 → 23 → 19°.
+  - Braking: back to each brake type's own trunk angle, reached from whatever the motion carries:
+
+    | Brake | Target | Measured min |
+    |---|---|---|
+    | Natural | −12° | −10.4° |
+    | Controlled | −17° | −15.0° |
+    | Hard | −24° | −21.1° |
+
+    It was −4 to −6° before. The lean only turned the trunk about half way (the hip turn is shared with the legs), so the rest now goes up the spine until the trunk reads the asked angle.
+  - Leaning back, the arms turn back by 70 % of the lean, so they stay in front at chest height instead of rising to the head.
+- **Hips up.** Run motions carried lower than the Sprint are lifted to its height; the feet stay and the knees straighten. Run steady: hips 0.77–0.83 → **0.84–0.90 m**, foot slide 0. *Knee depth* below 100 % lifts the hips further.
+- **First step from standing.** It used to swing the right foot 39 cm *backward* (the run cycle started mid-swing) and land it 0.40 m ahead. Now:
+  - The left foot stays planted and pushes.
+  - The right foot goes straight from where it stands to its first print, lifted 12 cm (back-swing 1.4 cm).
+  - The phase is slowed so the first touchdown comes about 0.55 s after the start (sprint; 0.42 s for a jog). He has moved by then, so the first step is longer.
+  - Prints 0.72 → 0.91 → 1.06 → 1.16 → 1.22 m.
+- **Brake run distance** (new Run-control tracks *Brake run distance* m and *Brake run speed* m/s, default 1.8). With a brake track on, he brakes down to the Brake run speed, runs that far in the braking pose (lean back, the type's cadence), then stops.
+  - Example: Hard brake with 3 m goes 4.58 → 1.80 m/s, holds 3 m, then stops.
+  - Lengthen the timeline to fit.
+  - At 0 m it stops straight away, as before.
+- **Arms / Sym selects removed** from the Throttle lane. Arms are always the clips' own, with the CMU jogs swinging Run steady's arms. *Average / Right → Left / Left → Right* is now **"Procedural motion trains from"** at the top of the Symmetrize tool.
+- Unchanged:
+  - Brake timings: 3.02 s / 1.95 s / 1.15 s.
+  - Walk weight 0, slide 0.
+  - Sym modes and the edited set.
+  - v65 clip regressions.
+- Limitations:
+  - The brake lean reaches about 2–3° short of its target (eased).
+  - The first touchdown is a little later than in track starts (0.55 s).
+  - The brake run approaches its speed gradually (about 0.5 s).
+  - Realtime playback is not measured.
+
 ## Procedural IK v4: lean from speed error, clip arms without CMU, R→L / L→R symmetrize, Natural / Controlled / Hard brake tracks
 
 Built on v65 (clip-based Sprint + Brake forcer, cadence/step ratio). Revert point: `541522d`.

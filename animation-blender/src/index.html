@@ -144,6 +144,7 @@
 </div>
 <aside class="toolpanel" id="symTool" hidden aria-label="Symmetrize tool">
   <h2>Symmetrize tool</h2>
+  <label class="stline" title="Which way the procedural motion's training clips are made symmetric: Average = the Procedural set (phase matching + average arms, or your edit of it) · Right → Left / Left → Right = the original clips, one side copied onto the other">Procedural motion trains from <select id="stProcSym"><option value="avg">Average (Procedural set)</option><option value="RL">Right → Left</option><option value="LR">Left → Right</option></select></label>
   <label class="stline">Clip <select id="stClip"></select></label>
   <div class="stgrid">
     <label>Mode</label><select id="stMode"><option value="none">None (timing and poses as they are; Steadiness only)</option><option value="phase" selected>Phase matching only (timing, poses untouched)</option><option value="arms">Phase matching + average arms (shoulder → hand)</option><option value="avg">Average whole body (mirror, half a cycle apart)</option><option value="copy">Copy one side onto the other</option></select>

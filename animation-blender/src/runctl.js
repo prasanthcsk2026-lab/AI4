@@ -423,9 +423,13 @@ function runDefs() {
     ['brkNat', BRKP_SPEC, 'Natural brake', '% · on: he slows to a stop · a gradual gather, ~6–8 steps'],
     ['brkCtl', BRKP_SPEC, 'Controlled brake', '% · on: he slows to a stop · quick chop steps, ~3–5 steps'],
     ['brkHard', BRKP_SPEC, 'Hard brake', '% · on: he slows to a stop · a long plant step, ~2–3 steps'],
+    ['brkDist', BRKD_SPEC, 'Brake run distance', 'm · braking: down to the Brake run speed, this far in the braking pose, then the stop (0 = straight to the stop)'],
+    ['brkJog', BRKJ_SPEC, 'Brake run speed', 'm/s · the jog he keeps for the Brake run distance'],
   ].filter(([k]) => (cur && cur.kind === 'proc' ? k !== 'brake' && k !== 'brakeRhythm' : !/^brk/.test(k)));   // (a procedural motion brakes with its three brake tracks; a clip with Hard braking)   // (a procedural motion brakes with its throttle)
 }
-const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth', 'fwd', 'brkNat', 'brkCtl', 'brkHard'];
+const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth', 'fwd', 'brkNat', 'brkCtl', 'brkHard', 'brkDist', 'brkJog'];
+const BRKD_SPEC = { range: [0, 20], ref: 0, color: '#e0905a', scale: 1, unit: 'm', fmt: (v) => v.toFixed(1) + ' m', snap: 0.5 };
+const BRKJ_SPEC = { range: [1, 3], ref: 1.8, color: '#e0b05a', scale: 1, unit: 'm/s', fmt: (v) => v.toFixed(2) + ' m/s', snap: 0.05 };
 const BRKP_SPEC = { range: [0, 100], ref: 0, color: '#e0605a', scale: 1, unit: '% brake', fmt: (v) => Math.round(v) + '%', snap: 5 };
 // forward travel: the ground covered and the feet's reach in front of / behind the hips both go with it, so at 0 he runs
 // on the spot (planted feet stay under the hips, no slide); the legs, arms and cadence keep their own motion
