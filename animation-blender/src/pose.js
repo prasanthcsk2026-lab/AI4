@@ -199,7 +199,7 @@ function rebuildSpeedLUT() {
   for (let i = 1; i < n; i++) {
     const t0 = (i - 1) * dt, t1 = i * dt, play = 0.5 * (evalPts(A.speed, t0) + evalPts(A.speed, t1)) * k;
     nom[i] = nom[i - 1] + play * dt;
-    const cyc = Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));
+    const cyc = cur && cur.kind === 'proc' ? 100 : Math.max(5, evalPts(A.cyc, (t0 + t1) / 2));   // (procedural: cycle speed is a run control)
     lut[i] = lut[i - 1] + play * (cyc / 100) * brakeRate((t0 + t1) / 2, lut[i - 1]) * resistCad((t0 + t1) / 2) * dt;
   }
   if (A && A.cycles > 0 && cur && cur.dur > 0) {   // exact count: a residue under 0.1 % of a bar is taken out of the table
@@ -233,7 +233,7 @@ function rebuildTravelLUT() {
   rawTravel(0, prev);
   for (let i = 1; i < n; i++) {
     rawTravel(i * dt, now);
-    const m = evalPts(A.move, (i - 0.5) * dt) * strideK((i - 0.5) * dt) * natTravelK((i - 0.5) * dt);   // natural step length: more ground in the air
+    const m = evalPts(A.move, (i - 0.5) * dt) * (cur && cur.kind === 'proc' ? 1 : strideK((i - 0.5) * dt) * natTravelK((i - 0.5) * dt));   // (procedural: step length and forward travel are in its plan)   // natural step length: more ground in the air
     x[i] = x[i - 1] + (now.x - prev.x) * m; z[i] = z[i - 1] + (now.z - prev.z) * m;
     prev.copy(now);
   }

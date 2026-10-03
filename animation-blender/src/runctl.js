@@ -301,7 +301,9 @@ function applyHipMotion(t) {   // in solveIK, before anything else moves the hip
   rig.setDelta(b.spine, spQ);   // the chest keeps its turn in the world (the arm swing sets the shoulder line)
 }
 function applyArmShape(t) {   // in solveIK: elbow bend and arm crossing (world)
-  const eb = A.elbowBend ? evalPts(A.elbowBend, t) : 0, cr = A.armCross ? evalPts(A.armCross, t) : 0, ce = armCentreAt(t);
+  applyArmShapeV(A.elbowBend ? evalPts(A.elbowBend, t) : 0, A.armCross ? evalPts(A.armCross, t) : 0, armCentreAt(t));
+}
+function applyArmShapeV(eb, cr, ce) {
   if (Math.abs(eb) < 1e-3 && Math.abs(cr) < 1e-3 && Math.abs(ce) < 1e-3) return;
   const chest = worldP(rig.b.spine2);
   let fwd = null;
@@ -408,7 +410,7 @@ function runDefs() {
     ['jump', JUMP_SPEC, 'Jump', `% · a hop at each change of foot (100 % = 6 cm)${A.jumpAuto !== false ? ' · + longer steps' : ''}`],
     ['kneeDepth', KNEE_SPEC, 'Knee depth', '% · deeper knees, the hips come down (feet stay)'],
     ['fwd', FWD_SPEC, 'Forward travel', '% · 100 runs forward · 0 runs on the spot (the feet land under the hips)'],
-  ];
+  ].filter(([k]) => !(cur && cur.kind === 'proc' && (k === 'brake' || k === 'brakeRhythm')));   // (a procedural motion brakes with its throttle)
 }
 const RUN_KEYS = ['stride', 'stepNat', 'cyc', 'lean', 'hipRot', 'brake', 'brakeRhythm', 'armSwing', 'armCentre', 'elbowBend', 'armCross', 'hipMotion', 'jump', 'kneeDepth', 'fwd'];
 // forward travel: the ground covered and the feet's reach in front of / behind the hips both go with it, so at 0 he runs

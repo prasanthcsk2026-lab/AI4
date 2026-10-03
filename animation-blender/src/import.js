@@ -46,7 +46,7 @@ function loadCmuClips(o) {
     if (!Array.isArray(r.bones) || r.bones.length !== B || r.bones.some((n, i) => n !== rig.bones[i].name)) continue;   // made for this rig
     const bk = { n: r.n, loop: true, fps: r.fps, q: b64ToF32(r.q), hp: b64ToF32(r.hp), win: r.win };
     const c = { name: r.name, speed: r.speed, dir: r.dir, n: r.n, imported: true, cmu: true, origBk: bk };
-    clips.push({ id: r.id, name: r.name, label: `${r.name} · ${r.speed.toFixed(2)} m/s · CMU mocap`, kind: 'loop', c, dur: r.n / r.fps, group: 'CMU mocap', rec: r });
+    clips.push({ id: r.id, name: r.name, label: `${r.name} · ${r.speed.toFixed(2)} m/s · ${r.tag || 'CMU mocap'}`, kind: 'loop', c, dur: r.n / r.fps, group: r.group || 'CMU mocap', rec: r });
   }
 }
 async function loadImported() {

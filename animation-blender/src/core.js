@@ -297,7 +297,7 @@ async function boot() {
 // ---------------------------------------------------------------- UI: clip + bones
 function buildClipSelect() {
   const sel = $('clipSel'); sel.textContent = '';
-  for (const grp of ['Procedural', 'Loops', 'CMU mocap', 'One-shot moves', 'Imported']) {
+  for (const grp of ['Procedural', 'Loops', 'CMU mocap', 'Mocap', 'One-shot moves', 'Imported']) {
     const og = document.createElement('optgroup'); og.label = grp;
     for (const c of clips.filter((x) => x.group === grp)) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.label; og.append(o); }
     if (og.children.length) sel.append(og);

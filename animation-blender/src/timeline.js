@@ -140,7 +140,7 @@ function rebuildRows() {
   const MASTERS = ['thr', 'mspeed', 'speed', 'run', 'move', 'cycle', 'stride', 'gnd'];
   const masterOn = (k) => (k === 'thr' ? !!cur && cur.kind === 'proc' : k === 'mspeed' ? A.showMaster.mspeed !== false && !!cur : k === 'cycle' || k === 'stride' ? !!A.showMaster[k] && !A.showMaster.run : !!A.showMaster[k]);
   const drawMaster = (k) => {
-    if (k === 'thr') addTrackRow('thr', SPEC.thr, () => A.throttle, (p) => { A.throttle = p; }, 'Throttle <i>% · 15 walk · 25 jog · 50 run · 100 fast run</i>', null);
+    if (k === 'thr') procStopUI(addTrackRow('thr', SPEC.thr, () => A.throttle, (p) => { A.throttle = p; }, 'Throttle <i>% · picks the motion: 15 walk · 25 jog · 50 run · 70+ sprint (7.5 m/s at 100)</i>', null));
     else if (k === 'mspeed') addResultRow(forcersOn());   // the result of everything
     else if (k === 'speed') addTrackRow('speed', SPEC.speed, () => A.speed, (p) => { A.speed = p; }, 'Playback speed <i>cadence</i>', null);
     else if (k === 'run') drawRunBlock();
@@ -439,7 +439,7 @@ const vSpan = () => Math.max(1e-3, S.v1 - S.v0);
 // While a timing point (playback / moving / cycle speed, foot on ground) is dragged the view is frozen: the bars,
 // grid and ruler keep their place and the character previews the new timing; the layout updates on release.
 let viewFreeze = null;
-const TIMING_KEYS = new Set(['thr', 'speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
+const TIMING_KEYS = new Set(['thr', 'fwd', 'speed', 'move', 'cyc', 'gnd', 'stride', 'stepNat', 'jump', 'brake', 'brakeRhythm', 'r|px', 'r|py', 'r|pz', 'r|fx', 'r|fy', 'r|fz', 'r|force', 'r|spread']);
 // Playback speed and cycle speed are what turn clip time into real seconds — a "bar" is a fixed
 // point in clip time, not in real seconds. Editing either one moves where the bars land in real time; every other
 // point, on every other track, is re-timed here so it lands on the same clip time as before — it stays on its bar.
@@ -468,7 +468,7 @@ function clipTimeFrom(t0, c0, t1) {
   let c = c0;
   for (let i = 0; i < n; i++) {
     const a = t0 + i * dt, play = 0.5 * (evalPts(A.speed, a) + evalPts(A.speed, a + dt)) * k;
-    const cyc = Math.max(5, evalPts(A.cyc, a + dt / 2));
+    const cyc = cur && cur.kind === 'proc' ? 100 : Math.max(5, evalPts(A.cyc, a + dt / 2));
     c += play * (cyc / 100) * brakeRate(a + dt / 2, c) * resistCad(a + dt / 2) * dt;
   }
   return c;

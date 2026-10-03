@@ -324,7 +324,65 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
-## Procedural IK locomotion (experiment): Throttle track
+## Procedural IK locomotion v2: throttle picks the motion, run controls on top, Sprint, stop style
+- **The motion comes from the throttle, not from the speed.**
+  - Every trained clip, and standing, is an entry with a weight. The throttle's speed sets the target weights (the one or two clips around it).
+  - Each weight eases to its target (0.25 s; into standing 0.45 s). A big throttle change cross-fades straight from the current motion to the new one. Nothing in between gets any weight: 0 → 100 % goes stand → Sprint, never walk → jog → run.
+  - A slow throttle ramp that you draw still passes through the motions on its way.
+- **Real speed vs motion:** the real speed ramps with the speed controller and sets the cadence and stride inside the chosen motion.
+  - Slower than the motion: a lower cadence, longer contacts and smaller steps, down to its mean pose.
+  - Faster: a higher cadence and shorter contacts (per-leg phase warp).
+  - Acceleration limit 4.0 m/s² from standstill, falling to 1.5 at 7.5 m/s. Braking 3.5 m/s², jerk 7 m/s³.
+- **Throttle → speed:**
+
+  | Throttle | 0 | 5 | 10 | 15 | 20 | 25 | 40 | 50 | 70 | 100 |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | m/s | 0 | 0.5 | 1.0 | 1.4 | 1.75 | 2.6 | 3.4 | 4.0 | 5.5 | 7.5 |
+
+- **Sprint:** the project's own Sprint.fbx (5.18 m/s, 225 steps/min) is now a built-in clip (group *Mocap*, id `mocap:sprint`) and the top of the run family.
+  - Above 5.18 m/s, cadence ∝ v^0.35: 256 steps/min at 7.5 m/s.
+  - 0 → 100 %: 7.5 m/s in about 3.5 s.
+- **Drive phase:** lean = 1.3 · atan(a / g), up to 32° forward and 14° back. While accelerating hard, the arms and trunk swing at full amplitude even when the steps are still short (eased in over 0.35 s).
+- **Symmetrized training:** before fitting, every training clip goes through the Symmetrize tool's *Phase matching + average arms* (left lands on the bar, the right half a cycle later, arms mirror-averaged). Your own saved versions of those clips are not touched. First use takes about 0.6 s.
+- **Stop style** (selector at the top-right of the Throttle lane), for a throttle that goes to 0:
+  - *Stop: run* keeps the motion it was in until nearly still (≤ 0.35 m/s), then eases into standing.
+  - *Stop: walk out* changes to the walk below 2.2 m/s, then stands.
+  - A throttle ramp down to 0 counts as a stop all the way (0.5 s look-ahead). 100 → 40 % still goes straight to the 40 % motion.
+- **Run controls on a procedural motion** act inside the motion the throttle picked:
+
+  | Control | What it does here |
+  |---|---|
+  | Step length (Hard and Natural), Cycle speed | Scale the speed (longer steps or quicker cadence, same motion) |
+  | Forward travel | Scales the ground covered and the feet's reach (0 = on the spot) |
+  | Foot on ground | Lengthens / shortens the contacts |
+  | Arm swing, Hip motion | Scale those Fourier amplitudes |
+  | Spine lean, Hip rotation | Add to the trunk / pelvis |
+  | Knee depth | Hips down 7 cm per +100 % |
+  | Jump | Hips up 6 cm at 100 % in the flight |
+  | Elbow bend, Arm crossing, Arm swing centre | As on a clip |
+
+  - Hard braking and Brake rhythm are not offered: the throttle brakes.
+  - On a procedural motion, Cycle speed no longer moves the bars.
+- **Feet:**
+  - Late in a contact and early in the swing, a foot further than 99 % of the leg from the hip rises (heel up, as at toe-off) instead of locking the knee straight.
+  - Planted-foot slide: 0.0 cm in all measured runs (demo, 0 → 100 → 0 with both stop styles).
+- **Measured, 0 → 100 % → 0:**
+  - Speed at 1.5 / 2 / 3 / 4 / 5 s: 0.88 / 2.59 / 5.26 / 7.13 / 7.49 m/s.
+  - Stop: run gives 7.5 → 0 in about 2.5 s in the Sprint motion.
+  - Highest turn rates at the 7.5 m/s sprint: forearm 1536, thigh 1396–1596, foot 1252 °/s. The Sprint clip's own, at 5.18 m/s, are forearm 1449, thigh 728, foot 1154.
+  - Hips acceleration ≤ 57 m/s².
+- **Run-control check** (25 % throttle, CMU jog 16_35 motion):
+  - Step length 130 % → 3.38 m/s at the same 152 steps/min.
+  - Cycle speed 120 % → 3.12 m/s at 183 steps/min.
+  - Forward travel 0 → 0 m/s of travel, still 152 steps/min.
+  - Foot on ground +10 → contact 0.18 → 0.28 of the cycle; the planted foot slips up to 3.5 cm (the model's stance sweep is shorter than the longer contact).
+- **Limits:**
+  - Forcers and IK tracks do not act on a procedural motion yet.
+  - Step length / cycle speed above about 130 % run the motion faster than it was captured.
+  - Hip motion and Arm swing have no automatic "× speed" here.
+  - The thigh turns about 2× faster than in the Sprint clip at 7.5 m/s.
+
+## Procedural IK locomotion (experiment, v1): Throttle track
 - **What it is:** a clip called *Procedural IK locomotion* (group *Procedural*, also in **+ Motion**). It plays no motion clip. 1 bar = 1 s.
 - **The gait model:** trained once, on first use, from 6 library clips:
   - Walks: Standard walk 1.38 m/s, Casual walk 1.50.
