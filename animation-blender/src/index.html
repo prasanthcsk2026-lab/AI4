@@ -144,7 +144,6 @@
 </div>
 <aside class="toolpanel" id="symTool" hidden aria-label="Symmetrize tool">
   <h2>Symmetrize tool</h2>
-  <label class="stline" title="Which way the procedural motion's training clips are made symmetric: Average = the Procedural set (phase matching + average arms, or your edit of it) · Right → Left / Left → Right = the original clips, one side copied onto the other">Procedural motion trains from <select id="stProcSym"><option value="avg">Average (Procedural set)</option><option value="RL">Right → Left</option><option value="LR">Left → Right</option></select></label>
   <label class="stline">Clip <select id="stClip"></select></label>
   <div class="stgrid">
     <label>Mode</label><select id="stMode"><option value="none">None (timing and poses as they are; Steadiness only)</option><option value="phase" selected>Phase matching only (timing, poses untouched)</option><option value="arms">Phase matching + average arms (shoulder → hand)</option><option value="avg">Average whole body (mirror, half a cycle apart)</option><option value="copy">Copy one side onto the other</option></select>
@@ -318,7 +317,7 @@
       <h3 class="imph">Target</h3>
       <div class="barsform"><label class="cb"><input type="checkbox" id="frcWhole" checked> Whole body (lean, steps, cadence)</label></div>
       <div class="barsform"><label>Body response <select id="frcReact"><option value="resist">Resist (keeps going, leans into the push)</option><option value="brake">Brake (slows down: a = F / m, leans back)</option></select></label></div>
-      <div class="barsform" id="frcBrakeOpts" hidden><label>Speed loss <select id="frcSplit"><option value="share">split by the cadence share</option><option value="ratio">cadence up, steps down</option></select></label><label>Step % per cadence % <input type="number" id="frcRatio" min="1" max="10" step="0.5" value="2"> <span class="note">(cadence up, steps down: each 1 % more cadence takes this much off the step)</span></label><label>Cadence share <input type="number" id="frcShare" min="-100" max="300" step="5" value="35"> % <span class="note">(of the speed loss on the cadence, the rest on the steps · the cadence stays ≥ 85 % of the clip's · below 0 = faster, shorter steps)</span></label><label>Hip rise <input type="number" id="frcHip" min="0" max="100" step="1" value="20"> cm per g of braking</label></div>
+      <div class="barsform" id="frcBrakeOpts" hidden><label>Cadence share <input type="number" id="frcShare" min="-100" max="300" step="5" value="35"> % <span class="note">(of the speed loss on the cadence, the rest on the steps · the cadence stays ≥ 85 % of the clip's · below 0 = faster, shorter steps)</span></label><label>Hip rise <input type="number" id="frcHip" min="0" max="100" step="1" value="20"> cm per g of braking</label></div>
       <h3 class="imph">Bones it bends</h3>
       <div id="frcBones" class="fblist"></div>
       <div class="barsform"><label>Bone flex (all) <input type="number" id="frcFlex" min="0" max="300" step="5" value="100"> % (× every bone's weight)</label></div>
