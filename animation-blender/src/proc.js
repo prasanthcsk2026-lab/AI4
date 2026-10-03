@@ -57,7 +57,7 @@ function procRegister() {
 function procNewAuto(n = 16) {   // a demo over n bars (1 bar = 1 s): stand → walk (10 %) → jog (35 %) → run (75 %) → 55 % → stop
   const a = newAuto(n, n), k = n / 16;
   a.throttle = [[0, 0], [1, 0], [1.3, 10], [4, 10], [4.3, 35], [7, 35], [7.3, 75], [10, 75], [10.3, 55], [13, 55], [13.3, 0], [16, 0]].map(([t, v]) => ({ t: +(t * k).toFixed(3), v, k: 0 }));
-  a.showMaster.thr = true; a.showMaster.run = true; a.procSym = 'avg'; a.procArms = 'proc';
+  a.showMaster.thr = true; a.showMaster.run = true; a.procSym = 'avg'; a.procArms = 'clip';
   return a;
 }
 
@@ -155,12 +155,39 @@ function procModel() {
 // The real speed v sets the cadence and stride inside that motion: slower than the motion, a lower cadence, longer
 // contacts and smaller steps (down to its mean pose at 0); faster, a higher cadence and shorter contacts (each leg's
 // phase is warped, so the planted foot keeps pace with the ground and the leg needs no longer reach).
+const PROC_ARMSUB = { v0: 2.0, k0: 0.6 };   // a CMU entry's arm swing: 60 % of the donor's at 2 m/s, 100 % at the donor's speed
+// the arm swing's centre (deg forward of the hips → neck line, both arms, over a cycle) with body cB, arms cA × s
+function procArmCentre(cB, cA, s) {
+  const gm = procGroups(), fkv = new VirtualFK(rig), Q = new Float32Array(B * 4), q = new THREE.Quaternion(), cs = new Float64Array(2 * PROC_H + 1);
+  const ix = (o) => boneIdx.get(o.name), iH = ix(rig.b.hips), iN = ix(rig.b.neck);
+  let sum = 0, n = 0;
+  for (let k = 0; k < 16; k++) {
+    procCS(cs, k / 16);
+    for (let i = 0; i < B; i++) { const arm = gm[i] === 3; procBone(arm ? cA : cB, i, q, cs, arm ? s : 1); q.toArray(Q, i * 4); }
+    fkv.run(Q, V3(0, 1, 0), 0);
+    const up = fkv.P[iN].clone().sub(fkv.P[iH]).normalize();
+    for (const Sd of ['L', 'R']) { const u = fkv.P[ix(rig.side[Sd].fore)].clone().sub(fkv.P[ix(rig.side[Sd].upper)]).normalize(); sum += Math.atan2(u.z, -u.dot(up)); n++; }
+  }
+  return (sum / n) / DEG;
+}
+const procIsCmu = (id) => /^cmu:/.test(procSrcId(id) || id);
 function procEntries() {
   if (PROC.entries) return PROC.entries;
   const M = procModel(), E = [];
   const w0 = M.walk[0];
   E.push({ stand: true, fam: 'walk', c: w0, v: 0.3, f: w0.f * PROC_FAMK.walk.lo, ms: w0.stride, K: PROC_FAMK.walk });
   for (const fam of ['walk', 'run']) for (const c of M[fam]) E.push({ fam, c, v: c.v, f: c.f, ms: c.stride, K: PROC_FAMK[fam] });
+  // arms: the CMU jogs / run keep their legs and body, but swing the arms of the nearest non-CMU run (Run steady): the
+  // same phase (0 = left touchdown in both), the swing scaled to the jog's speed (the elbow stays the donor's mean)
+  const donors = E.filter((e) => !e.stand && e.fam === 'run' && !procIsCmu(e.c.id));
+  for (const e of E) {
+    e.armC = e.c; e.armS = 1; e.armOff = 0;
+    if (e.stand || !procIsCmu(e.c.id) || !donors.length) continue;
+    const d = donors.reduce((b, x) => (Math.abs(x.v - e.v) < Math.abs(b.v - e.v) ? x : b));
+    e.armC = d.c; e.armS = clamp(PROC_ARMSUB.k0 + (1 - PROC_ARMSUB.k0) * (e.v - PROC_ARMSUB.v0) / Math.max(0.1, d.v - PROC_ARMSUB.v0), PROC_ARMSUB.k0, 1);
+    // the jog's own spine carries the arms differently: the swing's centre (about the trunk line) put back to the donor's
+    e.armOff = procArmCentre(d.c, d.c, 1) - procArmCentre(e.c, d.c, e.armS);
+  }
   PROC.entries = E; if (PROC.gotModel) PROC.gotModel.entries = E; return E;
 }
 function procTargetW(p, out) {   // the entries' target weights for a throttle %: its slot's motion, or the two around it
@@ -235,7 +262,8 @@ function procPose(g, ph, Q, H) {   // the pose for gait g at phase ph (in place,
     const grp = gm[i], cs = grp === 1 ? _pcsL : grp === 2 ? _pcsR : _pcs;
     let acc = 0;
     for (const a of g.act) {
-      procBone(a.e.c, i, acc ? _pq2 : _pq, cs, ampOf(a, grp));
+      const arm = grp === 3;
+      procBone(arm ? a.e.armC : a.e.c, i, acc ? _pq2 : _pq, cs, ampOf(a, grp) * (arm ? a.e.armS : 1));
       if (acc) { const q = _pq2; if (_pq.dot(q) < 0) q.set(-q.x, -q.y, -q.z, -q.w); _pq.slerp(q, a.w / (acc + a.w)); }
       acc += a.w;
     }
@@ -485,9 +513,10 @@ function procEvaluate(t) {
       if (sd.toe) rotateBoneWorld(sd.toe, qAxis(AX, -fr.push * (legT[Sd].planted ? 1 : 0.4) - fr.heel * (PP.decToe / PP.decDorsi)));
     }
   }
-  if ((A.procArms || 'proc') === 'proc') procArms(g, st);
+  if (A.procArms === 'synth') procArms(g, st);
   // arm shape run controls (elbow bend, arm crossing, swing centre), as on a clip
-  applyArmShapeV(procTr('elbowBend', 0, t) + PP.accElbow * wa, procTr('armCross', 0, t) + PP.decCross * wd, procTr('armCentre', 0, t) + PP.decCentre * wd);
+  const armOff = A.procArms === 'synth' ? 0 : g.act.reduce((s, a) => s + a.w * (a.e.armOff || 0), 0);
+  applyArmShapeV(procTr('elbowBend', 0, t) + PP.accElbow * wa, procTr('armCross', 0, t) + PP.decCross * wd, procTr('armCentre', 0, t) + PP.decCentre * wd + armOff);
   model.updateMatrixWorld(true);
 }
 // a short read-out for the status line
@@ -500,7 +529,7 @@ function procStopUI(r) {
   const box = document.createElement('div'); box.className = 'proclane';
   const mk = (title, opts, val, set) => { const sel = document.createElement('select'); sel.className = 'procstop'; sel.title = title; sel.innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join(''); sel.value = val; sel.onclick = (e) => e.stopPropagation(); sel.onpointerdown = (e) => e.stopPropagation(); sel.onchange = () => { pushUndo(); set(sel.value); PROC && (PROC.plan = null); editVersion++; rebuildSpeedLUT(); save(); }; box.append(sel); };
   mk('Training clips made symmetric by: Average (the Procedural set, phase matching + average arms, or your edit of it) · Right → Left / Left → Right (the original clips, one side copied onto the other)', [['avg', 'Sym: average'], ['RL', 'Sym: R → L'], ['LR', 'Sym: L → R']], procSymMode(), (v) => { A.procSym = v; });
-  mk('Arm swing: procedural (counter to the legs, its size by speed, elbows by speed) or the clips\' own arms', [['proc', 'Arms: procedural'], ['clip', 'Arms: clips']], A.procArms || 'proc', (v) => { A.procArms = v; });
+  mk('Arm swing: the clips\' own arms, the CMU jogs swinging Run steady\'s arms (scaled to their speed); or synthetic (built from angles)', [['clip', 'Arms: clips (no CMU)'], ['synth', 'Arms: synthetic']], A.procArms === 'synth' ? 'synth' : 'clip', (v) => { A.procArms = v; });
   if (getComputedStyle(r.lane).position === 'static') r.lane.style.position = 'relative';
   r.lane.append(box);   // (top-right of the lane: the header is narrow)
 }

@@ -355,16 +355,18 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
 - Bars 1–3 match the plain sprint within 0.55°.
 - Highest turn rates while braking: foot 2495, forearm 1565 °/s (bars 1–3: 1241, 1295).
 - **Note:** Run fast is already Run steady at 1.66× its cadence, so +33 % gives 352 steps/min. The imported Sprint.fbx (225 steps/min) would end at ~299. A larger *Step % per cadence %* (3–4) keeps the cadence lower for the same speed loss.
-## Procedural IK v4: lean from speed error, procedural arms, R→L / L→R symmetrize, Natural / Controlled / Hard brake tracks
+## Procedural IK v4: lean from speed error, clip arms without CMU, R→L / L→R symmetrize, Natural / Controlled / Hard brake tracks
 
 Built on v65 (clip-based Sprint + Brake forcer, cadence/step ratio). Revert point: `541522d`.
 
 - **Lean comes from (target speed − present speed).** Raising the throttle leans the body forward (about 35° trunk at a sprint start, against 20° in a steady sprint). Lowering the throttle or braking leans it back (5–8° while dropping to a jog). The amount eases over 0.12 s. The **Acceleration pose / Deceleration pose tracks are removed**.
-- **Procedural arms** (no CMU arm swing). The arm swing is phase-locked to the opposite leg and grows with speed:
-  - jog about −17°..+40° (about 55° range), sprint −37..+59° (about 96°);
-  - the elbow holds about 85° and does not change with deceleration; only the swing gets smaller;
-  - forearm peak 852°/s.
-  - The motion lane has an **Arms: procedural / clips** select, so the clip arms can come back.
+- **Arms (v67): the clips' own arm swing, except the CMU ones.** The synthetic arm (built from angles) looked wrong: it lagged the clip arm by about 0.08–0.1 s, the forearm whipped up to 114° off the clip at the turn, and there was no roll and no shoulder. The default is now **Arms: clips (no CMU)**:
+  - Walks, Run steady and Sprint swing their own arms: clavicle, upper arm, forearm and hand, with their roll.
+  - The CMU jogs/run (16_35, 35_17, 09_07) swing **Run steady's** arms at the same phase (0 = left touchdown). The swing is scaled to their speed (×0.64 / 0.71 / 0.77). The swing centre is corrected (+8 / +3 / +7°) for the jogs' own spine posture.
+  - Jog result: arm −48..+23° about the trunk, elbow 70–106°, shoulder steady (10–7 cm below the neck).
+  - Braking and arm swing track still shrink the swing; the elbow's mean stays.
+  - *Arms: synthetic* is kept as an option.
+  - Limitation: in the Sprint clip's own backswing the elbow opens to about 16° (nearly straight).
 - **Symmetrize: average / R → L / L → R** (select at the top-right of the motion lane). *Average* uses the symmetrized set; R → L / L → R train from the original clips through the Symmetrize tool's copy mode (about 150 ms per mode, cached).
 - **Brake tracks** in Run controls: *Natural brake*, *Controlled brake*, *Hard brake* (0–100). Turning one on brakes to a stop by itself; the throttle can stay at 100. Templates use them (*Fielding brake* menu).
 
