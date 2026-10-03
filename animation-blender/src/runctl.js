@@ -863,6 +863,9 @@ const SC = 'inout';   // an S curve to the next point
 const RUN_ARMS = { clip: 'cmu:09_07', swing: 1.2 };
 // run → jog: a small hop at the handover (an S-curve bump on Jump, peak at the end of the blend bars, gone a bar later)
 const HOP = [[1, 0, SC], [2, 30, SC], [3.5, 0]];
+// Standard walk swings its arms almost only forward (shoulder −4° … +49°, the hand 36 cm ahead with the elbow straight):
+// the centre back to the body line, a little less swing and a little elbow (→ −21° … +27°)
+const WALK_ARMS = { armCentre: [[1, -22]], armSwing: [[1, 90]], elbowBend: [[1, 10]] };
 const BRAKE_TPL = {
   // the sprint starts braking (lean back, hips up) and hands over to Run medium, whose own steps are longer (1.66 m
   // against 1.49) at its own cadence: long braking steps without slow motion; it brakes on, then a long-step jog
@@ -877,7 +880,7 @@ const BRAKE_TPL = {
     chain: [
       { clip: 'loop:Run_medium', start: 10, blend: 2, bars: 5, brake: { on: [3, 4, 6, 7], target: 0.85, share: 35, hip: 8 }, arms: RUN_ARMS },
       { clip: 'cmu:35_17', start: 15, blend: 2, bars: 7, stepNat: 108, hop: HOP },
-      { clip: 'loop:Standard_walk', start: 22, blend: 3, bars: 6, sym: true },
+      { clip: 'loop:Standard_walk', start: 22, blend: 3, bars: 6, sym: true, spec: WALK_ARMS },
     ] },
   // Braking 1, then the jog comes to a stop where it is and goes on running on the spot (forward travel → 0)
   inPlace: { bars: 5, on: [4, 5, 5, 6], target: 0.88, share: 35, hip: 20, spec: {},

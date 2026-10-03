@@ -333,6 +333,8 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - Braking 1 and 3: the run phase (Run medium) takes its arms from CMU run 09_07 (Blend motion, symmetric, swing 120 %): shoulder −50° … +9°, elbow 89–122°. The jog is CMU jog 35_17 (full capture).
   - Run → jog: a small hop at the handover (Jump 0 → 30 % → 0, S curves, peak at the end of the blend bars): hips bounce 8 cm, no jerk (hips acceleration ≤ 127 m/s² against 157 in the plain sprint).
   - **Braking 4 · decelerate → jog on the spot** (18 bars, 3 motions): as Braking 1, then the CMU jog's forward travel eases 100 → 0 % (bars 11–14) with the spine a little more upright, and he jogs on the spot to bar 18. Speed per bar 6.60 → 4.78 → 4.17 → 3.02 → 2.50 → 1.38 → 0.26 → 0; cadence stays 156–157.
+- Walk arms (Braking 3's last motion): Standard walk swings its arms almost only forward (shoulder −4° … +49°, the hand 36 cm ahead, elbow nearly straight). The walk motion now moves the swing centre back (−22°), swings 90 % and bends the elbows 10°: −21° … +27°. CMU walks (35_01, 35_02) swing even less (about 11–14°).
+- Checked by eye (side and front filmstrips, 0.25–0.5 bar apart): Braking 1, 3 and 4. Front view: the run and jog phases land the feet close to the body's centre line (the CMU jogger's own style).
 - Not done: I cannot watch YouTube videos here; the changes rest on published running studies and on measuring the CMU captures against the library clips.
 
 ## No slow motion: cadence floor, clip handover
