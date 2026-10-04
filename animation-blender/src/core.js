@@ -175,7 +175,7 @@ function normalizeAuto(a) {
   for (const k of ['lean', 'hipRot', 'brake']) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(0, a.dur);
   if (!Array.isArray(a.kneeDepth) || !a.kneeDepth.length) a.kneeDepth = flat(100, a.dur);
   a.blends = (Array.isArray(a.blends) ? a.blends : []).filter((b) => b && b.clipId); for (const b of a.blends) for (const k of BLEND_KEYS) if (!Array.isArray(b[k]) || !b[k].length) b[k] = flat(k === 'weight' ? 0 : 1, a.dur);
-  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100], ['fwd', 100], ['throttle', 0], ['brkNat', 0], ['brkCtl', 0], ['brkHard', 0]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
+  for (const [k, v] of [['armSwing', 100], ['elbowBend', 0], ['armCross', 0], ['hipMotion', 100], ['armCentre', 0], ['brakeRhythm', 1], ['jump', 0], ['stepNat', 100], ['fwd', 100], ['throttle', 0]]) if (!Array.isArray(a[k]) || !a[k].length) a[k] = flat(v, a.dur);
   for (const k of a.symOrder) if (!a.sym[k].offset) a.sym[k].offset = flat(0.5, a.dur);
   if (!(a.cycles > 0)) a.cycles = cur && cur.dur > 0 ? +(a.dur / cur.dur).toFixed(3) : 1;   // older saves: the clip's natural cadence
   for (const gid of a.groupOrder) { const g = a.groups[gid]; if (g) { g.show = g.show || { weight: true }; g.weight = g.weight || flat(1, a.dur); g.timing = g.timing || flat(0, a.dur); } }
