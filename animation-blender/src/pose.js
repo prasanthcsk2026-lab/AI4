@@ -44,7 +44,7 @@ const EFF_BY_ID = {};
   add({ id: 'neck', label: 'Neck', group: 'Body', kind: 'torso', seg: 'neck', spread: ['neck'], chain: ['spine2', 'spine1', 'spine'], tracks: ['blend', ...P, ...R], defaultShow: ['rx'], what: 'rotate the neck · move bends the upper spine' });
   add({ id: 'head', label: 'Head', group: 'Body', kind: 'torso', seg: 'head', spread: ['neck', 'head'], chain: ['neck', 'spine2', 'spine1'], tracks: ['blend', ...P, ...R], defaultShow: ['ry'], what: 'rotate neck + head · move bends neck and chest' });
   for (const [S, side] of [['L', 'Left'], ['R', 'Right']]) {
-    add({ id: S + 'shoulder', label: side + ' shoulder', group: side + ' arm', kind: 'shoulder', side: S, tracks: ['blend', ...R], defaultShow: ['rz'], what: 'clavicle shrug / reach' });
+    add({ id: S + 'shoulder', label: side + ' shoulder', group: side + ' arm', kind: 'shoulder', side: S, tracks: ['blend', ...P, ...R], defaultShow: P, what: 'shoulder IK: move the shoulder joint (the clavicle turns to it, ≤ 40°) · rotate the clavicle (shrug / reach)' });
     add({ id: S + 'elbow', label: side + ' elbow', group: side + ' arm', kind: 'elbow', side: S, tracks: ['swivel', ...R], defaultShow: ['swivel'], what: 'elbow direction (pole) · rotate turns the forearm' });
     add({ id: S + 'hand', label: side + ' hand', group: side + ' arm', kind: 'hand', side: S, tracks: ['blend', ...P, ...R, 'pin', 'hold', 'pull'], defaultShow: P, what: 'arm IK: move / rotate the hand' });
     add({ id: S + 'fingers', label: side + ' fingers', group: side + ' arm', kind: 'fingers', side: S, tracks: ['curl', 'spread', 'thumb', ...R], defaultShow: ['curl'], what: 'curl, spread, thumb · rotate turns all fingers' });
@@ -66,7 +66,8 @@ const EFF_BY_ID = {};
   G('ig:upper', 'Upper body', { chest: 1, Lhand: 1, Rhand: 1 }, 'auto', 'chest + hands about the lower back', ['Lelbow', 'Relbow']);
   G('ig:body', 'Whole body', { hips: 1, Lfoot: 1, Rfoot: 1, Lhand: 1, Rhand: 1 }, 'auto', 'everything about the hips', ['Lelbow', 'Relbow', 'Lknee', 'Rknee']);
 })();
-const MOVABLE = ['hips', 'spine', 'spine1', 'chest', 'neck', 'head', 'Lhand', 'Rhand', 'Lfoot', 'Rfoot'];
+const MOVABLE = ['hips', 'spine', 'spine1', 'chest', 'neck', 'head', 'Lshoulder', 'Rshoulder', 'Lhand', 'Rhand', 'Lfoot', 'Rfoot'];
+const SHOULDER_IK_MAX = 40;   // (°) how far the clavicle may turn for a shoulder move
 const IG_AUTO_PIVOT = { 'ig:Larm': () => rig.side.L.upper, 'ig:Rarm': () => rig.side.R.upper, 'ig:Lleg': () => rig.side.L.thigh, 'ig:Rleg': () => rig.side.R.thigh, 'ig:upper': () => rig.b.spine, 'ig:body': () => rig.b.hips };
 function registerIG(id, label) {   // a custom group IK (id "ig:c<n>")
   if (EFF_BY_ID[id]) { if (label) EFF_BY_ID[id].label = label; return EFF_BY_ID[id]; }
@@ -796,7 +797,22 @@ function solveIK(t, pend) {
     }
     spreadOver(d.spread.map((k) => b[k]), gx.q.clone().multiply(effRotQ(id, t, pend, w)));
   }
-  for (const Sd of ['L', 'R']) { const id = Sd + 'shoulder'; if (on(id)) rotateBoneWorld(rig.side[Sd].clav, effRotQ(id, t, pend, effVal(id, 'blend', t))); }
+  // shoulder IK: the shoulder joint (top of the upper arm) moved → the clavicle turns so that joint goes toward the
+  // target (its length kept: the nearest point it can reach, at most SHOULDER_IK_MAX°); then its rotate. The arm IK
+  // below starts from the new shoulder (a pinned hand stays; a free arm is carried)
+  for (const Sd of ['L', 'R']) {
+    const id = Sd + 'shoulder'; if (!on(id)) continue;
+    const sd = rig.side[Sd], w = effVal(id, 'blend', t), p0 = worldP(sd.upper), gx = GX.xf(id, p0);
+    const off = effPosOff(id, t, pend, w).add(gx.dpos);
+    if (off.lengthSq() > 1e-10) {
+      const c = worldP(sd.clav), from = p0.clone().sub(c), to = p0.clone().add(off).sub(c);
+      if (from.lengthSq() > 1e-10 && to.lengthSq() > 1e-10) {
+        const q = new THREE.Quaternion().setFromUnitVectors(from.normalize(), to.normalize()), ang = 2 * Math.acos(clamp(Math.abs(q.w), 0, 1)), lim = SHOULDER_IK_MAX * DEG;
+        rotateBoneWorld(sd.clav, ang > lim ? new THREE.Quaternion().slerp(q, lim / ang) : q);
+      }
+    }
+    rotateBoneWorld(sd.clav, gx.q.clone().multiply(effRotQ(id, t, pend, w)));
+  }
   // 4. hand targets, then the body leans toward targets out of reach (pull)
   const armT = {};
   for (const Sd of ['L', 'R']) {

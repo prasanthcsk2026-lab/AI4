@@ -324,6 +324,22 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Shoulder IK
+
+- The **Left / Right shoulder** effectors now **move** as well as rotate (tracks blend, px/py/pz, rx/ry/rz). Drag the shoulder joint (top of the upper arm) with the Move gizmo, or key Move X/Y/Z.
+  - The clavicle turns so that joint goes toward the target, as far as a 40° turn allows. Its length stays, so the joint travels on a sphere about the clavicle's root.
+  - Then the clavicle's rotate is applied.
+  - The arm IK starts from the new shoulder: a pinned hand stays where it is (0.00 cm); a free arm is carried along.
+- Measured on the Sprint clip, with the anatomical limits on:
+
+  | Asked | Joint moved | Clavicle turn |
+  |---|---|---|
+  | Up 5 cm | 4.8 cm | 22° |
+  | Forward 5 cm | 2.6 cm (3.6 cm with the limits off); a clavicle swings on an arc, so a forward move also pulls the joint in about 1.6 cm | – |
+  | Up 30 cm | about 8 cm | capped at the 40° turn |
+
+- The shoulders can join IK groups and custom controllers, and forcers can push them (they are in the movable effectors list).
+
 ## Timeline FBX export: bind pose as the rest pose, plain .fbx
 
 - **Fingers (and everything else) came in wrong after an import.** The FBX writer gave every bone the animation's *first frame* as its own (rest) transform, and wrote no BindPose. Importers take the file's rest pose as their reference (our own import; also Blender, Character Creator, Unreal …), so every frame came in rotated by the difference. Measured on the Sprint clip, export → our import:
