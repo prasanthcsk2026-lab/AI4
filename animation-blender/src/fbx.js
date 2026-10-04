@@ -2,6 +2,9 @@
 // ============================================================================
 //  FBX EXPORT (binary FBX 7.4: skeleton + animation, no mesh)
 //  One LimbNode per bone under an "Armature" node, one take with a translation and a rotation curve per bone.
+//  Each bone's own (rest) transform is the character's bind pose, and a BindPose lists them: an importer that takes
+//  the file's rest pose as its reference (our own import, Blender, Character Creator, Unreal …) then reads every frame
+//  right. (The first frame as the rest pose put fingers up to 172° and arms 144° off after import.)
 //  Units: centimetres (UnitScaleFactor 1), Y up; rotations as XYZ Euler in degrees (FBX's default order).
 // ============================================================================
 class FbxWriter {
@@ -79,6 +82,8 @@ function buildFbx(frames, takeName, nameOf = (n) => n) {   // nameOf: bone name 
   ]];
   const curveNode = (cnid, kind, v0) => ['AnimationCurveNode', [['L', cnid], ['S', fbxName(kind, 'AnimCurveNode')], ['S', '']], [['Properties70', [], [P70('d|X', 'Number', '', 'A', ['D', v0[0]]), P70('d|Y', 'Number', '', 'A', ['D', v0[1]]), P70('d|Z', 'Number', '', 'A', ['D', v0[2]])]]]];
   const ids = new Map(), hipsI = bones.indexOf(rig.b.hips), q = new THREE.Quaternion(), hipLocal = V3();
+  // bind-pose world matrices (cm) for the BindPose: the armature node, then each bone from its parent
+  const armW = new THREE.Matrix4().compose(apPos, apQ, V3(1, 1, 1)), bindW = new Map(), poseNodes = [['PoseNode', [], [['Node', [['L', armId]], null], ['Matrix', [['d', Array.from(armW.elements)]], null]]]];
   bones.forEach((b, i) => {
     const mid = id(), aid = id(); ids.set(b, mid);
     // rotations over the frames (continuous Euler), translation: bind (hips: animated)
@@ -87,8 +92,12 @@ function buildFbx(frames, takeName, nameOf = (n) => n) {   // nameOf: bone name 
       q.fromArray(frames.q, (k * bones.length + i) * 4); prev = eulerDeg(q, prev); rx.push(prev[0]); ry.push(prev[1]); rz.push(prev[2]);
       if (i === hipsI) { hipLocal.set(frames.hp[k * 3], frames.hp[k * 3 + 1], frames.hp[k * 3 + 2]); b.parent.worldToLocal(hipLocal); tx.push(hipLocal.x * unit); ty.push(hipLocal.y * unit); tz.push(hipLocal.z * unit); }
     }
-    const lp = rig.bind.get(b).lp, t0 = i === hipsI ? [tx[0], ty[0], tz[0]] : [lp.x * unit, lp.y * unit, lp.z * unit];
-    objects.push(attr(aid, nameOf(b.name)), modelNode(mid, nameOf(b.name), t0, [rx[0], ry[0], rz[0]], 1));
+    const bd = rig.bind.get(b), lp = bd.lp, t0 = i === hipsI ? [tx[0], ty[0], tz[0]] : [lp.x * unit, lp.y * unit, lp.z * unit];
+    // the rest transform: the bind pose (not the first frame)
+    objects.push(attr(aid, nameOf(b.name)), modelNode(mid, nameOf(b.name), [lp.x * unit, lp.y * unit, lp.z * unit], eulerDeg(bd.lq), 1));
+    const pm = b.parent && bindW.has(b.parent) ? bindW.get(b.parent) : armW;
+    const mw = pm.clone().multiply(new THREE.Matrix4().compose(V3(lp.x * unit, lp.y * unit, lp.z * unit), bd.lq, V3(1, 1, 1))); bindW.set(b, mw);
+    poseNodes.push(['PoseNode', [], [['Node', [['L', mid]], null], ['Matrix', [['d', Array.from(mw.elements)]], null]]]);
     conns.push(['OO', aid, mid], ['OO', mid, b.parent && ids.has(b.parent) ? ids.get(b.parent) : armId]);
     const rn = id(); objects.push(curveNode(rn, 'R', [rx[0], ry[0], rz[0]])); conns.push(['OO', rn, layerId], ['OP', rn, mid, 'Lcl Rotation']);
     for (const [ax, vals] of [['d|X', rx], ['d|Y', ry], ['d|Z', rz]]) { const cid = id(); objects.push(curve(cid, vals)); conns.push(['OP', cid, rn, ax]); }
@@ -97,6 +106,7 @@ function buildFbx(frames, takeName, nameOf = (n) => n) {   // nameOf: bone name 
       for (const [ax, vals] of [['d|X', tx], ['d|Y', ty], ['d|Z', tz]]) { const cid = id(); objects.push(curve(cid, vals)); conns.push(['OP', cid, tn, ax]); }
     }
   });
+  objects.push(['Pose', [['L', id()], ['S', fbxName('BindPose', 'Pose')], ['S', 'BindPose']], [['Type', [['S', 'BindPose']], null], ['Version', [['I', 100]], null], ['NbPoseNodes', [['I', poseNodes.length]], null], ...poseNodes]]);
   const count = (t) => objects.filter((o) => o[0] === t).length;
   const W = new FbxWriter();
   W.str('Kaydara FBX Binary  '); W.bytes(Uint8Array.of(0, 0x1a, 0)); W.u32(7400);
@@ -117,7 +127,7 @@ function buildFbx(frames, takeName, nameOf = (n) => n) {   // nameOf: bone name 
   const docId = id();
   W.node('Documents', [], [['Count', [['I', 1]], null], ['Document', [['L', docId], ['S', ''], ['S', 'Scene']], [['RootNode', [['L', 0]], null]]]]);
   W.node('References', [], []);
-  const types = ['Model', 'NodeAttribute', 'AnimationStack', 'AnimationLayer', 'AnimationCurveNode', 'AnimationCurve'];
+  const types = ['Model', 'NodeAttribute', 'Pose', 'AnimationStack', 'AnimationLayer', 'AnimationCurveNode', 'AnimationCurve'];
   W.node('Definitions', [], [['Version', [['I', 100]], null], ['Count', [['I', objects.length + 1]], null], ['ObjectType', [['S', 'GlobalSettings']], [['Count', [['I', 1]], null]]], ...types.map((t) => ['ObjectType', [['S', t]], [['Count', [['I', count(t)]], null]]])]);
   W.node('Objects', [], objects);
   W.node('Connections', [], conns.map(([k, a, b, p]) => ['C', [['S', k], ['L', a], ['L', b], ...(p ? [['S', p]] : [])], null]));

@@ -95,7 +95,8 @@ function impAutoMap(src) {   // this rig's bone → the file's bone
 
 // ---------------------------------------------------------------- retarget
 function impRetarget(src, map, take, fps = 30) {
-  const mixer = new THREE.AnimationMixer(src.obj), action = mixer.clipAction(take); action.play();
+  const mixer = new THREE.AnimationMixer(src.obj), action = mixer.clipAction(take);
+  action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play();   // (at the very end time a looping action is back at frame 0: the last frame would be the first)
   const n = Math.max(2, Math.round(take.duration * fps) + 1), bones = rig.bones;
   const q = new Float32Array(n * B * 4), hp = new Float32Array(n * 3);
   // rest-direction alignment per mapped bone (target rest → source rest), and the hips scale

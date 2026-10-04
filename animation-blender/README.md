@@ -324,6 +324,25 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Timeline FBX export: bind pose as the rest pose, plain .fbx
+
+- **Fingers (and everything else) came in wrong after an import.** The FBX writer gave every bone the animation's *first frame* as its own (rest) transform, and wrote no BindPose. Importers take the file's rest pose as their reference (our own import; also Blender, Character Creator, Unreal …), so every frame came in rotated by the difference. Measured on the Sprint clip, export → our import:
+
+  | | Before | After |
+  |---|---|---|
+  | Fingers | 172° max, 88° mean | ≤ 0.1° |
+  | Arms | 144° max, 67° mean | 0.0° |
+  | Legs | 106° max | 0.1° |
+
+  The file's rest pose was up to 123° away from the bind pose. The curves themselves were right: read directly, every bone was 0.00 cm off.
+- **Fix** (`src/fbx.js`): each bone's rest transform is now the character's bind pose, and a **BindPose** lists them (world matrices in cm). The animation curves are unchanged. Checked by export → import round trips, all ≤ 0.1° on every frame, fingers included:
+  - Sprint clip;
+  - Fielding (sequence, procedural);
+  - Sprint → resisted run (forcer);
+  - Walk → Run (sequence).
+- **Importer last frame** (`src/import.js`): the retarget asked the three.js mixer for the pose at exactly the take's end time, where a looping action is back at frame 0, so an imported clip's last frame was its first. The action now plays once and holds.
+- **Timeline export is a plain `.fbx`** (no zip): `<clip>_timeline_<YYYY-MM-DD-HH-MM>.fbx`.
+
 ## Procedural IK (on v69): Jog slow arms on the CMU jogs, straight spine when slowing, Natural / Controlled / Hard brake
 
 - **Arms.** The CMU jogs and run (16_35, 35_17, 09_07) keep their legs and body but swing the library's **Jog slow** arms (clavicle to hand), at the same phase, with its own swing and elbows. The swing centre is corrected for the CMU spine (+7 / +2 / +7°).
