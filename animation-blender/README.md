@@ -324,6 +324,54 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Procedural IK: real speeds, no walk, Natural / Controlled / Hard brake (on v60)
+
+Built on v60 (`f7a14e8`). Acceleration and deceleration are shaped on the library's own real mocap:
+
+- *start* (standing start): the trunk goes about 22° forward in 0.2 s, the hips about 12 cm lower, and the first big step is about 1 m at about 0.7 s.
+- *jogStop* (2.8 m/s to a stop): the cadence stays about constant (about 0.4 s a step) while the steps shrink 1.1 → 0.75 → 0.23 m. The trunk ends about 11° behind its standing angle, and the hips stay level.
+
+**Speeds and motions**
+
+- **Real speeds.** Each motion runs at its own speed, measured from its planted feet:
+
+  | Throttle | Motion | Speed |
+  |---|---|---|
+  | 25 % | CMU jog 16_35 | 2.15 m/s |
+  | 40 % | 35_17 | 2.38 m/s |
+  | 55 % | 09_07 | 2.62 m/s |
+  | 75 % | Run steady | 3.42 m/s |
+  | 100 % | Sprint | 4.58 m/s |
+
+  The old 7.5 m/s table is gone.
+- **No walk.** The slowest motion is the jog. At 12 % (1.03 m/s) he jogs at 120 steps/min with 0.52 m steps. Standing uses the Standard walk's mean pose only.
+- **Stop: run / walk out dropdown removed.** Every stop is running, down to the slow jog, then standing.
+
+**Brake tracks**
+
+Three Run-control tracks, *Natural brake*, *Controlled brake* and *Hard brake* (0–100 %). Turning one on brakes him to a stop; the throttle can stay. The cadence from when the brake began is held while the steps shrink.
+
+| Brake | Peak decel | Stop time | Cadence held | Steps | Trunk |
+|---|---|---|---|---|---|
+| Natural | 1.8 m/s² | 3.02 s | 90 % | 1.21 → 1.18 → 1.00 → 0.80 → 0.65 → 0.51 → 0.26 → 0.14 m, all 0.29–0.30 s apart | 18.6 → −15.9° |
+| Controlled | 3.0 m/s² | 1.95 s | 95 % | 1.02 → 0.65 → 0.42 → 0.11 m, 0.28 s apart | to −19.4° |
+| Hard | 5.5 m/s² | 1.15 s | 85 % | 1.14 → 0.52 m, then the stop | to −23.6° |
+
+- Standing reads −7°, so Natural ends about 9° behind standing.
+- Walk weight is 0 (there is no walk entry). Foot slide is 0.
+- Leaning back, the arms turn back by 70 % of the lean, so the hands stay at chest height. The head keeps 80 % of its level, so he looks ahead.
+
+**Standing start**
+
+- The left foot pushes while the right foot steps straight to its first print (back-swing 0 cm; it was 10 cm). The phase is held back so the first touchdown comes about 0.67 s after the start.
+- First step 0.82 m (it was 0.41 m), then 0.85, 0.96, 1.10, 1.15 m.
+- The trunk is 28° at 0.1 s and 39° at 0.5 s, then 20° in the steady sprint. The hips drop 12 cm while accelerating hard, as in the mocap.
+
+**Other**
+
+- Templates: *Fielding · standing start → sprint → Natural / Controlled / Hard brake*.
+- Limitations: the start lean is stronger than the *start* mocap (a sprint start rather than a jog start). Realtime playback is not measured.
+
 ## Procedural IK locomotion v2: throttle picks the motion, run controls on top, Sprint, stop style
 - **The motion comes from the throttle, not from the speed.**
   - Every trained clip, and standing, is an entry with a weight. The throttle's speed sets the target weights (the one or two clips around it).

@@ -38,7 +38,7 @@ function curveItems(r, hit) {
 // there or inserting new bars first. Tracks are matched by name, so a copy goes to another clip too.
 let barClip = null;
 function pointArrayMap(a) {   // stable name → point array, for every track in an automation object
-  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride, lean: a.lean, hipRot: a.hipRot, brake: a.brake, kneeDepth: a.kneeDepth, armSwing: a.armSwing, elbowBend: a.elbowBend, armCross: a.armCross, hipMotion: a.hipMotion, armCentre: a.armCentre, brakeRhythm: a.brakeRhythm, jump: a.jump, stepNat: a.stepNat, fwd: a.fwd, throttle: a.throttle };
+  const m = { speed: a.speed, move: a.move, cyc: a.cyc, gnd: a.gnd, stride: a.stride, lean: a.lean, hipRot: a.hipRot, brake: a.brake, kneeDepth: a.kneeDepth, armSwing: a.armSwing, elbowBend: a.elbowBend, armCross: a.armCross, hipMotion: a.hipMotion, armCentre: a.armCentre, brakeRhythm: a.brakeRhythm, jump: a.jump, stepNat: a.stepNat, fwd: a.fwd, throttle: a.throttle, brkNat: a.brkNat, brkCtl: a.brkCtl, brkHard: a.brkHard };
   for (const b of a.blends || []) for (const k of BLEND_KEYS) m[`l|${b.id}|${k}`] = b[k];
   if (a.runMuted) for (const k of Object.keys(a.runMuted)) m[`rm|${k}`] = a.runMuted[k];
   for (const n of a.order) { const ba = a.bones[n]; if (!ba) continue; m[`b|${n}|whole`] = ba.whole; m[`b|${n}|timing`] = ba.timing; for (const x of AXES) { m[`b|${n}|w${x}`] = ba.w[x]; m[`b|${n}|a${x}`] = ba.a[x]; } }
