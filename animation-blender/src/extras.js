@@ -145,7 +145,8 @@ async function exportTimelineFbx() {
   try {
     const fr = timelineFrames(fps, travel), base = `${(cur.c.name || 'clip').replace(/[^A-Za-z0-9_-]/g, '_')}_timeline`;
     const nameOf = cc ? (nm) => RIG_TO_CC[normName(nm)] || nm : (nm) => nm;
-    const data = buildFbx(fr, base, nameOf), fn = `${base}_${stamp()}.fbx`;   // (a plain .fbx, no zip)
+    // (the artifact's downloads take no .fbx extension: the timestamped .fbx goes in a .zip of the same name)
+    const name = `${base}_${stamp()}`, data = zipStore([{ name: name + '.fbx', data: buildFbx(fr, base, nameOf) }]), fn = name + '.zip';
     if (!caps.downloads) { note.textContent = 'Download is not available here.'; return; }
     await caps.downloads.save({ filename: fn, data });
     note.textContent = `Saved ${fn}: ${fr.n} frames at ${fps} fps (${((fr.n - 1) / fps).toFixed(2)} s${seqActive() ? `, ${SEQ.motions.length} motions` : `, ${cycTxt(A.cycles || 0)} bars`}), ${travel ? 'with travel' : 'in place'}, ${cc ? 'Character Creator' : 'Mixamo'} bone names.`;

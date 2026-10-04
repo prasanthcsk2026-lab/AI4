@@ -341,7 +341,7 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - Sprint → resisted run (forcer);
   - Walk → Run (sequence).
 - **Importer last frame** (`src/import.js`): the retarget asked the three.js mixer for the pose at exactly the take's end time, where a looping action is back at frame 0, so an imported clip's last frame was its first. The action now plays once and holds.
-- **Timeline export is a plain `.fbx`** (no zip): `<clip>_timeline_<YYYY-MM-DD-HH-MM>.fbx`.
+- **Timeline export:** `<clip>_timeline_<YYYY-MM-DD-HH-MM>.fbx` inside a `.zip` of the same name. The artifact's downloads accept no `.fbx` extension, so a plain .fbx failed with "extension .fbx is not allowed".
 
 ## Procedural IK (on v69): Jog slow arms on the CMU jogs, straight spine when slowing, Natural / Controlled / Hard brake
 
