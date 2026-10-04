@@ -324,6 +324,34 @@ Not matched: the reference keeps each foot down about 0.3 s (the sprint about 0.
   - The forcer summary shows leg drag %.
 - **Gizmo:** clicking a speaker (anywhere on the cabinet) selects it and brings up the move gizmo, even in Select mode. E switches to rotate. A real mouse drag of the X arrow keys X position at the playhead on release (auto-key).
 
+## Procedural IK (on v69): Jog slow arms on the CMU jogs, straight spine when slowing, Natural / Controlled / Hard brake
+
+- **Arms.** The CMU jogs and run (16_35, 35_17, 09_07) keep their legs and body but swing the library's **Jog slow** arms (clavicle to hand), at the same phase, with its own swing and elbows. The swing centre is corrected for the CMU spine (+7 / +2 / +7°).
+
+  | | Arm | Elbow | Shoulder below neck |
+  |---|---|---|---|
+  | Jog slow clip | −26..+23° | 40–88° | 4–9 cm |
+  | Procedural jog at 25–30 % | −30..+29° | 53–88° | 6–8 cm, steady |
+
+  Walk, Run steady and Sprint keep their own arms.
+- **Slowing down, the spine straightens.** The trunk (hips → neck) goes to its standing angle (−7.1°) and **never further back**. The old lean back of up to −14° behind the motion is gone. How fast it straightens:
+  - any slowing down: 0.35 s;
+  - Natural brake: 0.5 s;
+  - Controlled brake: 0.25 s;
+  - Hard brake: 0.12 s.
+
+  In the three brakes the trunk goes 19.9° → −5.8°; it never goes behind the standing angle (0.0°). While straightening, the head keeps 80 % of its level, so he looks ahead.
+- **Brake tracks.** Three Run-control tracks, *Natural brake*, *Controlled brake* and *Hard brake* (0–100 %). One on brakes him to a stop whatever the throttle. He runs all the way: the motion follows the speed down to the slow jog (no walk, walk weight 0), then stands.
+
+  | Brake | Peak decel | Stop time from 7.5 m/s | Steps |
+  |---|---|---|---|
+  | Natural | 1.8 m/s² | 4.65 s | Cadence falls with the speed (255 → 92 spm) |
+  | Controlled | 3.0 m/s² | 2.92 s | Chop steps: cadence held at 236 spm, steps 1.24 → 1.04 → 0.81 → 0.58 → 0.39 → 0.13 m |
+  | Hard | 5.5 m/s² | 1.69 s | Steps 1.36 → 0.95 → 0.43 m |
+
+  Foot slide is 0 (1.2 cm in Natural). Templates: *Fielding · standing start → sprint → Natural / Controlled / Hard brake*.
+- Unchanged from v69: speeds (100 % = 7.5 m/s), the acceleration lean, and the Stop dropdown (throttle-to-0 stops).
+
 ## Procedural IK locomotion v2: throttle picks the motion, run controls on top, Sprint, stop style
 - **The motion comes from the throttle, not from the speed.**
   - Every trained clip, and standing, is an entry with a weight. The throttle's speed sets the target weights (the one or two clips around it).

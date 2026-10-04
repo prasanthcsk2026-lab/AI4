@@ -21,7 +21,28 @@ const PROC_WR = [1.8, 2.5];   // walk → run blend band (m/s of the motion)
 // speed controller: gain 1/s, a floor (m/s²) eased out over the last ~0.25 m/s (finite time, no overshoot), braking and
 // jerk limits; the acceleration limit falls with speed (a sprint start pushes hardest)
 const PROC_DYN = { gain: 1.3, bias: 0.8, near: 3, acc0: 4.0, acc1: 1.5, dec: 3.5, jerk: 7, styleTau: 0.25, standTau: 0.45, boostTau: 0.35 };
-const PROC_LEAN = { k: 1.3, min: -14, max: 32 };   // whole-body lean = k · atan(a / g), limited (°)
+// speeding up: the whole body leans forward k · atan(a / g), up to max (°). Slowing down: the spine straightens to
+// its standing angle (never further back), over tau s (decel = −a at which it is fully straight)
+const PROC_LEAN = { k: 1.3, max: 32, decel: 1.5, tau: 0.35 };
+// braking (Run-control tracks Natural / Controlled / Hard brake, 0–100 %; the throttle can stay): running all the way
+// down to the slow jog (never a walk), then standing. tau: how fast the spine straightens; hold: cadence kept
+//  natural    — a gradual gather over ~6–8 steps: the cadence falls with the speed
+//  controlled — chop steps over ~3–5 steps: the cadence held high (quick, short steps)
+//  hard       — a plant and stop in ~2–3 steps: strong braking force at once
+const PROC_BRAKE = {
+  natural: { dec: 1.8, jerk: 5, gain: 1.0, bias: 0.9, hold: 0, tau: 0.5 },
+  controlled: { dec: 3.0, jerk: 12, gain: 2.0, bias: 1.6, hold: 0.92, tau: 0.25 },
+  hard: { dec: 5.5, jerk: 35, gain: 4.0, bias: 3.0, hold: 0.85, tau: 0.12 },
+};
+const PROC_BRK_KEYS = [['brkNat', 'natural'], ['brkCtl', 'controlled'], ['brkHard', 'hard']];
+function procBrakeMix(m) {   // the brake tracks at a moment → one profile (force adds up to the hard brake's; the rest weighted)
+  const b = [m.bN, m.bC, m.bH], sum = b[0] + b[1] + b[2]; if (sum < 0.01) return null;
+  const P = PROC_BRK_KEYS.map(([, k]) => PROC_BRAKE[k]), w = b.map((x) => x / sum), mix = (k) => P.reduce((a, q, i) => a + w[i] * q[k], 0);
+  return { dec: Math.min(PROC_BRAKE.hard.dec, P.reduce((a, q, i) => a + b[i] * q.dec, 0)), jerk: mix('jerk'), gain: mix('gain'), bias: mix('bias'), hold: mix('hold'), tau: mix('tau') };
+}
+// the CMU jogs / run swing the arms of the library's Jog slow (its own swing and elbows), same phase
+const PROC_ARM_DONOR = 'loop:Jog_slow';
+const procIsCmu = (id) => /^cmu:/.test(id);
 const procThrSpeed = (p) => tableLerp(PROC_THR, clamp(p, 0, 100));
 let PROC = null;
 
@@ -98,6 +119,7 @@ function procModel() {
       model[fam] = PROC_FAM[fam].map((id) => clips.find((c) => c.id === id)).filter(Boolean).map(procTrainClip).sort((a, b) => a.v - b.v);
       if (!model[fam].length) return null;
     }
+    const dc = clips.find((c) => c.id === PROC_ARM_DONOR); model.armDonor = dc ? procTrainClip(dc) : null;
   } finally { cur = keep; }
   PROC = PROC || {}; PROC.model = model;
   return model;
@@ -116,7 +138,25 @@ function procEntries() {
   const w0 = M.walk[0];
   E.push({ stand: true, fam: 'walk', c: w0, v: 0.3, f: w0.f * PROC_FAMK.walk.lo, ms: w0.stride, K: PROC_FAMK.walk });
   for (const fam of ['walk', 'run']) for (const c of M[fam]) E.push({ fam, c, v: c.v, f: c.f, ms: c.stride, K: PROC_FAMK[fam] });
+  for (const e of E) {
+    e.armC = e.c; e.armOff = 0;
+    if (!e.stand && procIsCmu(e.c.id) && M.armDonor) { e.armC = M.armDonor; e.armOff = procArmCentre(M.armDonor, M.armDonor) - procArmCentre(e.c, M.armDonor); }
+  }
   PROC.entries = E; return E;
+}
+// the arm swing's centre (° forward of the hips → neck line, both arms, over a cycle) with body cB and arms cA
+function procArmCentre(cB, cA) {
+  const gm = procGroups(), fkv = new VirtualFK(rig), Q = new Float32Array(B * 4), q = new THREE.Quaternion(), cs = new Float64Array(2 * PROC_H + 1);
+  const ix = (o) => boneIdx.get(o.name), iH = ix(rig.b.hips), iN = ix(rig.b.neck);
+  let sum = 0, n = 0;
+  for (let k = 0; k < 16; k++) {
+    procCS(cs, k / 16);
+    for (let i = 0; i < B; i++) { procBone(gm[i] === 3 ? cA : cB, i, q, cs, 1); q.toArray(Q, i * 4); }
+    fkv.run(Q, V3(0, 1, 0), 0);
+    const up = fkv.P[iN].clone().sub(fkv.P[iH]).normalize();
+    for (const Sd of ['L', 'R']) { const u = fkv.P[ix(rig.side[Sd].fore)].clone().sub(fkv.P[ix(rig.side[Sd].upper)]).normalize(); sum += Math.atan2(u.z, -u.dot(up)); n++; }
+  }
+  return (sum / n) / DEG;
 }
 function procTargetW(sT, out) {   // the entries' target weights for a throttle speed
   const E = procEntries(); out.fill(0);
@@ -134,7 +174,7 @@ function procTargetW(sT, out) {   // the entries' target weights for a throttle 
   return out;
 }
 // v: real speed · Wt: entry weights · len: step length × (hard × natural) · cad: cycle speed × · gnd: + contact
-function procGait(v, Wt, len = 1, cad = 1, gnd = 0) {
+function procGait(v, Wt, len = 1, cad = 1, gnd = 0, holdF = 0) {   // holdF: a cadence floor (cycles/s) while braking
   const E = procEntries();
   if (!Wt || typeof Wt === 'number') Wt = procTargetW(Wt == null ? v : Wt, new Float32Array(E.length));
   const vb = v / Math.max(1e-3, len * cad);
@@ -145,7 +185,7 @@ function procGait(v, Wt, len = 1, cad = 1, gnd = 0) {
     const e = E[i], x = vb / e.v, rho = x <= 1 ? Math.max(e.K.lo, Math.pow(x, e.K.beta)) : Math.min(1.6, Math.pow(x, e.K.ext));
     f += w * e.f * rho; sw += w; act.push({ e, w });
   }
-  f = (f / Math.max(sw, 1e-6)) * cad;
+  f = Math.max((f / Math.max(sw, 1e-6)) * cad, holdF);   // (chop steps: the cadence held while the steps shorten)
   const stride = v / f, g = { v, f, act, wRun: 0, dutyL: 0, dutyR: 0, dL: 0, dR: 0, offR: 0, amp: 0, boost: 0, armK: 1, hipK: 1, fwd: 1 };
   for (const a of act) {
     const e = a.e, c = e.c, ratio = Math.max(1e-4, stride / e.ms), w = a.w / sw;
@@ -195,7 +235,7 @@ function procPose(g, ph, Q, H) {   // the pose for gait g at phase ph (in place,
     const grp = gm[i], cs = grp === 1 ? _pcsL : grp === 2 ? _pcsR : _pcs;
     let acc = 0;
     for (const a of g.act) {
-      procBone(a.e.c, i, acc ? _pq2 : _pq, cs, ampOf(a, grp));
+      procBone(grp === 3 && a.e.armC ? a.e.armC : a.e.c, i, acc ? _pq2 : _pq, cs, ampOf(a, grp));   // (the CMU jogs: Jog slow's arms)
       if (acc) { const q = _pq2; if (_pq.dot(q) < 0) q.set(-q.x, -q.y, -q.z, -q.w); _pq.slerp(q, a.w / (acc + a.w)); }
       acc += a.w;
     }
@@ -219,9 +259,10 @@ const procTr = (k, ref, t) => (A[k] ? evalPts(A[k], t) : ref);
 function procMods(t) {
   return { len: clamp(procTr('stride', 100, t) / 100, 0.3, 1.6) * clamp(procTr('stepNat', 100, t) / 100, 0.3, 1.6), cad: clamp(procTr('cyc', 100, t) / 100, 0.25, 4),
     fwd: clamp(procTr('fwd', 100, t) / 100, 0, 1), gnd: clamp(procTr('gnd', 0, t), -GND_MAX, GND_MAX) / 100,
-    armK: Math.max(0, procTr('armSwing', 100, t) / 100), hipK: Math.max(0, procTr('hipMotion', 100, t) / 100) };
+    armK: Math.max(0, procTr('armSwing', 100, t) / 100), hipK: Math.max(0, procTr('hipMotion', 100, t) / 100),
+    bN: clamp(procTr('brkNat', 0, t) / 100, 0, 1), bC: clamp(procTr('brkCtl', 0, t) / 100, 0, 1), bH: clamp(procTr('brkHard', 0, t) / 100, 0, 1) };
 }
-function procPlanKey() { return JSON.stringify([A.throttle, A.stride, A.stepNat, A.cyc, A.fwd, A.gnd, A.armSwing, A.hipMotion, A.procStop || 'run', S.dur]); }
+function procPlanKey() { return JSON.stringify([A.throttle, A.stride, A.stepNat, A.cyc, A.fwd, A.gnd, A.armSwing, A.hipMotion, A.procStop || 'run', A.brkNat, A.brkCtl, A.brkHard, S.dur]); }
 
 // ---------------------------------------------------------------- the plan (speed, motion, travel, phase, footprints)
 // built at 240 Hz over the timeline from the Throttle track and the run controls; kept until one of them changes
@@ -240,20 +281,24 @@ function procPlan() {
   if (PROC.plans.has(key)) return (PROC.plan = PROC.plans.get(key));
   const hz = 240, n = Math.max(2, Math.ceil(S.dur * hz) + 1), dt = S.dur / (n - 1), D = PROC_DYN, stop = A.procStop || 'run';
   const F32 = () => new Float32Array(n);
-  const V = F32(), Ac = F32(), X = new Float64Array(n), PH = new Float64Array(n), VT = F32(), SS = F32(), LEN = F32(), CAD = F32(), FW = F32(), GN = F32(), AK = F32(), HK = F32(), BO = F32();
+  const V = F32(), Ac = F32(), X = new Float64Array(n), PH = new Float64Array(n), VT = F32(), SS = F32(), LEN = F32(), CAD = F32(), FW = F32(), GN = F32(), AK = F32(), HK = F32(), BO = F32(), HO = F32(), UP = F32();
   const m0 = procMods(0), vt0 = procThrSpeed(evalPts(A.throttle, 0));
   let v = vt0 * m0.len * m0.cad, a = 0, x = 0, ph = 0, s = vt0, held = vt0;   // starts steady at the first throttle value
   const kS = 1 - Math.exp(-dt / D.styleTau), kS0 = 1 - Math.exp(-dt / D.standTau), kB = 1 - Math.exp(-dt / D.boostTau);
-  let bo = 0;
+  let bo = 0, brk = 0, fB = 0, fNow = 0, up = 0; const kP = 1 - Math.exp(-dt / 0.12);
   const nE = procEntries().length, wT = new Float32Array(nE), wC = new Float32Array(nE), WE = new Float32Array(n * nE);
   for (let i = 0; i < n; i++) {
-    const t = i * dt, vt = procThrSpeed(evalPts(A.throttle, t)), m = procMods(t), vT = vt * m.len * m.cad;
+    const t = i * dt, vt = procThrSpeed(evalPts(A.throttle, t)), m = procMods(t), BM = procBrakeMix(m);
+    const vT = BM ? 0 : vt * m.len * m.cad;   // (a brake track on: he brakes to a stop, whatever the throttle)
     // the motion: straight to the throttle's own; to a stop, the one it ran (Run to stop) or a walk once below 2.2
     // m/s (Walk out), standing once nearly still
     // (a throttle ramp down to 0 is a stop all the way: the motion is not stepped down through its in-between values)
     const toStop = procThrSpeed(evalPts(A.throttle, Math.min(S.dur, t + 0.5))) <= 0.05 && vt < held;
     let sT;
-    if (vt > 0.05 && !toStop) { sT = vt; held = vt; }
+    // braking (a brake track): running all the way, the motion following the speed down to the slow jog (never a
+    // walk), then standing once nearly still
+    if (BM) sT = v > 0.35 ? clamp(v, PROC_WR[1], Math.max(held, PROC_WR[1])) : 0;
+    else if (vt > 0.05 && !toStop) { sT = vt; held = vt; }
     else if (v > 0.35) sT = stop === 'walk' && v < 2.2 ? Math.min(held, 1.4) : held;
     else sT = 0;
     procTargetW(sT, wT);
@@ -262,16 +307,25 @@ function procPlan() {
       for (let e = 0; e < nE; e++) wC[e] += (wT[e] - wC[e]) * k;
       s += (sT - s) * k;
       bo += (clamp(a / 2.5, 0, 1) - bo) * kB;
-      const e = vT - v, accMax = lerp(D.acc0, D.acc1, clamp(v / 7.5, 0, 1));
-      const aCmd = clamp(D.gain * e + Math.sign(e) * Math.min(D.bias, D.near * Math.abs(e)), -D.dec, accMax);
-      a += clamp(aCmd - a, -D.jerk * dt, D.jerk * dt);
+      const e = vT - v, accMax = lerp(D.acc0, D.acc1, clamp(v / 7.5, 0, 1)), BR = BM || null;
+      const aCmd = BR ? clamp(BR.gain * e + Math.sign(e) * Math.min(BR.bias, D.near * Math.abs(e)), -BR.dec, accMax) : clamp(D.gain * e + Math.sign(e) * Math.min(D.bias, D.near * Math.abs(e)), -D.dec, accMax);
+      const J = BR ? Math.max(BR.jerk, D.jerk) : D.jerk;
+      a += clamp(aCmd - a, -J * dt, J * dt);
       v += a * dt; if (v <= 0) { v = 0; if (a < 0) a = 0; }
-      x += v * m.fwd * dt; ph += procGait(v, wC, m.len, m.cad, m.gnd).f * dt;
+      // a brake: its cadence hold (the cadence when it began × hold, let go in the last 0.6 m/s)
+      const brNow = !!BR && a < -0.1; if (!brNow || brk < 0.02) fB = fNow;
+      brk += ((brNow ? 1 : 0) - brk) * kP;
+      HO[i] = BR ? BR.hold * fB * brk * clamp(v / 0.6, 0, 1) : 0;
+      fNow = procGait(v, wC, m.len, m.cad, m.gnd, HO[i]).f;
+      x += v * m.fwd * dt; ph += fNow * dt;
+      // slowing down: how straight the spine is (0 … 1), eased over the brake type's tau (or PROC_LEAN.tau)
+      const upT = clamp(-a / PROC_LEAN.decel, 0, 1) * clamp(v / 0.4, 0, 1), tau = BR ? BR.tau : PROC_LEAN.tau;
+      up += (upT - up) * (1 - Math.exp(-dt / tau));
     } else { s = sT; wC.set(wT); }
     WE.set(wC, i * nE);
-    V[i] = v; Ac[i] = a; X[i] = x; PH[i] = ph; VT[i] = vT; SS[i] = s; BO[i] = bo; LEN[i] = m.len; CAD[i] = m.cad; FW[i] = m.fwd; GN[i] = m.gnd; AK[i] = m.armK; HK[i] = m.hipK;
+    V[i] = v; Ac[i] = a; X[i] = x; PH[i] = ph; VT[i] = vT; SS[i] = s; BO[i] = bo; LEN[i] = m.len; CAD[i] = m.cad; FW[i] = m.fwd; GN[i] = m.gnd; AK[i] = m.armK; HK[i] = m.hipK; UP[i] = up;
   }
-  const pl = { key, n, dt, V, Ac, X, PH, VT, SS, LEN, CAD, FW, GN, AK, HK, BO, WE, nE };
+  const pl = { key, n, dt, V, Ac, X, PH, VT, SS, LEN, CAD, FW, GN, AK, HK, BO, HO, UP, WE, nE };
   // footprints: at each touchdown the model's foot where it lands (with the travel so far). The swing follows the
   // model's foot plus a gap going from the one at lift-off (planted spot − model foot) to the next touchdown's (0)
   const prints = { L: [], R: [] }, ff = {}, prev = { L: null, R: null };
@@ -295,10 +349,10 @@ function procPlan() {
   PROC.plans.set(key, pl); if (PROC.plans.size > 6) PROC.plans.delete(PROC.plans.keys().next().value);
   return pl;
 }
-const PROC_KEYS = ['V', 'Ac', 'X', 'PH', 'VT', 'SS', 'LEN', 'CAD', 'FW', 'GN', 'AK', 'HK', 'BO'];
+const PROC_KEYS = ['V', 'Ac', 'X', 'PH', 'VT', 'SS', 'LEN', 'CAD', 'FW', 'GN', 'AK', 'HK', 'BO', 'HO', 'UP'];
 function procStateAt(pl, i) { const o = {}; for (const k of PROC_KEYS) o[k] = pl[k][i]; o.W = pl.WE.subarray(i * pl.nE, (i + 1) * pl.nE); return o; }
 function procState(t) {   // → the plan's values at timeline time t (V speed, Ac accel, X travel, PH phase, VT target, SS motion …)
-  const pl = procPlan(); if (!pl) return { V: 0, Ac: 0, X: 0, PH: 0, VT: 0, SS: 0, LEN: 1, CAD: 1, FW: 1, GN: 0, AK: 1, HK: 1, BO: 0, v: 0, a: 0, x: 0, ph: 0, vt: 0 };
+  const pl = procPlan(); if (!pl) return { V: 0, Ac: 0, X: 0, PH: 0, VT: 0, SS: 0, LEN: 1, CAD: 1, FW: 1, GN: 0, AK: 1, HK: 1, BO: 0, HO: 0, UP: 0, v: 0, a: 0, x: 0, ph: 0, vt: 0 };
   const f = clamp(t / pl.dt, 0, pl.n - 1), i = Math.min(Math.floor(f), pl.n - 2), u = f - i, o = {};
   for (const k of PROC_KEYS) o[k] = lerp(pl[k][i], pl[k][i + 1], u);
   o.W = new Float32Array(pl.nE); for (let e = 0; e < pl.nE; e++) o.W[e] = lerp(pl.WE[i * pl.nE + e], pl.WE[(i + 1) * pl.nE + e], u);
@@ -306,7 +360,7 @@ function procState(t) {   // → the plan's values at timeline time t (V speed, 
   return o;
 }
 function procGaitAt(st) {
-  const g = procGait(st.V, st.W || st.SS, st.LEN, st.CAD, st.GN);
+  const g = procGait(st.V, st.W || st.SS, st.LEN, st.CAD, st.GN, st.HO || 0);
   g.boost = st.BO; g.armK = st.AK; g.hipK = st.HK; g.fwd = st.FW;   // hard acceleration: full arm and trunk drive, however short the steps
   return g;
 }
@@ -336,12 +390,20 @@ function procEvaluate(t) {
   }
   // the body: lean with the acceleration (whole-body lean k · atan(a / g): 30 % in the pelvis, the rest up the
   // spine, the head keeps part of its level), plus the Spine lean and Hip rotation run controls
-  const lean = clamp(Math.atan2(st.Ac, 9.81) * PROC_LEAN.k, PROC_LEAN.min * DEG, PROC_LEAN.max * DEG);
+  // slowing down: the spine straightens up to its standing angle (hips → neck), never further back
+  const hp = worldP(b.hips), nk = worldP(b.neck), trunk0 = Math.atan2(nk.z - hp.z, nk.y - hp.y);
+  const lean = clamp(Math.atan2(Math.max(0, st.Ac), 9.81) * PROC_LEAN.k, 0, PROC_LEAN.max * DEG) + (st.UP || 0) * Math.min(0, procStandTrunk() - trunk0);
   const uLean = procTr('lean', 0, t) * DEG, hRot = procTr('hipRot', 0, t) * DEG;
   if (Math.abs(lean) + Math.abs(uLean) + Math.abs(hRot) > 1e-5) {
+    const hk = lean < 0 ? 0.8 : 0.4;   // (straightening, the head keeps its level: he still looks ahead)
     rotateBoneWorld(b.hips, qAxis(AX, lean * 0.3 + hRot));
     spreadOver([b.spine, b.spine1, b.spine2], qAxis(AX, lean * 0.7 + uLean));
-    spreadOver([b.neck, b.head], qAxis(AX, -(lean + uLean + hRot) * 0.4));
+    spreadOver([b.neck, b.head], qAxis(AX, -(lean + uLean + hRot) * hk));
+    for (let it = 0; it < 2; it++) {   // (the trunk line does not turn the whole amount: topped up until it reads it)
+      const h1 = worldP(b.hips), n1 = worldP(b.neck), res = trunk0 + lean + uLean - Math.atan2(n1.z - h1.z, n1.y - h1.y);
+      if (Math.abs(res) < 0.3 * DEG) break;
+      spreadOver([b.spine, b.spine1, b.spine2], qAxis(AX, res)); spreadOver([b.neck, b.head], qAxis(AX, -res * hk));
+    }
   }
   // knee depth: the hips down (+) / up (−), 7 cm per 100 % · jump: the hips rise in the flight (6 cm at 100 %)
   const kd = (procTr('kneeDepth', 100, t) / 100 - 1) * 0.07;
@@ -403,8 +465,17 @@ function procEvaluate(t) {
     rig.setDelta(sd.foot, fr.footQ);
   }
   // arm shape run controls (elbow bend, arm crossing, swing centre), as on a clip
-  applyArmShapeV(procTr('elbowBend', 0, t), procTr('armCross', 0, t), procTr('armCentre', 0, t));
+  const armOff = g.act.reduce((q, a) => q + a.w * (a.e.armOff || 0), 0);   // (Jog slow's arms on a CMU jog: its swing centre)
+  applyArmShapeV(procTr('elbowBend', 0, t), procTr('armCross', 0, t), procTr('armCentre', 0, t) + armOff);
   model.updateMatrixWorld(true);
+}
+function procStandTrunk() {   // the standing pose's trunk angle (hips → neck from the vertical, rad)
+  if (PROC.standTrunk != null) return PROC.standTrunk;
+  const E = procEntries(), fkv = new VirtualFK(rig), Q = new Float32Array(B * 4), q = new THREE.Quaternion();
+  for (let i = 0; i < B; i++) { q.copy(E[0].c.bones[i].m); q.toArray(Q, i * 4); }
+  fkv.run(Q, V3(0, 1, 0), 0);
+  const h = fkv.P[boneIdx.get(rig.b.hips.name)], nk = fkv.P[boneIdx.get(rig.b.neck.name)];
+  return (PROC.standTrunk = Math.atan2(nk.z - h.z, nk.y - h.y));
 }
 // a short read-out for the status line
 function procMotionName(g) { let best = null; for (const a of g.act) if (!best || a.w > best.w) best = a; return !best ? '' : best.e.stand ? 'stand' : ((clips.find((c) => c.id === best.e.c.id) || {}).name || best.e.c.id); }
@@ -419,4 +490,26 @@ function procStopUI(r) {
   sel.onchange = () => { pushUndo(); A.procStop = sel.value; rebuildSpeedLUT(); editVersion++; save(); };
   if (getComputedStyle(r.lane).position === 'static') r.lane.style.position = 'relative';
   r.lane.append(sel);   // (top-right of the lane: the header is narrow)
+}
+
+// ---------------------------------------------------------------- fielding templates: sprint to the ball, brake, stop
+// a standing start into the sprint, full speed, then at 6 s the brake track of that type (the throttle stays at 100 %);
+// running all the way down to the slow jog, standing at the end
+const FIELD_TPL = { natural: { bars: 12, brakeAt: 6, key: 'brkNat' }, controlled: { bars: 10, brakeAt: 6, key: 'brkCtl' }, hard: { bars: 9, brakeAt: 6, key: 'brkHard' } };
+function applyFieldBrake(type) {
+  const v = FIELD_TPL[type]; if (!v) return 'Unknown braking type.';
+  if (!seqActive()) seqAdd('proc:ik', 1, 0, v.bars);
+  else if (SEQ.motions[SEQ.sel].clipId !== 'proc:ik') seqSetClip(SEQ.sel, 'proc:ik');
+  pushUndo();
+  const n = procNewAuto(v.bars), P = (t, val) => ({ t, v: val, k: 0 });
+  for (const k of ['rowOrder', 'subOrder', 'heights', 'ranges']) if (A[k]) n[k] = A[k];
+  n.throttle = [P(0, 0), P(0.5, 0), P(0.501, 100), P(v.bars, 100)];
+  n[v.key] = [P(0, 0), P(v.brakeAt, 0), P(v.brakeAt + 0.001, 100), P(v.bars, 100)];
+  n.runShow = { [v.key]: true }; n.showMaster.run = true;
+  A = normalizeAuto(n); S.dur = A.dur; A.cycles = v.bars; A.cycLocked = true;
+  S.t = 0; S.v0 = 0; editVersion++;
+  ensureEnds(); rebuildSpeedLUT(); lockCycles(true); syncLenInputs(); rebuildRows(); save();
+  const pl = procPlan(), i0 = Math.round(v.brakeAt / pl.dt); let iStop = pl.n - 1; for (let i = i0; i < pl.n; i++) if (pl.V[i] < 0.05) { iStop = i; break; }
+  const steps = ['L', 'R'].reduce((c, Sd) => c + pl.prints[Sd].filter((x) => x.t0 > v.brakeAt && x.t0 <= iStop * pl.dt).length, 0);
+  return `Fielding · ${type} brake (Run controls track, throttle left at 100 %): sprint from a standing start, full speed ${pl.V[i0].toFixed(2)} m/s, brakes at ${v.brakeAt} s and stops in ${((iStop - i0) * pl.dt).toFixed(2)} s over ${(pl.X[iStop] - pl.X[i0]).toFixed(2)} m, ${steps} steps, running all the way.`;
 }
